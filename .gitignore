@@ -28,8 +28,8 @@ python37.dll
 
 # Project Specific
 success_conn.txt
-Maps_to_Rename/
-MCCStats/
+# Maps_to_Rename/
+# MCCStats/
 carnagereporter.exe.manifest
 
 # IDEs
