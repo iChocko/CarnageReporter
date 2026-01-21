@@ -35,3 +35,9 @@ carnagereporter.exe.manifest
 # IDEs
 .vscode/
 .idea/
+
+# Node
+node_modules/
+package-lock.json
+.wwebjs_auth/
+.wwebjs_cache/

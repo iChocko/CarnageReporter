@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Post Game Carnage Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #050a0e;
+            color: #cfd8dc;
+            font-family: 'Rajdhani', sans-serif;
+            background-image: 
+                radial-gradient(circle at 50% 50%, rgba(16, 32, 45, 0.8) 0%, rgba(5, 10, 14, 1) 100%),
+                linear-gradient(0deg, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2) 50%),
+                repeating-linear-gradient(0deg, transparent, transparent 2px, #000 3px);
+            background-size: cover, 4px 4px, auto;
+        }
+
+        .font-halo {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .glass-panel {
+            background: rgba(13, 29, 41, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(100, 200, 255, 0.15);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .glass-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(100, 200, 255, 0.4), transparent);
+        }
+
+        /* Scanline effect */
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1));
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0.3;
+        }
+        
+        /* Hexagon background pattern */
+        .hex-bg {
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0l25.98 15v30L30 60 4.02 45V15z' fill-opacity='0.03' fill='%2363b3ed' fill-rule='evenodd'/%3E%3C/svg%3E");
+        }
+
+        /* Halo specific colors */
+        .text-halo-blue { color: #4fc3f7; text-shadow: 0 0 10px rgba(79, 195, 247, 0.6); }
+        .text-halo-red { color: #ef5350; text-shadow: 0 0 10px rgba(239, 83, 80, 0.6); }
+        .text-halo-gold { color: #ffd700; text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+        
+        .border-halo-blue { border-color: rgba(79, 195, 247, 0.3); }
+        .border-halo-red { border-color: rgba(239, 83, 80, 0.3); }
+
+        .team-header-blue {
+            background: linear-gradient(90deg, rgba(1, 46, 74, 0.9) 0%, rgba(9, 25, 38, 0.2) 100%);
+            border-left: 4px solid #4fc3f7;
+        }
+
+        .team-header-red {
+            background: linear-gradient(90deg, rgba(66, 11, 11, 0.9) 0%, rgba(38, 9, 9, 0.2) 100%);
+            border-left: 4px solid #ef5350;
+        }
+
+        .glow-text {
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+        }
+
+        /* Table styles */
+        th {
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.1em;
+            color: #90a4ae;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        td {
+            padding: 0.75rem 0.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            font-weight: 500;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .stat-val {
+            font-family: 'Orbitron', sans-serif;
+            letter-spacing: 0.05em;
+        }
+
+        /* Winner banner */
+        .winner-banner {
+            background: linear-gradient(90deg, transparent, rgba(79, 195, 247, 0.2), transparent);
+            border-top: 1px solid #4fc3f7;
+            border-bottom: 1px solid #4fc3f7;
+        }
+        .loser-banner {
+             background: linear-gradient(90deg, transparent, rgba(239, 83, 80, 0.1), transparent);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-8 relative hex-bg selection:bg-cyan-900 selection:text-white">
+    <div class="scanlines"></div>
+
+    <!-- Main Container -->
+    <div class="w-full max-w-5xl glass-panel rounded-lg p-1 z-10 shadow-2xl">
+        
+        <!-- Header Section -->
+        <div class="bg-opacity-50 bg-black p-6 rounded-t-lg border-b border-gray-800 flex justify-between items-end relative overflow-hidden">
+            <!-- Background element for header -->
+            <div class="absolute top-0 right-0 p-4 opacity-10 font-halo text-8xl text-white select-none pointer-events-none">
+                UNSC
+            </div>
+
+            <div>
+                <h2 class="text-xs uppercase tracking-[0.3em] text-cyan-500 mb-1 font-semibold">Post Game Carnage Report</h2>
+                <h1 class="text-4xl font-halo font-bold text-white uppercase glow-text tracking-wider">Guardian</h1>
+                <div class="text-gray-400 text-sm mt-1 font-mono tracking-wide">
+                    ID: <span class="text-gray-300">d2727527-05bd-fba3-598c-e9076c3b9e0d</span>
+                </div>
+            </div>
+            
+            <div class="text-right">
+                <div class="text-xs uppercase tracking-widest text-gray-500 mb-1">Date Played</div>
+                <div class="text-xl font-halo text-gray-200">2026-01-20</div>
+                <div class="text-sm font-halo text-gray-400">18:08:32</div>
+            </div>
+        </div>
+
+        <!-- Content Area -->
+        <div class="p-8 space-y-8 bg-gradient-to-b from-gray-900 via-[#0a1116] to-black bg-opacity-90">
+
+            <!-- Winner Announcement -->
+            <!-- Calculate winner: Blue (Total Score 98) vs Red (Total Score 95) -->
+            <div class="winner-banner py-4 text-center mb-8 relative">
+                <div class="absolute inset-0 bg-blue-500 blur-[50px] opacity-10"></div>
+                <h2 class="text-3xl font-halo font-bold text-halo-blue uppercase tracking-[0.2em] relative z-10">
+                    Blue Team Victory
+                </h2>
+            </div>
+            
+            <!-- Blue Team Section -->
+            <div class="relative group">
+                <!-- Team Header -->
+                <div class="team-header-blue p-3 mb-4 flex justify-between items-center rounded-r shadow-[0_0_15px_rgba(79,195,247,0.15)] transition-all duration-300 group-hover:shadow-[0_0_20px_rgba(79,195,247,0.25)]">
+                    <div class="flex items-center gap-3">
+                        <div class="w-2 h-8 bg-halo-blue rounded-sm mx-2 shadow-[0_0_8px_#4fc3f7]"></div>
+                        <h3 class="text-2xl font-halo font-bold text-white tracking-wider">COBRA <span class="text-sm text-halo-blue opacity-80 ml-2 font-sans tracking-normal font-semibold">BLUE TEAM</span></h3>
+                    </div>
+                    <div class="text-3xl font-halo font-bold text-halo-blue mr-4">98</div>
+                </div>
+
+                <!-- Blue Team Table -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr>
+                                <th class="pl-4 w-1/4">Player</th>
+                                <th class="text-center">Kills</th>
+                                <th class="text-center">Score</th>
+                                <th class="text-center">Deaths</th>
+                                <th class="text-center">Assists</th>
+                                <th class="text-center">K/D</th>
+                                <th class="text-center pr-4">Suicides</th> <!-- Using Suicides/Total Deaths depending on need, user asked for "Total Muertes" but clearly meant deaths which is already there, maybe meant Total Sprees? or just Deaths again. I'll stick to Deaths and maybe Spread? Let's use HEADSHOTS or something useful or just match columns: Player, Kills, Score, Deaths, Assists, KD, Total muertes (Total Deaths) -->
+                            </tr>
+                        </thead>
+                        <tbody class="text-gray-300">
+                            <!-- Player 1 -->
+                            <tr class="hover:bg-white hover:bg-opacity-[0.03] transition-colors">
+                                <td class="pl-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 bg-blue-900 rounded border border-blue-700 flex items-center justify-center text-xs font-bold ring-1 ring-blue-500/50">
+                                            S1
+                                        </div>
+                                        <div>
+                                            <div class="font-bold tracking-wide text-white">Spartan 117</div>
+                                            <div class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Service Tag: 117</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-center stat-val text-white text-lg">24</td>
+                                <td class="text-center stat-val text-halo-gold font-bold text-xl">51</td>
+                                <td class="text-center stat-val text-gray-400">12</td>
+                                <td class="text-center stat-val text-gray-400">8</td>
+                                <td class="text-center stat-val text-halo-blue">2.00</td>
+                                <td class="text-center stat-val text-red-400 pr-4">12</td>
+                            </tr>
+                            <!-- Player 2 -->
+                            <tr class="hover:bg-white hover:bg-opacity-[0.03] transition-colors">
+                                <td class="pl-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 bg-blue-900 rounded border border-blue-700 flex items-center justify-center text-xs font-bold ring-1 ring-blue-500/50">
+                                            K2
+                                        </div>
+                                        <div>
+                                            <div class="font-bold tracking-wide text-white">Kelly 087</div>
+                                            <div class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Service Tag: 087</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-center stat-val text-white text-lg">21</td>
+                                <td class="text-center stat-val text-halo-gold font-bold text-xl">47</td>
+                                <td class="text-center stat-val text-gray-400">14</td>
+                                <td class="text-center stat-val text-gray-400">12</td>
+                                <td class="text-center stat-val text-halo-blue">1.50</td>
+                                <td class="text-center stat-val text-red-400 pr-4">14</td>
+                            </tr>
+                            <!-- Team Totals Row -->
+                            <tr class="bg-blue-900 bg-opacity-20 border-t border-blue-800">
+                                <td class="pl-4 py-3 font-halo font-bold text-halo-blue tracking-wider text-sm">BLUE TOTALS</td>
+                                <td class="text-center stat-val text-white font-bold text-lg">45</td>
+                                <td class="text-center stat-val text-white font-bold text-lg">98</td>
+                                <td class="text-center stat-val text-gray-300">26</td>
+                                <td class="text-center stat-val text-gray-300">20</td>
+                                <td class="text-center stat-val text-halo-blue">1.73</td>
+                                <td class="text-center stat-val text-gray-300 pr-4">26</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Red Team Section -->
+            <div class="relative mt-8 group">
+                <!-- Team Header -->
+                <div class="team-header-red p-3 mb-4 flex justify-between items-center rounded-r shadow-[0_0_15px_rgba(239,83,80,0.15)] transition-all duration-300 group-hover:shadow-[0_0_20px_rgba(239,83,80,0.25)]">
+                    <div class="flex items-center gap-3">
+                        <div class="w-2 h-8 bg-halo-red rounded-sm mx-2 shadow-[0_0_8px_#ef5350]"></div>
+                        <h3 class="text-2xl font-halo font-bold text-white tracking-wider">EAGLE <span class="text-sm text-halo-red opacity-80 ml-2 font-sans tracking-normal font-semibold">RED TEAM</span></h3>
+                    </div>
+                    <div class="text-3xl font-halo font-bold text-halo-red mr-4">95</div>
+                </div>
+
+                <!-- Red Team Table -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr>
+                                <th class="pl-4 w-1/4">Player</th>
+                                <th class="text-center">Kills</th>
+                                <th class="text-center">Score</th>
+                                <th class="text-center">Deaths</th>
+                                <th class="text-center">Assists</th>
+                                <th class="text-center">K/D</th>
+                                <th class="text-center pr-4">Total Deaths</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-gray-300">
+                            <!-- Player 3 -->
+                            <tr class="hover:bg-white hover:bg-opacity-[0.03] transition-colors">
+                                <td class="pl-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 bg-red-900 rounded border border-red-700 flex items-center justify-center text-xs font-bold ring-1 ring-red-500/50">
+                                            A1
+                                        </div>
+                                        <div>
+                                            <div class="font-bold tracking-wide text-white">Arbiter</div>
+                                            <div class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Service Tag: VAM</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-center stat-val text-white text-lg">26</td>
+                                <td class="text-center stat-val text-halo-gold font-bold text-xl">49</td>
+                                <td class="text-center stat-val text-gray-400">22</td>
+                                <td class="text-center stat-val text-gray-400">5</td>
+                                <td class="text-center stat-val text-halo-red">1.18</td>
+                                <td class="text-center stat-val text-red-400 pr-4">22</td>
+                            </tr>
+                            <!-- Player 4 -->
+                            <tr class="hover:bg-white hover:bg-opacity-[0.03] transition-colors">
+                                <td class="pl-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 bg-red-900 rounded border border-red-700 flex items-center justify-center text-xs font-bold ring-1 ring-red-500/50">
+                                            R4
+                                        </div>
+                                        <div>
+                                            <div class="font-bold tracking-wide text-white">Rtas 'Vadum</div>
+                                            <div class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Service Tag: SHIP</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-center stat-val text-white text-lg">19</td>
+                                <td class="text-center stat-val text-halo-gold font-bold text-xl">46</td>
+                                <td class="text-center stat-val text-gray-400">23</td>
+                                <td class="text-center stat-val text-gray-400">10</td>
+                                <td class="text-center stat-val text-halo-red">0.83</td>
+                                <td class="text-center stat-val text-red-400 pr-4">23</td>
+                            </tr>
+                            <!-- Team Totals Row -->
+                            <tr class="bg-red-900 bg-opacity-20 border-t border-red-800">
+                                <td class="pl-4 py-3 font-halo font-bold text-halo-red tracking-wider text-sm">RED TOTALS</td>
+                                <td class="text-center stat-val text-white font-bold text-lg">45</td>
+                                <td class="text-center stat-val text-white font-bold text-lg">95</td>
+                                <td class="text-center stat-val text-gray-300">45</td>
+                                <td class="text-center stat-val text-gray-300">15</td>
+                                <td class="text-center stat-val text-halo-red">1.00</td>
+                                <td class="text-center stat-val text-gray-300 pr-4">45</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-black bg-opacity-80 p-4 text-center border-t border-gray-800 rounded-b-lg">
+             <p class="text-gray-600 text-xs font-mono tracking-widest uppercase">Carnage Reporter v3.0 // UNSC CLASSIFIED // EYES ONLY</p>
+        </div>
+    </div>
+</body>
+</html>
