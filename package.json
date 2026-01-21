@@ -1,16 +1,43 @@
 {
   "name": "carnagereporter",
-  "version": "1.0.0",
-  "description": "![Image of Carnage Reporter stream overlay](https://raw.githubusercontent.com/CYRiXplaysHalo/CarnageReporter/b755295ff99c067f6ac80f18b0a4116294b6d5a1/image.png)",
-  "main": "index.js",
+  "version": "3.0.0",
+  "description": "Halo 3 MCC Stats Tracker - Monitors matches, generates PNGs, sends to WhatsApp, uploads to Supabase",
+  "main": "carnage_reporter.js",
+  "bin": "carnage_reporter.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node carnage_reporter.js",
+    "test": "node carnage_reporter.js",
+    "build": "pkg carnage_reporter.js --targets node18-win-x64 --output dist/CarnageReporter.exe"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "halo",
+    "mcc",
+    "stats",
+    "tracker"
+  ],
+  "author": "iChocko",
   "license": "ISC",
   "dependencies": {
+    "@supabase/supabase-js": "^2.38.0",
+    "archiver": "^7.0.1",
+    "chokidar": "^3.5.3",
+    "dotenv": "^17.2.3",
+    "fast-xml-parser": "^4.3.2",
+    "puppeteer": "^21.0.0",
     "qrcode-terminal": "^0.12.0",
+    "unzipper": "^0.12.3",
     "whatsapp-web.js": "^1.34.4"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  },
+  "pkg": {
+    "assets": [
+      "match_summary.html",
+      "node_modules/puppeteer/.local-chromium/**/*"
+    ],
+    "targets": [
+      "node18-win-x64"
+    ]
   }
 }
