@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+env/
+venv/
+.env
+
+# Build Artifacts
+*.exe
+*.dll
+*.pyd
+*.zip
+*.pkg
+*.pyz
+*.toc
+build/
+dist/
+Analysis-00.toc
+COLLECT-00.toc
+EXE-00.toc
+PKG-00.pkg
+PKG-00.toc
+PYZ-00.pyz
+PYZ-00.toc
+base_library.zip
+python37.dll
+
+# Project Specific
+success_conn.txt
+Maps_to_Rename/
+MCCStats/
+carnagereporter.exe.manifest
+
+# IDEs
+.vscode/
+.idea/
