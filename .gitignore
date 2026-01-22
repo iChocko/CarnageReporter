@@ -5,6 +5,7 @@ __pycache__/
 env/
 venv/
 .env
+**/.env
 
 # Build Artifacts
 *.exe
@@ -31,6 +32,10 @@ success_conn.txt
 # Maps_to_Rename/
 # MCCStats/
 carnagereporter.exe.manifest
+server/output/
+server/.puppeteer_renderer/
+server/server.log
+client.log
 
 # IDEs
 .vscode/
@@ -38,6 +43,9 @@ carnagereporter.exe.manifest
 
 # Node
 node_modules/
+**/node_modules/
 package-lock.json
 .wwebjs_auth/
 .wwebjs_cache/
+**/.wwebjs_auth/
+**/.wwebjs_cache/

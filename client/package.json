@@ -1,0 +1,27 @@
+{
+  "name": "carnage-reporter-client",
+  "version": "1.0.0",
+  "description": "Cliente ligero para CarnageReporter - Halo 3 MCC",
+  "main": "carnage_client.js",
+  "scripts": {
+    "start": "node carnage_client.js",
+    "build": "pkg carnage_client.js --targets node18-win-x64 --output dist/CarnageClient.exe"
+  },
+  "dependencies": {
+    "chokidar": "^3.5.3",
+    "fast-xml-parser": "^4.3.2",
+    "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  },
+  "pkg": {
+    "assets": [
+      ".env"
+    ],
+    "targets": [
+      "node18-win-x64"
+    ],
+    "outputPath": "dist"
+  }
+}
