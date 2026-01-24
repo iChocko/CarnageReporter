@@ -231,10 +231,16 @@ async function processXMLFile(filePath) {
 
         // 3. Eliminar XML original
         try {
-            fs.unlinkSync(filePath);
-            console.log(`   🗑️  XML eliminado`);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+                console.log(`   🗑️  XML eliminado`);
+            }
+            // Permitir que el mismo nombre de archivo sea detectado de nuevo tras un breve delay
+            // Esto es crucial para archivos con nombres genéricos que se sobreescriben
+            setTimeout(() => processedFiles.delete(filename), 5000);
         } catch (e) {
             console.log(`   ⚠️  No se pudo eliminar el XML: ${e.message}`);
+            setTimeout(() => processedFiles.delete(filename), 10000);
         }
 
     } catch (error) {
@@ -301,13 +307,22 @@ async function main() {
     const watcher = chokidar.watch(path.join(watchDir, '*.xml'), {
         persistent: true,
         ignoreInitial: true,
-        awaitWriteFinish: {
-            stabilityThreshold: 3000,
-            pollInterval: 200
+        usePolling: true,      // Monitoreo activo (más robusto en Windows/Red)
+        interval: 2000,        // Intervalo de escaneo (2 segundos)
+        binaryInterval: 3000,
+        awaitWriteFinish: {    // Asegurar que el archivo terminó de escribirse
+            stabilityThreshold: 1500,
+            pollInterval: 100
         }
     });
 
+    // Escuchar tanto 'add' como 'change' para detectar archivos renombrados
     watcher.on('add', (filePath) => {
+        processXMLFile(filePath);
+    });
+
+    watcher.on('change', (filePath) => {
+        // También procesar cambios (cubre casos de rename atómico)
         processXMLFile(filePath);
     });
 

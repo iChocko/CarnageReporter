@@ -18,6 +18,8 @@ class WhatsAppService {
         this.groupId = process.env.WHATSAPP_GROUP_ID || null;
         this.executablePath = this.getChromiumPath();
         this.isRestarting = false;
+        this.keepAliveInterval = null;
+        this.keepAliveIntervalMs = 5 * 60 * 1000; // 5 minutos
     }
 
     /**
@@ -106,6 +108,7 @@ class WhatsAppService {
                 this.ready = true;
                 this.currentQR = null;
                 this.isRestarting = false;
+                this.startKeepAlive();
                 resolve();
             });
 
@@ -144,8 +147,50 @@ class WhatsAppService {
         this.isRestarting = true;
         console.log('🔄 Reiniciando servicio de WhatsApp...');
         this.ready = false;
+        this.stopKeepAlive();
         await this.destroy();
         await this.initialize();
+    }
+
+    /**
+     * Inicia el keep-alive para mantener la conexión activa
+     * Hace un ping cada 5 minutos para detectar desconexiones antes de que fallen envíos
+     */
+    startKeepAlive() {
+        this.stopKeepAlive(); // Limpiar intervalo anterior si existe
+
+        this.keepAliveInterval = setInterval(async () => {
+            if (!this.ready || !this.client) return;
+
+            try {
+                // Verificar que el browser sigue conectado
+                const state = await this.client.getState();
+                if (state !== 'CONNECTED') {
+                    console.log(`⚠️  Keep-alive: Estado inesperado (${state}), reiniciando...`);
+                    this.restart();
+                    return;
+                }
+
+                // Verificar que pupPage sigue activo con una operación ligera
+                await this.client.pupPage.evaluate(() => true);
+                console.log(`💓 Keep-alive: WhatsApp OK (${new Date().toLocaleTimeString()})`);
+            } catch (error) {
+                console.log(`⚠️  Keep-alive falló: ${error.message}, reiniciando...`);
+                this.restart();
+            }
+        }, this.keepAliveIntervalMs);
+
+        console.log(`💓 Keep-alive iniciado (cada ${this.keepAliveIntervalMs / 60000} minutos)`);
+    }
+
+    /**
+     * Detiene el keep-alive
+     */
+    stopKeepAlive() {
+        if (this.keepAliveInterval) {
+            clearInterval(this.keepAliveInterval);
+            this.keepAliveInterval = null;
+        }
     }
 
     async sendImage(imagePath, caption) {
@@ -327,6 +372,7 @@ class WhatsAppService {
     }
 
     async destroy() {
+        this.stopKeepAlive();
         if (this.client) {
             try {
                 await this.client.destroy();
