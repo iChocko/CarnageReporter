@@ -104,7 +104,8 @@ app.post('/api/report', authMiddleware, async (req, res) => {
 
         // 3. Enviar a WhatsApp
         console.log('📱 Enviando a WhatsApp...');
-        const caption = `🎮 ${gameData.mapName} - ${gameData.gameTypeName}\n📅 ${new Date(gameData.timestamp).toLocaleString()}`;
+        const cdmxTime = new Date(gameData.timestamp).toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
+        const caption = `🎮 ${gameData.mapName} - ${gameData.gameTypeName}\n📅 ${cdmxTime}`;
         await whatsapp.sendImage(pngPath, caption);
 
         // 4. Enviar a Discord
@@ -133,6 +134,23 @@ app.post('/api/report', authMiddleware, async (req, res) => {
             gameId,
             error: error.message
         });
+    }
+});
+
+/**
+ * Test de envío de texto a WhatsApp
+ */
+app.post('/api/whatsapp/test', authMiddleware, async (req, res) => {
+    const { message } = req.body;
+    try {
+        const result = await whatsapp.sendMessage(message || 'Test message');
+        if (result) {
+            res.json({ status: 'ok', message: 'Mensaje de texto enviado' });
+        } else {
+            res.status(500).json({ status: 'error', message: 'WhatsApp no está listo' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -225,10 +243,6 @@ async function start() {
     console.log('║           Halo 3 MCC Stats - VPS Edition                 ║');
     console.log('╚══════════════════════════════════════════════════════════╝\n');
 
-    // Inicializar WhatsApp
-    console.log('📱 Inicializando WhatsApp...');
-    await whatsapp.initialize();
-
     // Iniciar servidor Express
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`\n🚀 Servidor escuchando en http://0.0.0.0:${PORT}`);
@@ -237,6 +251,10 @@ async function start() {
         console.log(`   GET  /api/status - Estado del servidor`);
         console.log('\n👀 Esperando reportes de clientes...\n');
     });
+
+    // Inicializar WhatsApp
+    console.log('📱 Inicializando WhatsApp...');
+    await whatsapp.initialize();
 }
 
 // Manejo de cierre graceful

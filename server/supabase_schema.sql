@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS public.games (
     game_type_name VARCHAR(255),
     map_name VARCHAR(255),
     timestamp TIMESTAMPTZ DEFAULT NOW(),
+    timestamp_cdmx TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -100,12 +101,13 @@ SELECT
     g.map_name,
     g.game_type_name,
     g.timestamp,
+    g.timestamp_cdmx,
     COUNT(p.id) as player_count,
     SUM(CASE WHEN p.team_id = 0 THEN p.score ELSE 0 END) as blue_score,
     SUM(CASE WHEN p.team_id = 1 THEN p.score ELSE 0 END) as red_score
 FROM public.games g
 LEFT JOIN public.players p ON g.game_unique_id = p.game_unique_id
-GROUP BY g.game_unique_id, g.map_name, g.game_type_name, g.timestamp
+GROUP BY g.game_unique_id, g.map_name, g.game_type_name, g.timestamp, g.timestamp_cdmx
 ORDER BY g.timestamp DESC
 LIMIT 50;
 

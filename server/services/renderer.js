@@ -13,7 +13,7 @@ const fs = require('fs');
 class RendererService {
     constructor() {
         // Directorio SEPARADO para el renderer (diferente al de WhatsApp)
-        this.profileDir = path.join(__dirname, '..', '.puppeteer_renderer');
+        this.profileDir = '/tmp/.puppeteer_renderer';
 
         // Crear directorio de perfil
         if (!fs.existsSync(this.profileDir)) {
@@ -67,8 +67,12 @@ class RendererService {
         const winnerText = blueWins ? 'Blue Team Victory' : 'Red Team Victory';
 
         const timestamp = new Date(gameData.timestamp);
-        const formatDate = (d) => d.toISOString().split('T')[0];
-        const formatTime = (d) => d.toTimeString().split(' ')[0];
+        const options = { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+        const cdmxParts = new Intl.DateTimeFormat('en-GB', options).formatToParts(timestamp);
+
+        const getPart = (type) => cdmxParts.find(p => p.type === type).value;
+        const formatDate = () => `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
+        const formatTime = () => `${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
 
         const playerRow = (p, isBlue) => {
             const kd = p.deaths > 0 ? (p.kills / p.deaths).toFixed(2) : p.kills.toFixed(2);

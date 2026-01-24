@@ -15,6 +15,7 @@ class WhatsAppService {
         this.targetGroup = null;
         this.currentQR = null;
         this.groupName = process.env.WHATSAPP_GROUP_NAME || 'H3MCC';
+        this.groupId = process.env.WHATSAPP_GROUP_ID || null;
         this.executablePath = this.getChromiumPath();
         this.isRestarting = false;
     }
@@ -90,6 +91,7 @@ class WhatsAppService {
                 console.log('║     ESCANEA ESTE CÓDIGO QR CON WHATSAPP    ║');
                 console.log('║     (Solo necesitas hacerlo UNA VEZ)       ║');
                 console.log('╚════════════════════════════════════════════╝\n');
+                console.log(`\n[${new Date().toISOString()}] QR Recibido:`);
                 qrcode.generate(qr, { small: true });
                 console.log('\n');
             });
@@ -100,31 +102,10 @@ class WhatsAppService {
             });
 
             this.client.on('ready', async () => {
-                console.log('✅ WhatsApp listo!');
+                console.log(`📱 WhatsApp listo. Usando Group ID: ${this.groupId}`);
                 this.ready = true;
                 this.currentQR = null;
                 this.isRestarting = false;
-
-                // Buscar el grupo objetivo
-                try {
-                    const chats = await this.client.getChats();
-                    this.targetGroup = chats.find(
-                        chat => chat.isGroup && chat.name === this.groupName
-                    );
-
-                    if (this.targetGroup) {
-                        console.log(`📱 Grupo encontrado: ${this.targetGroup.name}`);
-                    } else {
-                        console.log(`⚠️  Grupo "${this.groupName}" no encontrado`);
-                        console.log('   Grupos disponibles:');
-                        chats.filter(c => c.isGroup).slice(0, 10).forEach(g => {
-                            console.log(`     - ${g.name}`);
-                        });
-                    }
-                } catch (error) {
-                    console.error('❌ Error buscando grupo:', error.message);
-                }
-
                 resolve();
             });
 
@@ -151,10 +132,10 @@ class WhatsAppService {
             // Timeout de seguridad
             setTimeout(() => {
                 if (!this.ready && !this.isRestarting) {
-                    console.log('⚠️  WhatsApp timeout - continuando sin WhatsApp');
+                    console.log('⚠️  WhatsApp timeout (120s) - continuando sin WhatsApp');
                     resolve();
                 }
-            }, 60000);
+            }, 120000);
         });
     }
 
@@ -168,23 +149,63 @@ class WhatsAppService {
     }
 
     async sendImage(imagePath, caption) {
-        if (!this.ready || !this.targetGroup) {
-            console.log('⚠️  WhatsApp no está listo o no se encontró el grupo');
+        if (!this.ready) {
+            console.log('⚠️  WhatsApp no está listo para enviar imagen');
             return false;
         }
 
-        try {
-            const media = MessageMedia.fromFilePath(imagePath);
-            await this.client.sendMessage(this.targetGroup.id._serialized, media, { caption });
-            console.log('📤 Imagen enviada a WhatsApp!');
-            return true;
-        } catch (error) {
-            console.error('❌ Error enviando a WhatsApp:', error.message);
-            if (error.message.includes('detached Frame') || error.message.includes('markedUnread')) {
-                console.log('⚠️  Error crítico detectado, reiniciando WhatsApp...');
-                this.restart();
+        let retries = 3;
+        while (retries > 0) {
+            try {
+                console.log(`📱 Intentando envío BROWSER-DIRECT (ID: ${this.groupId})... Intentos restantes: ${retries}`);
+
+                // Leer archivo y convertir a base64
+                const mediaData = fs.readFileSync(imagePath).toString('base64');
+                const mimetype = 'image/png';
+                const filename = path.basename(imagePath);
+
+                const result = await this.client.pupPage.evaluate(async (chatId, base64, mimetype, filename, caption) => {
+                    try {
+                        const chat = window.Store.Chat.get(chatId);
+                        if (!chat) return { success: false, error: 'Chat no encontrado en Store' };
+
+                        // PARCHE local en el navegador
+                        if (chat.markedUnread === undefined) chat.markedUnread = false;
+
+                        // Llamar a sendMessage con la media sin procesar para que el helper interno haga todo
+                        await window.WWebJS.sendMessage(chat, undefined, {
+                            media: {
+                                data: base64.replace(/\n|\r/g, ''), // Limpiar posibles saltos de línea
+                                mimetype: mimetype,
+                                filename: filename
+                            },
+                            caption: caption
+                        });
+
+                        return { success: true };
+                    } catch (e) {
+                        return { success: false, error: (e.stack || e.message) };
+                    }
+                }, this.groupId, mediaData, mimetype, filename, caption);
+
+                if (result.success) {
+                    console.log('📤 Imagen enviada a WhatsApp exitosamente (vía Browser Direct)!');
+                    return true;
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error(`❌ Intento fallido (${3 - retries + 1}):`, error.message);
+                retries--;
+                if (retries === 0) {
+                    if (error.message.includes('detached Frame') || error.message.includes('markedUnread')) {
+                        console.log('⚠️  Error crítico persistente, reiniciando WhatsApp...');
+                        this.restart();
+                    }
+                    return false;
+                }
+                await new Promise(resolve => setTimeout(resolve, 5000));
             }
-            return false;
         }
     }
 

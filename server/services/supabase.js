@@ -70,7 +70,9 @@ class SupabaseService {
                     hopper_name: gameData.hopperName,
                     game_type_name: gameData.gameTypeName,
                     map_name: gameData.mapName,
-                    timestamp: new Date(gameData.timestamp).toISOString()
+                    timestamp: new Date(gameData.timestamp).toISOString(),
+                    // Guardar el tiempo local de CDMX desplazando el UTC para que se vea la hora nominal correcta en la DB
+                    timestamp_cdmx: new Date(new Date(gameData.timestamp).getTime() - (6 * 60 * 60 * 1000)).toISOString()
                 }, { onConflict: 'game_unique_id' });
 
             if (gameError) {
