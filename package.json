@@ -2,12 +2,12 @@
   "name": "carnagereporter",
   "version": "3.0.0",
   "description": "Halo 3 MCC Stats Tracker - Monitors matches, generates PNGs, sends to WhatsApp, uploads to Supabase",
-  "main": "carnage_reporter.js",
-  "bin": "carnage_reporter.js",
+  "main": "src/carnage_reporter.js",
+  "bin": "src/carnage_reporter.js",
   "scripts": {
-    "start": "node carnage_reporter.js",
-    "test": "node carnage_reporter.js",
-    "build": "pkg carnage_reporter.js --targets node18-win-x64 --output dist/CarnageReporter.exe"
+    "start": "node src/carnage_reporter.js",
+    "test": "node src/carnage_reporter.js",
+    "build": "pkg src/carnage_reporter.js --targets node18-win-x64 --output dist/CarnageReporter.exe"
   },
   "keywords": [
     "halo",
@@ -33,7 +33,7 @@
   },
   "pkg": {
     "assets": [
-      "match_summary.html",
+      "assets/match_summary.html",
       "node_modules/puppeteer/.local-chromium/**/*"
     ],
     "targets": [

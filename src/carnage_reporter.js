@@ -29,7 +29,7 @@ const CONFIG = {
 
     // Paths (use process.cwd() when running as EXE to avoid read-only snapshot errors)
     outputDir: path.join(process.cwd(), 'output'),
-    htmlTemplatePath: path.join(__dirname, 'match_summary.html'),
+    htmlTemplatePath: path.join(__dirname, '..', 'assets', 'match_summary.html'),
 
     // Map name lookup (MCC XML files use internal names)
     maps: {
@@ -101,7 +101,7 @@ function getMCCTempPath() {
     // Standard Windows path for Halo MCC carnage reports
     const windowsPath = path.join(os.homedir(), 'AppData', 'LocalLow', 'MCC', 'Temporary');
     // Also check for a local Maps_to_Rename folder (for dev/testing)
-    const localPath = path.join(__dirname, 'Maps_to_Rename');
+    const localPath = path.join(__dirname, '..', 'Maps_to_Rename');
 
     // prioritize localPath if it exists (for developer testing)
     if (fs.existsSync(localPath)) {

@@ -1,22 +1,25 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-env/
-venv/
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+package-lock.json
+
+# Environment Variables
 .env
 **/.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # Build Artifacts
+dist/
+build/
 *.exe
-*.dll
-*.pyd
-*.zip
 *.pkg
 *.pyz
-*.toc
-build/
-dist/
 Analysis-00.toc
 COLLECT-00.toc
 EXE-00.toc
@@ -24,28 +27,24 @@ PKG-00.pkg
 PKG-00.toc
 PYZ-00.pyz
 PYZ-00.toc
-base_library.zip
-python37.dll
 
-# Project Specific
-success_conn.txt
-# Maps_to_Rename/
-# MCCStats/
-carnagereporter.exe.manifest
-server/output/
-server/.puppeteer_renderer/
-server/server.log
-client.log
-
-# IDEs
-.vscode/
-.idea/
-
-# Node
-node_modules/
-**/node_modules/
-package-lock.json
+# Logs and Temporary Files
+*.log
+**/logs/
+output/
+**/output/
+.puppeteer_renderer/
+.puppeteer_profile/
 .wwebjs_auth/
 .wwebjs_cache/
 **/.wwebjs_auth/
 **/.wwebjs_cache/
+success_conn.txt
+carnagereporter.exe.manifest
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
