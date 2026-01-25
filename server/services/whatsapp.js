@@ -53,7 +53,7 @@ class WhatsAppService {
         }
 
         return new Promise((resolve) => {
-            const authPath = path.join(__dirname, '..', '.wwebjs_auth');
+            const authPath = path.join(__dirname, '..', '.wwebjs_auth_v4');
 
             // Asegurar que existe el directorio de auth
             if (!fs.existsSync(authPath)) {
