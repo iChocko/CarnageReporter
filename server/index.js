@@ -93,6 +93,8 @@ app.post('/api/report', authMiddleware, async (req, res) => {
 
     const gameId = gameData.gameUniqueId;
     console.log(`\n📥 Recibido reporte: ${gameId} (${gameData.mapName})`);
+    console.log(`   📋 gameData completo:`, JSON.stringify(gameData, null, 2));
+    console.log(`   👥 players (${players.length}):`, JSON.stringify(players.slice(0, 2), null, 2));
 
     try {
         // 1. Verificar duplicados en Supabase
@@ -121,7 +123,8 @@ app.post('/api/report', authMiddleware, async (req, res) => {
         // 3. Enviar a WhatsApp
         console.log(`📱 Enviando a WhatsApp (Grupo: ${whatsapp.groupId})...`);
         const cdmxTime = new Date(gameData.timestamp).toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
-        const caption = `🎮 ${gameData.mapName} - ${gameData.gameTypeName}\n📅 ${cdmxTime}`;
+        const mapInfo = gameData.mapName ? `${gameData.mapName} - ` : '';
+        const caption = `🎮 ${mapInfo}${gameData.gameTypeName}\n📅 ${cdmxTime}`;
         const wsResult = await whatsapp.sendImage(pngPath, caption);
         console.log(`   ${wsResult ? '✅' : '❌'} Resultado WhatsApp: ${wsResult ? 'Enviado' : 'Fallido'}`);
 
