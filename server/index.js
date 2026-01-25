@@ -98,19 +98,28 @@ app.post('/api/report', authMiddleware, async (req, res) => {
         }
 
         // 2. Generar PNG
-        console.log('🎨 Generando imagen...');
+        console.log(`🎨 Generando imagen para partida ${gameId}...`);
         const pngPath = path.join(OUTPUT_DIR, `match_${gameId}.png`);
         await renderer.generatePNG(gameData, players, pngPath);
 
+        if (fs.existsSync(pngPath)) {
+            const stats = fs.statSync(pngPath);
+            console.log(`   ✅ PNG generado exitosamente: ${pngPath} (${stats.size} bytes)`);
+        } else {
+            console.error(`   ❌ Falló la generación del PNG: ${pngPath}`);
+        }
+
         // 3. Enviar a WhatsApp
-        console.log('📱 Enviando a WhatsApp...');
+        console.log(`📱 Enviando a WhatsApp (Grupo: ${whatsapp.groupId})...`);
         const cdmxTime = new Date(gameData.timestamp).toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
         const caption = `🎮 ${gameData.mapName} - ${gameData.gameTypeName}\n📅 ${cdmxTime}`;
-        await whatsapp.sendImage(pngPath, caption);
+        const wsResult = await whatsapp.sendImage(pngPath, caption);
+        console.log(`   ${wsResult ? '✅' : '❌'} Resultado WhatsApp: ${wsResult ? 'Enviado' : 'Fallido'}`);
 
         // 4. Enviar a Discord
         console.log('💬 Enviando a Discord...');
-        await discord.sendImage(pngPath, gameData, players);
+        const dsResult = await discord.sendImage(pngPath, gameData, players);
+        console.log(`   ${dsResult ? '✅' : '❌'} Resultado Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
 
         // 5. Guardar en Supabase
         console.log('💾 Guardando en Supabase...');

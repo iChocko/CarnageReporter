@@ -205,9 +205,12 @@ class WhatsAppService {
                 console.log(`📱 Intentando envío BROWSER-DIRECT (ID: ${this.groupId})... Intentos restantes: ${retries}`);
 
                 // Leer archivo y convertir a base64
-                const mediaData = fs.readFileSync(imagePath).toString('base64');
+                const mediaBuffer = fs.readFileSync(imagePath);
+                const mediaData = mediaBuffer.toString('base64');
                 const mimetype = 'image/png';
                 const filename = path.basename(imagePath);
+
+                console.log(`   📦 Preparando envío: ${filename} (${mediaBuffer.length} bytes), Caption: ${caption.split('\n')[0]}...`);
 
                 const result = await this.client.pupPage.evaluate(async (chatId, base64, mimetype, filename, caption) => {
                     try {
