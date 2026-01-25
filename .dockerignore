@@ -1,0 +1,12 @@
+node_modules
+.git
+.wwebjs_auth
+.wwebjs_cache
+.puppeteer_profile
+dashboard/node_modules
+dashboard/dist
+server/output
+server/logs
+*.log
+.env
+.DS_Store

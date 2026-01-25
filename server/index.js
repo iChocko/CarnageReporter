@@ -7,6 +7,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const cors = require('cors');
 
 // Servicios
 const WhatsAppService = require('./services/whatsapp');
@@ -16,6 +17,14 @@ const RendererService = require('./services/renderer');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
+app.use(cors());
+
+// Servir archivos estáticos del dashboard (Frontend)
+const DASHBOARD_DIST = path.join(__dirname, '../dashboard/dist');
+if (fs.existsSync(DASHBOARD_DIST)) {
+    app.use(express.static(DASHBOARD_DIST));
+    console.log(`🌐 Dashboard frontend listo en: ${DASHBOARD_DIST}`);
+}
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || 'h3mcc-carnage-2024-secret';
@@ -244,7 +253,140 @@ app.post('/api/discord/webhook', authMiddleware, (req, res) => {
     });
 });
 
+// ============== DASHBOARD STATS ENDPOINTS ==============
+
+/**
+ * Global Stats (Customs Only)
+ */
+app.get('/api/stats/global', async (req, res) => {
+    try {
+        const { data: allStats, error: aError } = await supabase.client
+            .from('player_stats')
+            .select('total_games, total_kills, total_deaths, total_assists');
+
+        if (aError) throw aError;
+
+        const totals = allStats.reduce((acc, curr) => ({
+            totalKills: acc.totalKills + curr.total_kills,
+            totalDeaths: acc.totalDeaths + curr.total_deaths,
+            totalPlayers: acc.totalPlayers + 1
+        }), { totalKills: 0, totalDeaths: 0, totalPlayers: 0 });
+
+        // Count only customs (non-matchmaking)
+        const { count: gameCount } = await supabase.client
+            .from('games')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_matchmaking', false);
+
+        res.json({
+            ...totals,
+            totalGames: gameCount || 0,
+            avgKD: totals.totalDeaths > 0 ? (totals.totalKills / totals.totalDeaths).toFixed(2) : totals.totalKills.toFixed(2)
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * MVP & Top Performers
+ */
+app.get('/api/stats/mvp', async (req, res) => {
+    try {
+        const { data, error } = await supabase.client
+            .from('player_stats')
+            .select('*')
+            .limit(100);
+
+        if (error) throw error;
+
+        // Find MVP (best overall KD with minimum 5 games)
+        const eligiblePlayers = data.filter(p => p.total_games >= 5);
+        const mvp = eligiblePlayers.sort((a, b) => b.overall_kd - a.overall_kd)[0];
+
+        // Top Slayer (most kills)
+        const topSlayer = [...data].sort((a, b) => b.total_kills - a.total_kills)[0];
+
+        // Best Support (most assists)
+        const topSupport = [...data].sort((a, b) => b.total_assists - a.total_assists)[0];
+
+        // Spree King (best killing spree)
+        const spreeKing = [...data].sort((a, b) => b.best_spree - a.best_spree)[0];
+
+        // Most Active (most games played)
+        const mostActive = [...data].sort((a, b) => b.total_games - a.total_games)[0];
+
+        res.json({
+            mvp: mvp || null,
+            topSlayer: topSlayer || null,
+            topSupport: topSupport || null,
+            spreeKing: spreeKing || null,
+            mostActive: mostActive || null
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Leaderboard
+ */
+app.get('/api/stats/leaderboard', async (req, res) => {
+    try {
+        const { data, error } = await supabase.client
+            .from('player_stats')
+            .select('*')
+            .limit(20);
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/stats/recent', async (req, res) => {
+    try {
+        const { data: games, error: gError } = await supabase.client
+            .from('recent_games')
+            .select('*')
+            .limit(10);
+
+        if (gError) throw gError;
+
+        // Fetch players for these games
+        const gameIds = games.map(g => g.game_unique_id);
+
+        const { data: players, error: pError } = await supabase.client
+            .from('players')
+            .select('game_unique_id, gamertag, team_id, score, kills, deaths, assists')
+            .in('game_unique_id', gameIds);
+
+        if (pError) throw pError;
+
+        // Group players by game
+        const gamesWithPlayers = games.map(game => ({
+            ...game,
+            players: players.filter(p => p.game_unique_id === game.game_unique_id)
+        }));
+
+        res.json(gamesWithPlayers);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ============== INICIO DEL SERVIDOR ==============
+
+// Servir index.html para cualquier otra ruta (SPA)
+app.get('*', (req, res) => {
+    const indexPath = path.join(DASHBOARD_DIST, 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        res.status(404).send('Dashboard not built');
+    }
+});
 
 async function start() {
     console.log('╔══════════════════════════════════════════════════════════╗');

@@ -49,4 +49,5 @@ carnagereporter.exe.manifest
 *.swo
 .DS_Store
 **/.wwebjs_auth_v3/
+**/.wwebjs_auth_v4/
 **/.wwebjs_auth_test/

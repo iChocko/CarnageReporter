@@ -18,7 +18,7 @@ const CONFIG = {
     serverUrl: process.env.SERVER_URL || 'http://31.97.209.182:3000',
     apiKey: process.env.API_KEY || 'h3mcc-carnage-2024-secret',
 
-    // Mapeo de nombres de mapas
+    // Mapeo de nombres de mapas (Colección expandida de Halo 3)
     maps: {
         'asq_chill': 'Narrows',
         'asq_constru': 'Construct',
@@ -41,6 +41,15 @@ const CONFIG = {
         'asq_avalanche': 'Avalanche',
         'asq_foundry': 'Foundry',
         'asq_boundless': 'Snowbound (Boundless)',
+        'asq_glacier': 'Cold Storage',
+        'asq_orbital': 'Orbital',
+        'asq_assembly': 'Assembly',
+        'asq_citadel': 'Citadel',
+        'asq_heretic': 'Heretic',
+        'asq_longshore': 'Longshore',
+        'asq_sandbox': 'Sandbox',
+        'asq_tundra': 'Avalanche',
+        'asq_descent': 'Assembly',
     }
 };
 
@@ -118,6 +127,8 @@ function parseXML(filePath) {
     const root = result.CarnageReport || result.MultiplayerCarnageReport || result;
 
     const hopperName = root.HopperName?.HopperName || 'Unknown';
+    const mapNameFromXML = root.MapName?.MapName || root.MapName;
+
     const gameData = {
         gameUniqueId: root.GameUniqueId?.GameUniqueId || 'unknown',
         gameEnum: parseInt(root.GameEnum?.mGameEnum || 0),
@@ -127,7 +138,16 @@ function parseXML(filePath) {
         gameTypeName: root.GameTypeName?.GameTypeName || 'Slayer',
         timestamp: parseTimestamp(path.basename(filePath)),
     };
-    gameData.mapName = getMapName(path.basename(filePath), gameData);
+
+    // Prioridad: 1. Mapping por nombre archivo, 2. Tag MapName del XML, 3. HopperName, 4. Fallback
+    const mapFromName = getMapName(path.basename(filePath), gameData);
+    if (mapFromName !== 'Halo 3 Match' && mapFromName !== 'Halo 3 Map') {
+        gameData.mapName = mapFromName;
+    } else if (mapNameFromXML && mapNameFromXML !== 'Unknown' && mapNameFromXML !== '') {
+        gameData.mapName = mapNameFromXML;
+    } else {
+        gameData.mapName = mapFromName;
+    }
 
     const playersNode = root.Players?.Player;
     const players = (Array.isArray(playersNode) ? playersNode : [playersNode]).filter(Boolean).map(p => ({
