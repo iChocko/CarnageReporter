@@ -1,6 +1,6 @@
 {
   "name": "carnage-reporter-client",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Cliente ligero para CarnageReporter - Halo 3 MCC",
   "main": "carnage_client.js",
   "scripts": {

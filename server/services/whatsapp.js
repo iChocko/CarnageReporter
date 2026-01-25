@@ -20,6 +20,9 @@ class WhatsAppService {
         this.isRestarting = false;
         this.keepAliveInterval = null;
         this.keepAliveIntervalMs = 5 * 60 * 1000; // 5 minutos
+        this.initTimeoutMs = 180000; // 180s para VPS (antes 120s)
+        this.maxRetries = 5; // 5 intentos con backoff exponencial
+        this.baseRetryDelayMs = 1000; // Delay base de 1 segundo
     }
 
     /**
@@ -46,6 +49,100 @@ class WhatsAppService {
         return process.env.PUPPETEER_EXECUTABLE_PATH || null;
     }
 
+    /**
+     * Limpia archivos de bloqueo de Chromium/Puppeteer al iniciar
+     * Estos archivos pueden quedar huérfanos si el proceso terminó abruptamente
+     */
+    cleanupLockFiles() {
+        const authPath = path.join(__dirname, '..', '.wwebjs_auth_v4');
+
+        if (!fs.existsSync(authPath)) {
+            return;
+        }
+
+        const lockPatterns = [
+            'SingletonLock',
+            'SingletonCookie',
+            'SingletonSocket',
+            '.org.chromium.Chromium.lock'
+        ];
+
+        console.log('🧹 Limpiando archivos de bloqueo...');
+        let cleanedCount = 0;
+
+        const cleanDirectory = (dir) => {
+            try {
+                const items = fs.readdirSync(dir, { withFileTypes: true });
+
+                for (const item of items) {
+                    const fullPath = path.join(dir, item.name);
+
+                    if (item.isDirectory()) {
+                        // Recursivamente limpiar subdirectorios
+                        cleanDirectory(fullPath);
+                    } else if (lockPatterns.some(pattern => item.name.includes(pattern))) {
+                        try {
+                            fs.unlinkSync(fullPath);
+                            console.log(`   🗑️  Eliminado: ${item.name}`);
+                            cleanedCount++;
+                        } catch (err) {
+                            console.log(`   ⚠️  No se pudo eliminar ${item.name}: ${err.message}`);
+                        }
+                    }
+                }
+            } catch (err) {
+                // Directorio puede no existir o no ser accesible
+            }
+        };
+
+        cleanDirectory(authPath);
+
+        if (cleanedCount > 0) {
+            console.log(`🧹 Limpieza completada: ${cleanedCount} archivo(s) de bloqueo eliminado(s)`);
+        } else {
+            console.log('🧹 No se encontraron archivos de bloqueo');
+        }
+    }
+
+    /**
+     * Calcula el delay con backoff exponencial
+     * @param {number} attempt - Número de intento (1-based)
+     * @returns {number} Delay en milisegundos
+     */
+    getRetryDelay(attempt) {
+        // Backoff exponencial: 1s, 2s, 4s, 8s, 16s
+        const delay = this.baseRetryDelayMs * Math.pow(2, attempt - 1);
+        // Cap máximo de 30 segundos
+        return Math.min(delay, 30000);
+    }
+
+    /**
+     * Verifica que la conexión esté activa antes de enviar
+     * @returns {boolean} true si la conexión está lista
+     */
+    async ensureConnection() {
+        if (!this.ready || !this.client) {
+            console.log('⚠️  WhatsApp no está listo');
+            return false;
+        }
+
+        try {
+            // Verificar estado de conexión
+            const state = await this.client.getState();
+            if (state !== 'CONNECTED') {
+                console.log(`⚠️  Estado de WhatsApp: ${state} (esperado: CONNECTED)`);
+                return false;
+            }
+
+            // Verificar que pupPage sigue activo
+            await this.client.pupPage.evaluate(() => true);
+            return true;
+        } catch (error) {
+            console.log(`⚠️  Verificación de conexión falló: ${error.message}`);
+            return false;
+        }
+    }
+
     async initialize() {
         if (this.client) {
             console.log('⚠️  WhatsApp ya inicializado, destruyendo sesión anterior...');
@@ -59,6 +156,9 @@ class WhatsAppService {
             if (!fs.existsSync(authPath)) {
                 fs.mkdirSync(authPath, { recursive: true });
             }
+
+            // Limpiar archivos de bloqueo huérfanos
+            this.cleanupLockFiles();
 
             // Configuración de Puppeteer optimizada para Snap Chromium
             const puppeteerConfig = {
@@ -132,13 +232,13 @@ class WhatsAppService {
                 resolve();
             });
 
-            // Timeout de seguridad
+            // Timeout de seguridad (más largo para VPS)
             setTimeout(() => {
                 if (!this.ready && !this.isRestarting) {
-                    console.log('⚠️  WhatsApp timeout (120s) - continuando sin WhatsApp');
+                    console.log(`⚠️  WhatsApp timeout (${this.initTimeoutMs / 1000}s) - continuando sin WhatsApp`);
                     resolve();
                 }
-            }, 120000);
+            }, this.initTimeoutMs);
         });
     }
 
@@ -194,15 +294,18 @@ class WhatsAppService {
     }
 
     async sendImage(imagePath, caption) {
-        if (!this.ready) {
+        // Verificación de conexión antes de enviar
+        const isConnected = await this.ensureConnection();
+        if (!isConnected) {
             console.log('⚠️  WhatsApp no está listo para enviar imagen');
             return false;
         }
 
-        let retries = 3;
-        while (retries > 0) {
+        let attempt = 0;
+        while (attempt < this.maxRetries) {
+            attempt++;
             try {
-                console.log(`📱 Intentando envío BROWSER-DIRECT (ID: ${this.groupId})... Intentos restantes: ${retries}`);
+                console.log(`📱 Intentando envío BROWSER-DIRECT (ID: ${this.groupId})... Intento ${attempt}/${this.maxRetries}`);
 
                 // Leer archivo y convertir a base64
                 const mediaBuffer = fs.readFileSync(imagePath);
@@ -244,32 +347,63 @@ class WhatsAppService {
                     throw new Error(result.error);
                 }
             } catch (error) {
-                console.error(`❌ Intento fallido (${3 - retries + 1}):`, error.message);
-                retries--;
-                if (retries === 0) {
+                const retryDelay = this.getRetryDelay(attempt);
+                console.error(`❌ Intento ${attempt}/${this.maxRetries} fallido: ${error.message}`);
+
+                if (attempt >= this.maxRetries) {
                     if (error.message.includes('detached Frame') || error.message.includes('markedUnread')) {
                         console.log('⚠️  Error crítico persistente, reiniciando WhatsApp...');
                         this.restart();
                     }
                     return false;
                 }
-                await new Promise(resolve => setTimeout(resolve, 5000));
+
+                console.log(`   ⏳ Reintentando en ${retryDelay / 1000}s (backoff exponencial)...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+
+                // Re-verificar conexión antes del siguiente intento
+                const stillConnected = await this.ensureConnection();
+                if (!stillConnected) {
+                    console.log('⚠️  Conexión perdida durante reintentos, abortando...');
+                    return false;
+                }
             }
         }
+        return false;
     }
 
     async sendMessage(text) {
-        if (!this.ready || !this.targetGroup) {
+        if (!this.targetGroup) {
+            console.log('⚠️  No hay grupo objetivo configurado');
             return false;
         }
 
-        try {
-            await this.client.sendMessage(this.targetGroup.id._serialized, text);
-            return true;
-        } catch (error) {
-            console.error('❌ Error enviando mensaje:', error.message);
+        // Verificación de conexión antes de enviar
+        const isConnected = await this.ensureConnection();
+        if (!isConnected) {
+            console.log('⚠️  WhatsApp no está listo para enviar mensaje');
             return false;
         }
+
+        let attempt = 0;
+        while (attempt < this.maxRetries) {
+            attempt++;
+            try {
+                await this.client.sendMessage(this.targetGroup.id._serialized, text);
+                return true;
+            } catch (error) {
+                const retryDelay = this.getRetryDelay(attempt);
+                console.error(`❌ Error enviando mensaje (intento ${attempt}/${this.maxRetries}):`, error.message);
+
+                if (attempt >= this.maxRetries) {
+                    return false;
+                }
+
+                console.log(`   ⏳ Reintentando en ${retryDelay / 1000}s...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+            }
+        }
+        return false;
     }
 
     isReady() {
