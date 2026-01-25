@@ -18,7 +18,7 @@
   "author": "iChocko",
   "license": "ISC",
   "dependencies": {
-    "@supabase/supabase-js": "^2.38.0",
+    "@supabase/supabase-js": "^2.91.1",
     "archiver": "^7.0.1",
     "chokidar": "^3.5.3",
     "dotenv": "^17.2.3",
