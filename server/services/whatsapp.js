@@ -217,13 +217,14 @@ class WhatsAppService {
                         const chat = window.Store.Chat.get(chatId);
                         if (!chat) return { success: false, error: 'Chat no encontrado en Store' };
 
-                        // PARCHE local en el navegador
+                        // Limpiar base64 de cualquier carácter no válido para atob
+                        const cleanBase64 = base64.replace(/[^A-Za-z0-9+/=]/g, '');
+
                         if (chat.markedUnread === undefined) chat.markedUnread = false;
 
-                        // Llamar a sendMessage con la media sin procesar para que el helper interno haga todo
                         await window.WWebJS.sendMessage(chat, undefined, {
                             media: {
-                                data: base64.replace(/\n|\r/g, ''), // Limpiar posibles saltos de línea
+                                data: cleanBase64,
                                 mimetype: mimetype,
                                 filename: filename
                             },
