@@ -72,15 +72,31 @@ class SupabaseService {
                     map_name: gameData.mapName,
                     timestamp: new Date(gameData.timestamp).toISOString(),
                     // Guardar el tiempo local de CDMX desplazando el UTC para que se vea la hora nominal correcta en la DB
-                    timestamp_cdmx: new Date(new Date(gameData.timestamp).getTime() - (6 * 60 * 60 * 1000)).toISOString()
+                    timestamp_cdmx: new Date(new Date(gameData.timestamp).getTime() - (6 * 60 * 60 * 1000)).toISOString(),
+                    // Campos adicionales
+                    duration: gameData.duration || 0,
+                    playlist_name: gameData.playlistName || null
                 }, { onConflict: 'game_unique_id' });
 
             if (gameError) {
                 throw new Error(`Error guardando juego: ${gameError.message}`);
             }
 
-            // 2. Insertar jugadores
-            for (const p of players) {
+            // 2. Insertar jugadores con índices y cálculos
+            // Separar jugadores por equipo y ordenar por score descendente
+            const team0 = players.filter(p => p.teamId === 0).sort((a, b) => b.score - a.score);
+            const team1 = players.filter(p => p.teamId === 1).sort((a, b) => b.score - a.score);
+
+            // Asignar índices por equipo
+            const playersWithIndex = [
+                ...team0.map((p, idx) => ({ ...p, playerIndex: idx })),
+                ...team1.map((p, idx) => ({ ...p, playerIndex: idx }))
+            ];
+
+            for (const p of playersWithIndex) {
+                // Calcular K/D ratio
+                const kdRatio = p.deaths > 0 ? (p.kills / p.deaths) : p.kills;
+
                 const { error: playerError } = await this.client
                     .from('players')
                     .upsert({
@@ -97,7 +113,10 @@ class SupabaseService {
                         assists: p.assists,
                         betrayals: p.betrayals,
                         suicides: p.suicides,
-                        most_kills_in_a_row: p.mostKillsInARow
+                        most_kills_in_a_row: p.killingSpree || p.mostKillsInARow || 0,
+                        // Campos calculados
+                        player_index: p.playerIndex,
+                        kd_ratio: Math.round(kdRatio * 100) / 100 // Redondear a 2 decimales
                     }, {
                         onConflict: 'game_unique_id,xbox_user_id',
                         ignoreDuplicates: true

@@ -1,9 +1,6 @@
 /**
  * Renderer Service
  * Generación de imágenes PNG con Puppeteer AISLADO
- *
- * IMPORTANTE: Usa una instancia de Puppeteer completamente separada
- * de WhatsApp para evitar conflictos de "detached Frame"
  */
 
 const puppeteer = require('puppeteer');
@@ -12,7 +9,7 @@ const fs = require('fs');
 
 class RendererService {
     constructor() {
-        // Directorio SEPARADO para el renderer (diferente al de WhatsApp)
+        // Directorio SEPARADO para el renderer
         this.profileDir = '/tmp/.puppeteer_renderer';
 
         // Crear directorio de perfil
@@ -256,7 +253,7 @@ class RendererService {
                     '--no-first-run',
                     '--safebrowsing-disable-auto-update',
                 ],
-                // Directorio de datos DIFERENTE al de WhatsApp
+                // Directorio de datos aislado para el renderer
                 userDataDir: this.profileDir,
                 // Timeout más corto para evitar cuelgues
                 timeout: 30000,

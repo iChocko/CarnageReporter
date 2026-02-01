@@ -10,7 +10,6 @@ const fs = require('fs');
 const cors = require('cors');
 
 // Servicios
-const WhatsAppService = require('./services/whatsapp');
 const DiscordService = require('./services/discord');
 const SupabaseService = require('./services/supabase');
 const RendererService = require('./services/renderer');
@@ -36,7 +35,6 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 }
 
 // Inicializar servicios
-const whatsapp = new WhatsAppService();
 const discord = new DiscordService();
 const supabase = new SupabaseService();
 const renderer = new RendererService();
@@ -59,20 +57,15 @@ app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
-        whatsapp: whatsapp.isReady(),
         version: '1.0.0'
     });
 });
 
 /**
- * Estado de WhatsApp
+ * Estado del servidor
  */
 app.get('/api/status', (req, res) => {
     res.json({
-        whatsapp: {
-            ready: whatsapp.isReady(),
-            group: whatsapp.getGroupName()
-        },
         stats: {
             processed: supabase.getProcessedCount()
         }
@@ -120,24 +113,16 @@ app.post('/api/report', authMiddleware, async (req, res) => {
             console.error(`   ❌ Falló la generación del PNG: ${pngPath}`);
         }
 
-        // 3. Enviar a WhatsApp
-        console.log(`📱 Enviando a WhatsApp (Grupo: ${whatsapp.groupId})...`);
-        const cdmxTime = new Date(gameData.timestamp).toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
-        const mapInfo = gameData.mapName ? `${gameData.mapName} - ` : '';
-        const caption = `🎮 ${mapInfo}${gameData.gameTypeName}\n📅 ${cdmxTime}`;
-        const wsResult = await whatsapp.sendImage(pngPath, caption);
-        console.log(`   ${wsResult ? '✅' : '❌'} Resultado WhatsApp: ${wsResult ? 'Enviado' : 'Fallido'}`);
-
-        // 4. Enviar a Discord
+        // 3. Enviar a Discord
         console.log('💬 Enviando a Discord...');
         const dsResult = await discord.sendImage(pngPath, gameData, players);
         console.log(`   ${dsResult ? '✅' : '❌'} Resultado Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
 
-        // 5. Guardar en Supabase
+        // 4. Guardar en Supabase
         console.log('💾 Guardando en Supabase...');
         await supabase.saveGame(gameData, players);
 
-        // 6. Limpiar PNG temporal (opcional, mantener para debug)
+        // 5. Limpiar PNG temporal (opcional, mantener para debug)
         // fs.unlinkSync(pngPath);
 
         console.log(`✅ Juego ${gameId} procesado completamente`);
@@ -158,84 +143,7 @@ app.post('/api/report', authMiddleware, async (req, res) => {
     }
 });
 
-/**
- * Test de envío de texto a WhatsApp
- */
-app.post('/api/whatsapp/test', authMiddleware, async (req, res) => {
-    const { message } = req.body;
-    try {
-        const result = await whatsapp.sendMessage(message || 'Test message');
-        if (result) {
-            res.json({ status: 'ok', message: 'Mensaje de texto enviado' });
-        } else {
-            res.status(500).json({ status: 'error', message: 'WhatsApp no está listo' });
-        }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
 
-/**
- * Obtener QR de WhatsApp (para configuración inicial)
- */
-app.get('/api/whatsapp/qr', (req, res) => {
-    const qr = whatsapp.getQR();
-    if (qr) {
-        res.json({ qr, status: 'pending' });
-    } else if (whatsapp.isReady()) {
-        res.json({ qr: null, status: 'ready' });
-    } else {
-        res.json({ qr: null, status: 'initializing' });
-    }
-});
-
-/**
- * Listar todos los grupos de WhatsApp disponibles
- * GET /api/whatsapp/groups
- */
-app.get('/api/whatsapp/groups', authMiddleware, async (req, res) => {
-    try {
-        const groups = await whatsapp.listGroups();
-        res.json({
-            currentGroup: whatsapp.getGroupInfo(),
-            availableGroups: groups
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * Cambiar el grupo de WhatsApp activo
- * POST /api/whatsapp/group
- * Body: { groupId: "xxxxx@g.us" } o { groupName: "Nombre del Grupo" }
- */
-app.post('/api/whatsapp/group', authMiddleware, async (req, res) => {
-    const { groupId, groupName } = req.body;
-
-    if (!groupId && !groupName) {
-        return res.status(400).json({ error: 'Debes proporcionar groupId o groupName' });
-    }
-
-    try {
-        const result = await whatsapp.setTargetGroup(groupId, groupName);
-        if (result.success) {
-            res.json({
-                status: 'ok',
-                message: `Grupo cambiado a: ${result.groupName}`,
-                group: result
-            });
-        } else {
-            res.status(404).json({
-                status: 'error',
-                message: result.message,
-                availableGroups: result.availableGroups
-            });
-        }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
 
 /**
  * Actualizar webhook de Discord
@@ -406,21 +314,17 @@ async function start() {
         console.log('\n👀 Esperando reportes de clientes...\n');
     });
 
-    // Inicializar WhatsApp
-    console.log('📱 Inicializando WhatsApp...');
-    await whatsapp.initialize();
+
 }
 
 // Manejo de cierre graceful
 process.on('SIGINT', async () => {
     console.log('\n\n👋 Cerrando servidor...');
-    await whatsapp.destroy();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
     console.log('\n\n👋 Cerrando servidor (SIGTERM)...');
-    await whatsapp.destroy();
     process.exit(0);
 });
 

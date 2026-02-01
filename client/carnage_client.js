@@ -15,7 +15,7 @@ const chokidar = require('chokidar');
 // ============== CONFIGURACIÓN ==============
 
 const CONFIG = {
-    serverUrl: process.env.SERVER_URL || 'http://31.97.209.182:3000',
+    serverUrl: process.env.SERVER_URL || 'https://h3mccstats.cloud',
     apiKey: process.env.API_KEY || 'h3mcc-carnage-2024-secret',
 
     // Mapeo de nombres de mapas (Colección expandida de Halo 3)
@@ -299,7 +299,7 @@ async function main() {
                 res.on('end', () => {
                     try {
                         const response = JSON.parse(data);
-                        console.log(`✅ Servidor conectado (WhatsApp: ${response.whatsapp ? 'listo' : 'no listo'})`);
+                        console.log(`✅ Servidor conectado`);
                         resolve();
                     } catch (e) {
                         reject(new Error('Respuesta inválida del servidor'));

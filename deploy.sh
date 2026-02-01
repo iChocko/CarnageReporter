@@ -72,7 +72,6 @@ cat > /tmp/carnage-service.yml << 'EOF'
       - traefik.http.routers.h3mcc.tls.certresolver=mytlschallenge
     volumes:
       - /root/carnage-reporter-docker/server/output:/app/server/output
-      - /root/carnage-reporter-docker/server/.wwebjs_auth:/app/server/.wwebjs_auth
     environment:
       - PORT=3000
       - SUPABASE_URL=https://isxjfvrdnmrwxyzfbvua.supabase.co
