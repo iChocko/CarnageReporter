@@ -1,9 +1,29 @@
 import React, { useEffect, useState } from 'react'
-import { Trophy, Activity, Target, Shield, Users, Clock, Award, Crosshair, TriangleAlert } from 'lucide-react'
+import { Trophy, Activity, Target, Shield, Users, Clock, Award, Crosshair, TriangleAlert, CreditCard } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { StripePaymentModal } from './StripePaymentModal'
 
 const API_BASE_URL = '/api/stats'
+
+const DONATION_METHODS = [
+  {
+    name: 'PayPal',
+    url: 'https://paypal.me/xChocko',
+    icon: (props) => (
+      <svg {...props} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M20.067 8.478c.492.2.825.403 1.054.66.19.213.313.434.337.765.04.542-.1 1.081-.42 1.61L18.002 16.5c-.322.529-.861.851-1.442.851H13.5l-1.5 4.5H9.5l3.5-10.5h2.5c2.5 0 4.5-2.015 4.5-4.5 0-.125-.005-.248-.016-.369.028-.002.056-.004.083-.004zM5.5 13.5h2.5l1.5-4.5h2.5l-1.5 4.5h2.5L10.5 22.5h-2.5l2.5-7.5H4L5.5 4.5H8L6.5 9h2.5L10.5 4.5h2.5l-1.5 4.5h2.5l-1.5 4.5z" />
+      </svg>
+    ),
+    external: true
+  },
+  {
+    name: 'Stripe',
+    modal: true,
+    icon: (props) => <CreditCard {...props} />,
+    external: false
+  }
+]
 
 const calculateRatios = (k, d, a) => {
   const kd = d > 0 ? (k / d).toFixed(2) : k.toFixed(2);
@@ -23,6 +43,7 @@ const App = () => {
   const [leaderboard, setLeaderboard] = useState([])
   const [recentGames, setRecentGames] = useState([])
   const [loading, setLoading] = useState(true)
+  const [isStripeModalOpen, setIsStripeModalOpen] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -347,10 +368,68 @@ const App = () => {
         borderTop: '1px solid var(--border-color)',
         textAlign: 'center',
         opacity: 0.5,
-        fontSize: '0.75rem'
+        fontSize: '0.75rem',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '1rem'
       }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1.5rem',
+          opacity: 0.8,
+          marginBottom: '0.5rem'
+        }}>
+          {DONATION_METHODS.map(method => {
+            const Component = method.external ? 'a' : 'button'
+            const props = method.external ? {
+              href: method.url,
+              target: '_blank',
+              rel: 'noopener noreferrer'
+            } : {
+              onClick: () => setIsStripeModalOpen(true)
+            }
+
+            return (
+              <Component
+                key={method.name}
+                {...props}
+                style={{
+                  color: 'var(--text-secondary)',
+                  textDecoration: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  fontSize: '0.7rem',
+                  transition: 'all 0.2s',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 0
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.color = 'var(--accent-cyan)';
+                  e.currentTarget.style.opacity = '1';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.color = 'var(--text-secondary)';
+                  e.currentTarget.style.opacity = '0.8';
+                }}
+              >
+                {method.icon({ width: 14, height: 14 })}
+                SUPPORT VIA {method.name.toUpperCase()}
+              </Component>
+            )
+          })}
+        </div>
         <p>&copy; 2026 CARNAGE REPORTER • BUNGIE-ERA INTERFACE • HALO 3 MCC CUSTOMS</p>
       </footer>
+
+      <StripePaymentModal
+        isOpen={isStripeModalOpen}
+        onClose={() => setIsStripeModalOpen(false)}
+      />
     </div>
   )
 }

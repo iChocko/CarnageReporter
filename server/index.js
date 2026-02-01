@@ -8,11 +8,17 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
+const Stripe = require('stripe');
 
 // Servicios
 const DiscordService = require('./services/discord');
 const SupabaseService = require('./services/supabase');
 const RendererService = require('./services/renderer');
+
+// Initialize Stripe
+const stripe = process.env.STRIPE_SECRET_KEY
+    ? new Stripe(process.env.STRIPE_SECRET_KEY)
+    : null;
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -341,6 +347,54 @@ app.get('/api/stats/recent', async (req, res) => {
         res.json(gamesWithPlayers);
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ============== STRIPE PAYMENT ENDPOINTS ==============
+
+/**
+ * Create Payment Intent for Stripe donations
+ * POST /api/stripe/create-payment-intent
+ * Body: { amount: number } // amount in cents
+ */
+app.post('/api/stripe/create-payment-intent', async (req, res) => {
+    try {
+        if (!stripe) {
+            return res.status(503).json({
+                error: 'Stripe is not configured on this server'
+            });
+        }
+
+        const { amount } = req.body;
+
+        if (!amount || amount < 50) { // Minimum $0.50
+            return res.status(400).json({
+                error: 'Amount must be at least 50 cents'
+            });
+        }
+
+        // Create a PaymentIntent
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: Math.round(amount),
+            currency: 'usd',
+            automatic_payment_methods: {
+                enabled: true,
+            },
+            metadata: {
+                project: 'carnage-reporter',
+                purpose: 'donation'
+            }
+        });
+
+        res.json({
+            clientSecret: paymentIntent.client_secret
+        });
+    } catch (error) {
+        console.error('Error creating payment intent:', error);
+        res.status(500).json({
+            error: 'Failed to create payment intent',
+            details: error.message
+        });
     }
 });
 
