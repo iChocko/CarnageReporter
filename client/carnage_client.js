@@ -5,8 +5,14 @@ const http = require('http');
 const https = require('https');
 const { XMLParser } = require('fast-xml-parser');
 const chokidar = require('chokidar');
+const axios = require('axios');
+const { spawn } = require('child_process');
 
 // ============== CONFIGURACIÓN (Lanzamiento Oficial) ==============
+
+const VERSION = '1.2.0';
+const GITHUB_REPO = 'iChocko/CarnageReporter';
+const EXE_NAME = 'CarnageReporter.exe';
 
 const CONFIG = {
     // Valores de producción integrados directamente
@@ -252,16 +258,82 @@ async function processXMLFile(filePath) {
     }
 }
 
+// ============== SISTEMA DE AUTO-ACTUALIZACIÓN ==============
+
+async function checkForUpdates() {
+    if (process.env.SKIP_UPDATE) return;
+
+    try {
+        console.log('🔍 Buscando actualizaciones...');
+        const res = await axios.get(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+            timeout: 5000
+        });
+
+        const latestVersion = res.data.tag_name.replace('v', '');
+        const currentVersion = VERSION.replace('v', '');
+
+        if (latestVersion !== currentVersion) {
+            console.log(`\n✨ ¡Nueva versión disponible: v${latestVersion}! (Actual: v${currentVersion})`);
+
+            // Buscar el asset .exe
+            const asset = res.data.assets.find(a => a.name.endsWith('.exe'));
+            if (!asset) {
+                console.log('⚠️  No se encontró el archivo ejecutable en el release.');
+                return;
+            }
+
+            console.log('📥 Descargando actualización...');
+            const downloadRes = await axios.get(asset.browser_download_url, {
+                responseType: 'arraybuffer'
+            });
+
+            const tempExe = path.join(process.cwd(), 'update_temp.exe');
+            fs.writeFileSync(tempExe, downloadRes.data);
+
+            console.log('✅ Descarga completa. Reiniciando para aplicar cambios...');
+
+            // Crear script de reemplazo (.bat para Windows)
+            const currentExe = process.execPath;
+            const batPath = path.join(process.cwd(), 'updater.bat');
+            const batContent = `
+@echo off
+timeout /t 3 /nobreak > nul
+del "${currentExe}"
+move /y "update_temp.exe" "${path.basename(currentExe)}"
+start "" "${path.basename(currentExe)}"
+del "%~f0"
+            `;
+
+            fs.writeFileSync(batPath, batContent);
+
+            // Lanzar el bat y cerrar la app
+            spawn('cmd.exe', ['/c', batPath], {
+                detached: true,
+                stdio: 'ignore'
+            }).unref();
+
+            process.exit(0);
+        } else {
+            console.log('✅ Estás usando la versión más reciente.');
+        }
+    } catch (error) {
+        console.log('⚠️  No se pudo verificar actualizaciones (posible falta de conexión o repo privado).');
+    }
+}
+
 // ============== MAIN ==============
 
 async function main() {
     console.clear();
     console.log('╔══════════════════════════════════════════════════════════╗');
     console.log('║               CARNAGE REPORTER - HALO 3                  ║');
-    console.log('║                 Registro de Estadísticas                 ║');
+    console.log(`║                 Registro de Estadísticas v${VERSION}        ║`);
     console.log('╚══════════════════════════════════════════════════════════╝\n');
 
-    console.log('Servidor: h3mccstats.cloud');
+    // Revisar actualizaciones al iniciar
+    await checkForUpdates();
+
+    console.log('\nServidor: h3mccstats.cloud');
 
     // Verificar conexión
     try {
