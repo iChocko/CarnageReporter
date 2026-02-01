@@ -13,6 +13,7 @@ const { spawn } = require('child_process');
 const VERSION = '1.2.0';
 const GITHUB_REPO = 'iChocko/CarnageReporter';
 const EXE_NAME = 'CarnageReporter.exe';
+const DISCORD_URL = 'https://discord.gg/yD6nGZ3KQX';
 
 const CONFIG = {
     // Valores de producción integrados directamente
@@ -260,23 +261,41 @@ async function processXMLFile(filePath) {
 
 // ============== SISTEMA DE AUTO-ACTUALIZACIÓN ==============
 
+// Comparación simple de versiones semver (major.minor.patch)
+function isNewerVersion(latest, current) {
+    const latestParts = latest.replace('v', '').split('.').map(Number);
+    const currentParts = current.replace('v', '').split('.').map(Number);
+
+    for (let i = 0; i < 3; i++) {
+        const l = latestParts[i] || 0;
+        const c = currentParts[i] || 0;
+        if (l > c) return true;
+        if (l < c) return false;
+    }
+    return false;
+}
+
 async function checkForUpdates() {
     if (process.env.SKIP_UPDATE) return;
 
     try {
         console.log('🔍 Buscando actualizaciones...');
         const res = await axios.get(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-            timeout: 5000
+            timeout: 8000,
+            headers: {
+                'User-Agent': `CarnageReporter/${VERSION}`,
+                'Accept': 'application/vnd.github.v3+json'
+            }
         });
 
-        const latestVersion = res.data.tag_name.replace('v', '');
-        const currentVersion = VERSION.replace('v', '');
+        const latestVersion = res.data.tag_name;
+        const currentVersion = VERSION;
 
-        if (latestVersion !== currentVersion) {
-            console.log(`\n✨ ¡Nueva versión disponible: v${latestVersion}! (Actual: v${currentVersion})`);
+        if (isNewerVersion(latestVersion, currentVersion)) {
+            console.log(`\n✨ ¡Nueva versión disponible: ${latestVersion}! (Actual: v${currentVersion})`);
 
             // Buscar el asset .exe
-            const asset = res.data.assets.find(a => a.name.endsWith('.exe'));
+            const asset = res.data.assets.find(a => a.name.toLowerCase().endsWith('.exe'));
             if (!asset) {
                 console.log('⚠️  No se encontró el archivo ejecutable en el release.');
                 return;
@@ -284,7 +303,11 @@ async function checkForUpdates() {
 
             console.log('📥 Descargando actualización...');
             const downloadRes = await axios.get(asset.browser_download_url, {
-                responseType: 'arraybuffer'
+                responseType: 'arraybuffer',
+                timeout: 60000, // 1 minuto para descargas grandes
+                headers: {
+                    'User-Agent': `CarnageReporter/${VERSION}`
+                }
             });
 
             const tempExe = path.join(process.cwd(), 'update_temp.exe');
@@ -294,22 +317,30 @@ async function checkForUpdates() {
 
             // Crear script de reemplazo (.bat para Windows)
             const currentExe = process.execPath;
+            const exeName = path.basename(currentExe);
             const batPath = path.join(process.cwd(), 'updater.bat');
-            const batContent = `
-@echo off
-timeout /t 3 /nobreak > nul
-del "${currentExe}"
-move /y "update_temp.exe" "${path.basename(currentExe)}"
-start "" "${path.basename(currentExe)}"
-del "%~f0"
-            `;
+
+            // Usar rutas absolutas y escapar correctamente
+            const batContent = `@echo off
+echo Aplicando actualizacion...
+timeout /t 2 /nobreak > nul
+del /f /q "${currentExe}"
+if exist "${currentExe}" (
+    timeout /t 2 /nobreak > nul
+    del /f /q "${currentExe}"
+)
+move /y "${tempExe}" "${currentExe}"
+start "" "${currentExe}"
+del /f /q "%~f0"
+`;
 
             fs.writeFileSync(batPath, batContent);
 
             // Lanzar el bat y cerrar la app
             spawn('cmd.exe', ['/c', batPath], {
                 detached: true,
-                stdio: 'ignore'
+                stdio: 'ignore',
+                cwd: process.cwd()
             }).unref();
 
             process.exit(0);
@@ -317,7 +348,12 @@ del "%~f0"
             console.log('✅ Estás usando la versión más reciente.');
         }
     } catch (error) {
-        console.log('⚠️  No se pudo verificar actualizaciones (posible falta de conexión o repo privado).');
+        // No bloquear el inicio si falla la verificación
+        if (error.response && error.response.status === 404) {
+            console.log('⚠️  No hay releases publicados aún.');
+        } else {
+            console.log('⚠️  No se pudo verificar actualizaciones.');
+        }
     }
 }
 
@@ -357,6 +393,7 @@ async function main() {
     const watchDir = getMCCTempPath();
     console.log('\n📡 REGISTRO ACTIVO');
     console.log('   No cierres esta ventana mientras juegas para guardar tus stats.');
+    console.log(`\n🎮 Discord: ${DISCORD_URL}`);
 
     const watcher = chokidar.watch(path.join(watchDir, '*.xml'), {
         persistent: true,
