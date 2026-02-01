@@ -1,9 +1,3 @@
-/**
- * CarnageReporter Client
- * Cliente ligero que monitorea archivos XML y los envía al servidor
- */
-
-require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -12,13 +6,14 @@ const https = require('https');
 const { XMLParser } = require('fast-xml-parser');
 const chokidar = require('chokidar');
 
-// ============== CONFIGURACIÓN ==============
+// ============== CONFIGURACIÓN (Lanzamiento Oficial) ==============
 
 const CONFIG = {
-    serverUrl: process.env.SERVER_URL || 'https://h3mccstats.cloud',
-    apiKey: process.env.API_KEY || 'h3mcc-carnage-2024-secret',
+    // Valores de producción integrados directamente
+    serverUrl: 'https://h3mccstats.cloud',
+    apiKey: 'h3mcc-carnage-2024-secret',
 
-    // Mapeo de nombres de mapas (Colección expandida de Halo 3)
+    // Mapeo de nombres de mapas (Halo 3 Legacy)
     maps: {
         'asq_chill': 'Narrows',
         'asq_constru': 'Construct',
@@ -73,9 +68,7 @@ function getMCCTempPath() {
     const windowsPath = path.join(os.homedir(), 'AppData', 'LocalLow', 'MCC', 'Temporary');
     const localPath = path.join(process.cwd(), 'Maps_to_Rename');
 
-    // Priorizar carpeta local para testing
     if (fs.existsSync(localPath)) {
-        console.log('📁 Usando carpeta local Maps_to_Rename para testing');
         return localPath;
     }
 
@@ -83,21 +76,16 @@ function getMCCTempPath() {
         if (!fs.existsSync(windowsPath)) {
             try {
                 fs.mkdirSync(windowsPath, { recursive: true });
-            } catch (e) {
-                console.log(`⚠️  No se pudo crear carpeta MCC: ${e.message}`);
-            }
+            } catch (e) { }
         }
         if (fs.existsSync(windowsPath)) {
-            console.log(`📁 Monitoreando carpeta MCC: ${windowsPath}`);
             return windowsPath;
         }
     }
 
-    // Fallback
     if (!fs.existsSync(localPath)) {
         fs.mkdirSync(localPath, { recursive: true });
     }
-    console.log(`📁 Monitoreando carpeta: ${localPath}`);
     return localPath;
 }
 
@@ -139,7 +127,6 @@ function parseXML(filePath) {
         timestamp: parseTimestamp(path.basename(filePath)),
     };
 
-    // Prioridad: 1. Mapping por nombre archivo, 2. Tag MapName del XML, 3. HopperName, 4. Fallback
     const mapFromName = getMapName(path.basename(filePath), gameData);
     if (mapFromName !== 'Halo 3 Match' && mapFromName !== 'Halo 3 Map') {
         gameData.mapName = mapFromName;
@@ -204,12 +191,12 @@ async function sendToServer(gameData, players, filename) {
         });
 
         req.on('error', (e) => {
-            reject(new Error(`Error de conexión: ${e.message}`));
+            reject(new Error(`Sin conexión con el servidor`));
         });
 
         req.setTimeout(30000, () => {
             req.destroy();
-            reject(new Error('Timeout: El servidor no respondió'));
+            reject(new Error('El servidor no responde (Timeout)'));
         });
 
         req.write(payload);
@@ -224,51 +211,41 @@ const processedFiles = new Set();
 async function processXMLFile(filePath) {
     const filename = path.basename(filePath);
 
-    // Filtros
     if (processedFiles.has(filename)) return;
     if (!filename.includes('mpcarnagereport') && !filename.includes('asq_')) return;
     if (filename.includes('test_trigger')) return;
 
-    console.log(`\n🎮 Procesando: ${filename}`);
+    console.log(`\n📦 Nueva partida registrada: ${filename}`);
     processedFiles.add(filename);
 
     try {
-        // 1. Parsear XML
         const { gameData, players } = parseXML(filePath);
-        console.log(`   Mapa: ${gameData.mapName}, Jugadores: ${players.length}`);
+        console.log(`   🔸 Mapa: ${gameData.mapName} | Jugadores: ${players.length}`);
 
-        // 2. Enviar al servidor
-        console.log(`   📤 Enviando al servidor...`);
+        console.log(`   🔹 Enviando estadísticas al servidor...`);
         const response = await sendToServer(gameData, players, filename);
 
         if (response.status === 'processed') {
-            console.log(`   ✅ Procesado: ${response.message}`);
+            console.log(`   ✅ Datos guardados correctamente.`);
         } else if (response.status === 'duplicate') {
-            console.log(`   ⏭️  Duplicado: ${response.message}`);
+            console.log(`   ⏭️  Esta partida ya estaba en el sistema.`);
         } else {
-            console.log(`   ⚠️  Respuesta: ${response.message || response.error}`);
+            console.log(`   ⚠️  Servidor: ${response.message || response.error}`);
         }
 
-        // 3. Eliminar XML original
         try {
             if (fs.existsSync(filePath)) {
                 fs.unlinkSync(filePath);
-                console.log(`   🗑️  XML eliminado`);
             }
-            // Permitir que el mismo nombre de archivo sea detectado de nuevo tras un breve delay
-            // Esto es crucial para archivos con nombres genéricos que se sobreescriben
             setTimeout(() => processedFiles.delete(filename), 5000);
         } catch (e) {
-            console.log(`   ⚠️  No se pudo eliminar el XML: ${e.message}`);
             setTimeout(() => processedFiles.delete(filename), 10000);
         }
 
     } catch (error) {
         console.error(`   ❌ Error: ${error.message}`);
-
-        // Reintentar en 5 segundos si es error de conexión
         if (error.message.includes('conexión') || error.message.includes('Timeout')) {
-            console.log(`   🔄 Reintentando en 5 segundos...`);
+            console.log(`   🔄 Reintentando envío...`);
             processedFiles.delete(filename);
             setTimeout(() => processXMLFile(filePath), 5000);
         }
@@ -278,15 +255,15 @@ async function processXMLFile(filePath) {
 // ============== MAIN ==============
 
 async function main() {
+    console.clear();
     console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║              CARNAGE REPORTER CLIENT                     ║');
-    console.log('║            Halo 3 MCC Stats Tracker v1.0                 ║');
+    console.log('║               CARNAGE REPORTER - HALO 3                  ║');
+    console.log('║                 Registro de Estadísticas                 ║');
     console.log('╚══════════════════════════════════════════════════════════╝\n');
 
-    console.log(`🌐 Servidor: ${CONFIG.serverUrl}`);
+    console.log('Servidor: h3mccstats.cloud');
 
-    // Verificar conexión con el servidor
-    console.log('🔌 Verificando conexión con el servidor...');
+    // Verificar conexión
     try {
         const url = new URL(`${CONFIG.serverUrl}/api/health`);
         const isHttps = url.protocol === 'https:';
@@ -294,65 +271,38 @@ async function main() {
 
         await new Promise((resolve, reject) => {
             const req = httpModule.get(url.href, (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                    try {
-                        const response = JSON.parse(data);
-                        console.log(`✅ Servidor conectado`);
-                        resolve();
-                    } catch (e) {
-                        reject(new Error('Respuesta inválida del servidor'));
-                    }
-                });
+                res.on('data', () => { });
+                res.on('end', () => resolve());
             });
             req.on('error', reject);
-            req.setTimeout(10000, () => {
-                req.destroy();
-                reject(new Error('Timeout'));
-            });
+            req.setTimeout(5000, () => { req.destroy(); reject(); });
         });
+        console.log('✅ Conexión con el servidor establecida.');
     } catch (error) {
-        console.log(`⚠️  No se pudo conectar al servidor: ${error.message}`);
-        console.log('   El cliente continuará intentando enviar reportes...\n');
+        console.log('⚠️  Servidor fuera de línea. Se intentará reconectar al jugar.');
     }
 
-    // Obtener directorio de monitoreo
     const watchDir = getMCCTempPath();
-
-    // Iniciar monitoreo
-    console.log('\n👀 Monitoreando nuevas partidas...');
-    console.log('   (Juega una partida de Halo 3 y los stats serán enviados al servidor)\n');
+    console.log('\n📡 REGISTRO ACTIVO');
+    console.log('   No cierres esta ventana mientras juegas para guardar tus stats.');
 
     const watcher = chokidar.watch(path.join(watchDir, '*.xml'), {
         persistent: true,
         ignoreInitial: true,
-        usePolling: true,      // Monitoreo activo (más robusto en Windows/Red)
-        interval: 2000,        // Intervalo de escaneo (2 segundos)
-        binaryInterval: 3000,
-        awaitWriteFinish: {    // Asegurar que el archivo terminó de escribirse
+        usePolling: true,
+        interval: 2000,
+        awaitWriteFinish: {
             stabilityThreshold: 1500,
             pollInterval: 100
         }
     });
 
-    // Escuchar tanto 'add' como 'change' para detectar archivos renombrados
-    watcher.on('add', (filePath) => {
-        processXMLFile(filePath);
-    });
+    watcher.on('add', (filePath) => processXMLFile(filePath));
+    watcher.on('change', (filePath) => processXMLFile(filePath));
+    watcher.on('error', (error) => console.error('❌ Error en el sistema de monitoreo:', error));
 
-    watcher.on('change', (filePath) => {
-        // También procesar cambios (cubre casos de rename atómico)
-        processXMLFile(filePath);
-    });
-
-    watcher.on('error', (error) => {
-        console.error('❌ Error en el monitor:', error);
-    });
-
-    // Cierre graceful
     process.on('SIGINT', () => {
-        console.log('\n\n👋 Cerrando cliente...');
+        console.log('\n\n👋 Cerrando programa. Hasta la próxima.');
         watcher.close();
         process.exit(0);
     });

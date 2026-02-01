@@ -68,12 +68,37 @@ const App = () => {
     <div className="dashboard-container">
       <header className="bungie-header">
         <div>
-          <h1>HALO 3 CUSTOMS</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>CARNAGE REPORTER - ESTADÍSTICAS GLOBALES</p>
+          <h1>MLG HALO 3 LEADERBOARD</h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>COMPETITIVE STATS • v8 SETTINGS • CARNAGE REPORTER</p>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <p style={{ color: 'var(--accent-cyan)', fontFamily: 'Outfit', fontWeight: 700 }}>LIVE FEED</p>
-          <p style={{ fontSize: '0.75rem', opacity: 0.6 }}>STATUS: OPERATIONAL</p>
+        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
+          <div>
+            <p style={{ color: 'var(--accent-cyan)', fontFamily: 'Outfit', fontWeight: 700, margin: 0 }}>LIVE FEED</p>
+            <p style={{ fontSize: '0.75rem', opacity: 0.6, margin: 0 }}>STATUS: OPERATIONAL</p>
+          </div>
+          <a
+            href="https://discord.gg/yD6nGZ3KQX"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Join Discord"
+            style={{
+              color: 'var(--text-secondary)',
+              textDecoration: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              fontSize: '0.75rem',
+              transition: 'color 0.2s',
+              opacity: 0.7
+            }}
+            onMouseOver={(e) => e.currentTarget.style.color = '#5865F2'}
+            onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.23 10.23 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.419-2.157 2.419zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.419-2.157 2.419z" />
+            </svg>
+            DISCORD
+          </a>
         </div>
       </header>
 
@@ -105,8 +130,11 @@ const App = () => {
               gap: '0.75rem'
             }}>
               <Award size={28} color="var(--accent-gold)" />
-              DESTACADOS DEL COMBATE
+              MLG HALO 3 • TOP PERFORMERS
             </h2>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem', marginTop: '-1rem' }}>
+              Competitive Stats • MLG v8 Settings
+            </p>
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -114,52 +142,42 @@ const App = () => {
             }}>
               {mvpData.mvp && (
                 <PerformerCard
-                  title="MVP"
-                  subtitle="RATIO LETAL"
+                  title="👑 HIGHEST KDA"
+                  subtitle="MLG EFFICIENCY"
                   player={mvpData.mvp}
-                  stat={mvpData.mvp.overall_kd}
+                  stat={mvpData.mvp.kda}
                   icon={<Trophy size={20} />}
                   color="var(--accent-gold)"
                 />
               )}
-              {mvpData.topSlayer && (
+              {mvpData.topEfficiency && (
                 <PerformerCard
-                  title="ASESINO SUPREMO"
-                  subtitle="TOTAL DE BAJAS"
-                  player={mvpData.topSlayer}
-                  stat={mvpData.topSlayer.total_kills}
-                  icon={<Crosshair size={20} />}
+                  title="⚡ BEST EFFICIENCY"
+                  subtitle="KILL DIFFERENTIAL"
+                  player={mvpData.topEfficiency}
+                  stat={mvpData.topEfficiency.efficiency > 0 ? `+${mvpData.topEfficiency.efficiency}` : mvpData.topEfficiency.efficiency}
+                  icon={<Target size={20} />}
                   color="var(--accent-cyan)"
-                />
-              )}
-              {mvpData.topSupport && (
-                <PerformerCard
-                  title="APOYO TÁCTICO"
-                  subtitle="ASISTENCIAS"
-                  player={mvpData.topSupport}
-                  stat={mvpData.topSupport.total_assists}
-                  icon={<Shield size={20} />}
-                  color="#5c7aff"
                 />
               )}
               {mvpData.spreeKing && (
                 <PerformerCard
-                  title="RACHA LETAL"
-                  subtitle="MEJOR SPREE"
+                  title="🔥 SPREE KING"
+                  subtitle="LONGEST STREAK"
                   player={mvpData.spreeKing}
                   stat={mvpData.spreeKing.best_spree}
-                  icon={<Target size={20} />}
+                  icon={<Crosshair size={20} />}
                   color="#ff5c5c"
                 />
               )}
-              {mvpData.mostActive && (
+              {mvpData.mostConsistent && (
                 <PerformerCard
-                  title="MÁS ACTIVO"
-                  subtitle="PARTIDAS JUGADAS"
-                  player={mvpData.mostActive}
-                  stat={mvpData.mostActive.total_games}
+                  title="🎯 MOST CONSISTENT"
+                  subtitle="AVG SCORE PER GAME"
+                  player={mvpData.mostConsistent}
+                  stat={Math.round(mvpData.mostConsistent.total_score / mvpData.mostConsistent.total_games)}
                   icon={<Activity size={20} />}
-                  color="var(--text-secondary)"
+                  color="#a855f7"
                 />
               )}
             </div>
@@ -244,14 +262,20 @@ const App = () => {
 
         {/* Leaderboard */}
         <section className="section-panel">
-          <h2 className="section-title"><Shield size={20} /> Top Combatientes</h2>
+          <h2 className="section-title"><Shield size={20} /> MLG Slayer Rankings</h2>
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '-1rem', marginBottom: '1rem' }}>
+            Ranked by Slayer Score (40% KDA + 30% Efficiency + 30% Spree)
+          </p>
           <table className="leaderboard-table">
             <thead>
               <tr>
-                <th>Rango</th>
-                <th>Jugador</th>
+                <th>Rank</th>
+                <th>Player</th>
+                <th>KDA</th>
+                <th>Effic.</th>
+                <th>Spree</th>
                 <th>Score</th>
-                <th>K/D</th>
+                <th>Tier</th>
               </tr>
             </thead>
             <tbody>
@@ -260,14 +284,32 @@ const App = () => {
                   <td><div className="rank-badge">{index + 1}</div></td>
                   <td>
                     <div className="gamertag">{player.gamertag}</div>
-                    <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{player.total_games} partidas</div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{player.total_games} games</div>
                   </td>
-                  <td style={{ fontFamily: 'Outfit', fontWeight: 600 }}>{player.total_score}</td>
-                  <td style={{ color: player.overall_kd >= 1 ? 'var(--accent-cyan)' : 'var(--text-secondary)' }}>
-                    {player.overall_kd}
+                  <td style={{ fontFamily: 'Outfit', fontWeight: 600, color: player.kda >= 1.5 ? 'var(--accent-cyan)' : 'var(--text-secondary)' }}>
+                    {player.kda}
+                  </td>
+                  <td style={{ fontFamily: 'Outfit', fontWeight: 600, color: player.efficiency >= 0 ? '#00f2ff' : '#ff5c5c' }}>
+                    {player.efficiency > 0 ? `+${player.efficiency}` : player.efficiency}
+                  </td>
+                  <td style={{ fontFamily: 'Outfit' }}>{player.avg_spree}</td>
+                  <td style={{ fontFamily: 'Outfit', fontWeight: 700, color: 'var(--accent-gold)' }}>{player.slayer_score}</td>
+                  <td>
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '2px 8px',
+                      borderRadius: '3px',
+                      fontSize: '0.65rem',
+                      fontWeight: 700,
+                      backgroundColor: `${player.tier_color}20`,
+                      color: player.tier_color,
+                      border: `1px solid ${player.tier_color}`
+                    }}>
+                      {player.tier === 'Pro' ? '🥇' : player.tier === 'Semi-Pro' ? '🥈' : player.tier === 'Competitive' ? '🥉' : ''} {player.tier.toUpperCase()}
+                    </span>
                   </td>
                 </tr>
-              )) : <tr><td colSpan="4" style={{ textAlign: 'center', opacity: 0.5 }}>No hay datos de jugadores.</td></tr>}
+              )) : <tr><td colSpan="7" style={{ textAlign: 'center', opacity: 0.5 }}>No player data available.</td></tr>}
             </tbody>
           </table>
         </section>

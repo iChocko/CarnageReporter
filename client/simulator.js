@@ -6,12 +6,14 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 
 class MCCClient {
     constructor(config = {}) {
         this.tempDir = config.tempDir || path.join(__dirname, 'temp');
         this.serverHost = config.serverHost || 'localhost';
         this.serverPort = config.serverPort || 3000;
+        this.useHttps = config.useHttps || false;
         this.apiKey = config.apiKey || 'h3mcc-carnage-2024-secret';
         this.pollInterval = config.pollInterval || 1500; // 1.5 segundos
 
@@ -177,7 +179,8 @@ class MCCClient {
 
             console.log(`   📤 Enviando al servidor...`);
 
-            const req = http.request(options, (res) => {
+            const protocol = this.useHttps ? https : http;
+            const req = protocol.request(options, (res) => {
                 let responseBody = '';
 
                 res.on('data', (chunk) => {
