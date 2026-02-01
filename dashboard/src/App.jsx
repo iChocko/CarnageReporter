@@ -5,6 +5,12 @@ import { es } from 'date-fns/locale'
 
 const API_BASE_URL = '/api/stats'
 
+const calculateRatios = (k, d, a) => {
+  const kd = d > 0 ? (k / d).toFixed(2) : k.toFixed(2);
+  const kda = d > 0 ? ((k + a) / d).toFixed(2) : (k + a).toFixed(2);
+  return { kd, kda };
+}
+
 const App = () => {
   const [globalStats, setGlobalStats] = useState({
     totalGames: 0,
@@ -241,17 +247,33 @@ const App = () => {
                     </div>
                   </div>
 
-                  <div className="match-roster-grid">
+                  <div className="match-roster-grid-enhanced">
                     <div className="roster-team blue">
-                      {blueTeam.map(p => (
-                        <span key={p.gamertag} className="roster-player">{p.gamertag}</span>
-                      ))}
+                      {blueTeam.map(p => {
+                        const { kd, kda } = calculateRatios(p.kills, p.deaths, p.assists);
+                        return (
+                          <div key={p.gamertag} className="player-stat-row">
+                            <span className="roster-player">{p.gamertag}</span>
+                            <span className="player-brief-stats">
+                              {p.kills}/{p.deaths}/{p.assists} • <small>{kd} KD</small>
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                     <div className="roster-vs">VS</div>
                     <div className="roster-team red">
-                      {redTeam.map(p => (
-                        <span key={p.gamertag} className="roster-player">{p.gamertag}</span>
-                      ))}
+                      {redTeam.map(p => {
+                        const { kd, kda } = calculateRatios(p.kills, p.deaths, p.assists);
+                        return (
+                          <div key={p.gamertag} className="player-stat-row" style={{ textAlign: 'left' }}>
+                            <span className="roster-player">{p.gamertag}</span>
+                            <span className="player-brief-stats">
+                              {p.kills}/{p.deaths}/{p.assists} • <small>{kd} KD</small>
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -271,6 +293,7 @@ const App = () => {
               <tr>
                 <th>Rank</th>
                 <th>Player</th>
+                <th>KD</th>
                 <th>KDA</th>
                 <th>Effic.</th>
                 <th>Spree</th>
@@ -285,6 +308,9 @@ const App = () => {
                   <td>
                     <div className="gamertag">{player.gamertag}</div>
                     <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{player.total_games} games</div>
+                  </td>
+                  <td style={{ fontFamily: 'Outfit', fontWeight: 600, opacity: 0.8 }}>
+                    {player.overall_kd}
                   </td>
                   <td style={{ fontFamily: 'Outfit', fontWeight: 600, color: player.kda >= 1.5 ? 'var(--accent-cyan)' : 'var(--text-secondary)' }}>
                     {player.kda}

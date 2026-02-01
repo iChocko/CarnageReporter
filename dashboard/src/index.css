@@ -214,11 +214,32 @@ h4 {
   border-radius: 4px;
 }
 
-.match-roster-grid {
+.match-roster-grid-enhanced {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  gap: 1rem;
-  align-items: center;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.player-stat-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.5rem;
+}
+
+.player-brief-stats {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  opacity: 0.8;
+  font-family: 'Outfit', sans-serif;
+  letter-spacing: 0.05em;
+}
+
+.player-brief-stats small {
+  color: var(--accent-cyan);
+  font-weight: 700;
+  font-size: 0.65rem;
 }
 
 .roster-team {
@@ -236,10 +257,9 @@ h4 {
 }
 
 .roster-player {
-  font-size: 0.7rem;
-  padding: 0.1rem 0.4rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 2px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
