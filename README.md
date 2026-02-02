@@ -1,24 +1,83 @@
-# Carnage Reporter
+# 🎮 Carnage Reporter v3.0
 
-![Image of Carnage Reporter stream overlay](https://raw.githubusercontent.com/CYRiXplaysHalo/CarnageReporter/b755295ff99c067f6ac80f18b0a4116294b6d5a1/image.png)
+[![Halo 3 MCC](https://img.shields.io/badge/Game-Halo%203%20MCC-blue?style=for-the-badge&logo=xbox)](https://www.halowaypoint.com/)
+[![Node.js](https://img.shields.io/badge/Powered%20By-Node.js-green?style=for-the-badge&logo=node.js)](https://nodejs.org/)
+[![Discord](https://img.shields.io/badge/Community-Discord-7289DA?style=for-the-badge&logo=discord)](https://discord.gg/yD6nGZ3KQX)
+[![Supabase](https://img.shields.io/badge/Database-Supabase-3ECF8E?style=for-the-badge&logo=supabase)](https://supabase.com/)
 
-### What is Carnage Reporter?
+---
 
-This is an app that monitors Halo 3 MCC PC match carnage reports, generates PNG summaries, sends them to Discord, and uploads comprehensive stats to Supabase for tracking and analysis.
+### 🚀 DESCARGA DIRECTA
+> [!IMPORTANT]
+> **[📥 Descargar CarnageReporter.exe para PC](https://github.com/iChocko/CarnageReporter/releases/latest/download/CarnageReporter.exe)**
+> *Compatible con Windows 10/11 (Halo 3 MCC PC).*
 
-The app saves your MCC PC carnage report files into a non-temporary directory to preserve them since the game simply overwrites this file in its temporary directory after a new game is completed. This allows you to maintain detailed session stats and contribute to a comprehensive database.
+---
 
-### Why should I use this?
+## 📌 Sobre este proyecto
+Este proyecto es un **fork mejorado** del trabajo original de [CYRiXplaysHalo/CarnageReporter](https://github.com/CYRiXplaysHalo/CarnageReporter). Se ha rediseñado para ofrecer una arquitectura más robusta, integración con Supabase para estadísticas históricas y un dashboard web completo.
 
-With this application we create a database of in-depth stats for each game that allows us to better understand Halo 3 MCC PC. You can:
+**Carnage Reporter** automatiza el seguimiento de tus partidas de Halo 3 en MCC PC (Customs y Matchmaking), extrayendo estadísticas detalladas que el juego normalmente sobreescribe.
 
-- **Track your career stats**: Monitor your progress across all matches with detailed breakdowns of kills, deaths, assists, and more
-- **Share match results**: Automatically post match summaries to Discord with beautiful PNG graphics
-- **Contribute to community analytics**: Help build a comprehensive database of Halo 3 stats including map distribution, balance analysis, and player trends
-- **Real-time notifications**: Get instant Discord notifications when matches complete
+---
 
-As long as one person per game submits stats, we can record stats for all players in that game.
+## 🛠️ ¿Cómo funciona?
 
-### How does it work?
+El ecosistema se divide en tres componentes principales que trabajan en armonía:
 
-Halo 3 MCC PC generates an XML file after each multiplayer game containing every statistic and medal for each player and team. This script monitors the folder where these files are created, processes them, generates visual summaries, sends them to Discord, and uploads the data to Supabase for permanent storage and analysis.
+### 1. 🖥️ El Cliente (App de Escritorio)
+Es un ejecutable ligero que corre en segundo plano mientras juegas:
+- **Monitoreo en Tiempo Real**: Vigila la carpeta temporal de MCC en busca de los archivos `.xml` que el juego genera tras cada partida.
+- **Persistencia**: Antes de que MCC los borre, el cliente los captura y procesa.
+- **Sincronización**: Envía los datos extraídos automáticamente a nuestro servidor central.
+
+### 2. 🌐 El Servidor (Backend)
+El cerebro del sistema, encargado de procesar la "carnicería":
+- **Procesamiento de Datos**: Recibe el XML, lo parsea y extrae cada baja, muerte, asistencia y medalla.
+- **Renderizado Dinámico**: Utiliza un motor de renderizado (Puppeteer) para crear una imagen resumida (PNG) profesional de la partida.
+- **Notificaciones**: Publica automáticamente los resultados en canales de **Discord** y grupos de **WhatsApp**.
+- **Base de Datos**: Almacena cada estadística en **Supabase** de por vida.
+
+### 3. 📊 El Dashboard (Web)
+Una interfaz moderna construida en React para la comunidad:
+- **Leaderboards**: Clasificación en tiempo real de los mejores jugadores basada en métricas MLG.
+- **Historial Global**: Visualiza el total de bajas, muertes y eficiencia de toda la comunidad.
+- **Perfiles**: Consulta tus estadísticas personales y evolución a lo largo del tiempo.
+
+---
+
+## 🔧 Configuración para Desarrolladores
+
+Si deseas correr el proyecto desde el código fuente o contribuir:
+
+1. **Clonar el repo**:
+   ```bash
+   git clone https://github.com/iChocko/CarnageReporter.git
+   ```
+2. **Instalar dependencias**:
+   ```bash
+   npm install
+   ```
+3. **Variables de entorno**:
+   Configura un archivo `.env` basado en `.env.example`:
+   ```env
+   SUPABASE_PROJECT_ID=tu_id
+   SUPABASE_PASSWORD=tu_password
+   ```
+4. **Ejecutar**:
+   - Cliente: `npm start`
+   - Servidor: `node server/index.js`
+   - Dashboard: `cd dashboard && npm run dev`
+
+---
+
+## 🤝 Créditos y Agradecimientos
+- **Autor Original**: [CYRiXplaysHalo](https://github.com/CYRiXplaysHalo) (Idea inicial y estructura de captura XML).
+- **Mantenedor Actual**: [iChocko](https://github.com/iChocko).
+- **Comunidad**: Gracias a todos los jugadores que contribuyen con su data para hacer de Halo 3 un juego eterno.
+
+---
+
+<p align="center">
+  Hecho con ❤️ para la comunidad de Halo.
+</p>
