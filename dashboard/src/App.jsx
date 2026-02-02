@@ -3,12 +3,14 @@ import { Trophy, Activity, Target, Shield, Users, Clock, Award, Crosshair, Trian
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { StripePaymentModal } from './StripePaymentModal'
+import { LeaderboardCard } from './LeaderboardCard'
 
 const API_BASE_URL = '/api/stats'
 
 const DONATION_METHODS = [
   {
     name: 'PayPal',
+    label: 'SUPPORT VIA PAYPAL (USD)',
     url: 'https://paypal.me/xChocko',
     icon: (props) => (
       <svg {...props} viewBox="0 0 24 24" fill="currentColor">
@@ -19,6 +21,7 @@ const DONATION_METHODS = [
   },
   {
     name: 'Stripe',
+    label: 'SUPPORT VIA STRIPE (USD)',
     modal: true,
     icon: (props) => <CreditCard {...props} />,
     external: false
@@ -44,9 +47,13 @@ const App = () => {
   const [recentGames, setRecentGames] = useState([])
   const [loading, setLoading] = useState(true)
   const [isStripeModalOpen, setIsStripeModalOpen] = useState(false)
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
 
   useEffect(() => {
     fetchData()
+    const handleResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, [])
 
   const fetchData = async () => {
@@ -60,19 +67,28 @@ const App = () => {
       ])
 
       const [gData, lData, rData, mData] = await Promise.all([
-        gRes.json(),
-        lRes.json(),
-        rRes.json(),
-        mRes.json()
+        gRes.ok ? gRes.json() : null,
+        lRes.ok ? lRes.json() : [],
+        rRes.ok ? rRes.json() : [],
+        mRes.ok ? mRes.json() : null
       ])
 
-      setGlobalStats(gData)
-      setLeaderboard(lData)
-      setRecentGames(rData)
+      setGlobalStats(gData || {
+        totalGames: 0,
+        totalKills: 0,
+        totalDeaths: 0,
+        avgKD: 0,
+        totalPlayers: 0
+      })
+      setLeaderboard(lData || [])
+      setRecentGames(rData || [])
       setMvpData(mData)
 
     } catch (error) {
       console.error('Error fetching data:', error)
+      // Set empty states to allow UI rendering
+      setLeaderboard([])
+      setRecentGames([])
     } finally {
       setLoading(false)
     }
@@ -164,7 +180,7 @@ const App = () => {
             </p>
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
               gap: '1.5rem'
             }}>
               {mvpData.mvp && (
@@ -269,7 +285,7 @@ const App = () => {
                   </div>
 
                   <div className="match-roster-grid-enhanced">
-                    <div className="roster-team blue">
+                    <div className={`roster-team blue ${isMobile ? 'mobile-stack' : ''}`}>
                       {blueTeam.map(p => {
                         const { kd, kda } = calculateRatios(p.kills, p.deaths, p.assists);
                         return (
@@ -283,7 +299,7 @@ const App = () => {
                       })}
                     </div>
                     <div className="roster-vs">VS</div>
-                    <div className="roster-team red">
+                    <div className={`roster-team red ${isMobile ? 'mobile-stack' : ''}`}>
                       {redTeam.map(p => {
                         const { kd, kda } = calculateRatios(p.kills, p.deaths, p.assists);
                         return (
@@ -309,56 +325,65 @@ const App = () => {
           <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '-1rem', marginBottom: '1rem' }}>
             Ranked by Slayer Score (40% KDA + 30% Efficiency + 30% Spree)
           </p>
-          <table className="leaderboard-table">
-            <thead>
-              <tr>
-                <th>Rank</th>
-                <th>Player</th>
-                <th>KD</th>
-                <th>KDA</th>
-                <th>Effic.</th>
-                <th>Spree</th>
-                <th>Score</th>
-                <th>Tier</th>
-              </tr>
-            </thead>
-            <tbody>
+
+          {isMobile ? (
+            <div className="leaderboard-mobile">
               {leaderboard && leaderboard.length > 0 ? leaderboard.slice(0, 10).map((player, index) => (
-                <tr key={player.gamertag}>
-                  <td><div className="rank-badge">{index + 1}</div></td>
-                  <td>
-                    <div className="gamertag">{player.gamertag}</div>
-                    <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{player.total_games} games</div>
-                  </td>
-                  <td style={{ fontFamily: 'Outfit', fontWeight: 600, opacity: 0.8 }}>
-                    {player.overall_kd}
-                  </td>
-                  <td style={{ fontFamily: 'Outfit', fontWeight: 600, color: player.kda >= 1.5 ? 'var(--accent-cyan)' : 'var(--text-secondary)' }}>
-                    {player.kda}
-                  </td>
-                  <td style={{ fontFamily: 'Outfit', fontWeight: 600, color: player.efficiency >= 0 ? '#00f2ff' : '#ff5c5c' }}>
-                    {player.efficiency > 0 ? `+${player.efficiency}` : player.efficiency}
-                  </td>
-                  <td style={{ fontFamily: 'Outfit' }}>{player.avg_spree}</td>
-                  <td style={{ fontFamily: 'Outfit', fontWeight: 700, color: 'var(--accent-gold)' }}>{player.slayer_score}</td>
-                  <td>
-                    <span style={{
-                      display: 'inline-block',
-                      padding: '2px 8px',
-                      borderRadius: '3px',
-                      fontSize: '0.65rem',
-                      fontWeight: 700,
-                      backgroundColor: `${player.tier_color}20`,
-                      color: player.tier_color,
-                      border: `1px solid ${player.tier_color}`
-                    }}>
-                      {player.tier === 'Pro' ? '🥇' : player.tier === 'Semi-Pro' ? '🥈' : player.tier === 'Competitive' ? '🥉' : ''} {player.tier.toUpperCase()}
-                    </span>
-                  </td>
+                <LeaderboardCard key={player.gamertag} player={player} index={index} />
+              )) : <p style={{ opacity: 0.5, textAlign: 'center' }}>No player data available.</p>}
+            </div>
+          ) : (
+            <table className="leaderboard-table">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Player</th>
+                  <th>KD</th>
+                  <th>KDA</th>
+                  <th>Effic.</th>
+                  <th>Spree</th>
+                  <th>Score</th>
+                  <th>Tier</th>
                 </tr>
-              )) : <tr><td colSpan="7" style={{ textAlign: 'center', opacity: 0.5 }}>No player data available.</td></tr>}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {leaderboard && leaderboard.length > 0 ? leaderboard.slice(0, 10).map((player, index) => (
+                  <tr key={player.gamertag}>
+                    <td><div className="rank-badge">{index + 1}</div></td>
+                    <td>
+                      <div className="gamertag">{player.gamertag}</div>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{player.total_games} games</div>
+                    </td>
+                    <td style={{ fontFamily: 'Outfit', fontWeight: 600, opacity: 0.8 }}>
+                      {player.overall_kd}
+                    </td>
+                    <td style={{ fontFamily: 'Outfit', fontWeight: 600, color: player.kda >= 1.5 ? 'var(--accent-cyan)' : 'var(--text-secondary)' }}>
+                      {player.kda}
+                    </td>
+                    <td style={{ fontFamily: 'Outfit', fontWeight: 600, color: player.efficiency >= 0 ? '#00f2ff' : '#ff5c5c' }}>
+                      {player.efficiency > 0 ? `+${player.efficiency}` : player.efficiency}
+                    </td>
+                    <td style={{ fontFamily: 'Outfit' }}>{player.avg_spree}</td>
+                    <td style={{ fontFamily: 'Outfit', fontWeight: 700, color: 'var(--accent-gold)' }}>{player.slayer_score}</td>
+                    <td>
+                      <span style={{
+                        display: 'inline-block',
+                        padding: '2px 8px',
+                        borderRadius: '3px',
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                        backgroundColor: `${player.tier_color}20`,
+                        color: player.tier_color,
+                        border: `1px solid ${player.tier_color}`
+                      }}>
+                        {player.tier === 'Pro' ? '🥇' : player.tier === 'Semi-Pro' ? '🥈' : player.tier === 'Competitive' ? '🥉' : ''} {player.tier.toUpperCase()}
+                      </span>
+                    </td>
+                  </tr>
+                )) : <tr><td colSpan="7" style={{ textAlign: 'center', opacity: 0.5 }}>No player data available.</td></tr>}
+              </tbody>
+            </table>
+          )}
         </section>
       </div>
 
@@ -418,7 +443,7 @@ const App = () => {
                 }}
               >
                 {method.icon({ width: 14, height: 14 })}
-                SUPPORT VIA {method.name.toUpperCase()}
+                {method.label}
               </Component>
             )
           })}

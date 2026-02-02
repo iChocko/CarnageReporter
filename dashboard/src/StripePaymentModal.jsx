@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { X } from 'lucide-react'
@@ -113,6 +113,13 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
     const [customAmount, setCustomAmount] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768)
+        window.addEventListener('resize', handleResize)
+        return () => window.removeEventListener('resize', handleResize)
+    }, [])
 
     const handleAmountSelect = (amount) => {
         setSelectedAmount(amount)
@@ -181,7 +188,7 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                     border: '2px solid var(--accent-blue)',
                     maxWidth: '500px',
                     width: '100%',
-                    padding: '2rem',
+                    padding: isMobile ? '1.5rem 1rem' : '2rem',
                     position: 'relative'
                 }}
             >
@@ -214,7 +221,7 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                     Support Carnage Reporter
                 </h2>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '2rem' }}>
-                    Your donation helps keep the servers running
+                    Your donation (USD) helps keep the servers running
                 </p>
 
                 {!clientSecret ? (
@@ -228,9 +235,14 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                                 letterSpacing: '0.1em',
                                 marginBottom: '0.75rem'
                             }}>
-                                Select Amount
+                                Select Amount (USD)
                             </label>
-                            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
+                            <div style={{
+                                display: 'flex',
+                                gap: '0.75rem',
+                                marginBottom: '1rem',
+                                flexDirection: isMobile ? 'column' : 'row'
+                            }}>
                                 {PREDEFINED_AMOUNTS.map(({ value, label }) => (
                                     <button
                                         key={value}
@@ -245,7 +257,8 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                                             fontWeight: 700,
                                             fontSize: '1rem',
                                             cursor: 'pointer',
-                                            transition: 'all 0.2s'
+                                            transition: 'all 0.2s',
+                                            minHeight: '44px'
                                         }}
                                     >
                                         {label}
@@ -254,7 +267,7 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                             </div>
                             <input
                                 type="text"
-                                placeholder="Custom amount ($)"
+                                placeholder="Custom amount (USD $)"
                                 value={customAmount}
                                 onChange={handleCustomAmountChange}
                                 style={{
@@ -265,7 +278,8 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                                     color: 'var(--text-primary)',
                                     fontFamily: 'Inter',
                                     fontSize: '0.875rem',
-                                    outline: 'none'
+                                    outline: 'none',
+                                    minHeight: '44px'
                                 }}
                             />
                         </div>
@@ -321,6 +335,9 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                         }
                     }}>
                         <PaymentForm amount={selectedAmount} onClose={onClose} />
+                        <div style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.7rem', opacity: 0.5 }}>
+                            ALL DONATIONS ARE PROCESSED IN USD
+                        </div>
                     </Elements>
                 )}
             </div>

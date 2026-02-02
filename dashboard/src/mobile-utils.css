@@ -1,0 +1,59 @@
+/* Mobile-first breakpoints */
+:root {
+  --breakpoint-xs: 480px;
+  --breakpoint-sm: 768px;
+  --breakpoint-md: 1024px;
+  --breakpoint-lg: 1200px;
+  
+  /* Fluid typography tokens */
+  --font-size-h1: clamp(1.75rem, 8vw, 2.5rem);
+  --font-size-h2: clamp(1.25rem, 5vw, 1.75rem);
+  --font-size-stat: clamp(2rem, 10vw, 2.5rem);
+  
+  /* Minimum touch target size */
+  --min-touch-target: 44px;
+}
+
+/* Visibility helpers */
+.mobile-only {
+  display: none !important;
+}
+
+.desktop-only {
+  display: block !important;
+}
+
+@media (max-width: 768px) {
+  .mobile-only {
+    display: block !important;
+  }
+  
+  .desktop-only {
+    display: none !important;
+  }
+}
+
+/* Touch target optimizations */
+.touch-target {
+  min-height: var(--min-touch-target);
+  min-width: var(--min-touch-target);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mobile Stack Layout */
+.mobile-stack {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1rem !important;
+}
+
+/* Grid adjustments */
+.grid-mobile-1 {
+  grid-template-columns: 1fr !important;
+}
+
+.grid-mobile-2 {
+  grid-template-columns: repeat(2, 1fr) !important;
+}
