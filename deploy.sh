@@ -103,6 +103,8 @@ cat > /tmp/carnage-service.yml << 'EOF'
       - /root/carnage-reporter-docker/.env
     volumes:
       - /root/carnage-reporter-docker/server/output:/app/server/output
+      # Sesión de WhatsApp persistente (sobrevive redeploys; escanear QR solo una vez)
+      - /root/carnage-reporter-docker/wwebjs_auth:/app/server/.wwebjs_auth
 EOF
 
 # Dividir el archivo y reconstruirlo

@@ -14,6 +14,7 @@ const Stripe = require('stripe');
 const DiscordService = require('./services/discord');
 const SupabaseService = require('./services/supabase');
 const RendererService = require('./services/renderer');
+const WhatsAppService = require('./services/whatsapp');
 const { evaluateMatch } = require('./services/validator');
 
 // Initialize Stripe
@@ -50,6 +51,7 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 const discord = new DiscordService();
 const supabase = new SupabaseService();
 const renderer = new RendererService();
+const whatsapp = new WhatsAppService();
 
 // Middleware de autenticación simple
 function authMiddleware(req, res, next) {
@@ -147,6 +149,14 @@ app.post('/api/report', authMiddleware, async (req, res) => {
         console.log('💬 Enviando a Discord...');
         const dsResult = await discord.sendImage(pngPath, gameData, players);
         console.log(`   ${dsResult ? '✅' : '❌'} Resultado Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
+
+        // 4b. Enviar a WhatsApp (si está habilitado y listo; su fallo nunca tumba el request)
+        if (whatsapp.isReady()) {
+            const shortId = String(gameId).slice(0, 8);
+            const waCaption = `🏆 ${gameData.mapName} - ${gameData.gameTypeName}\n📅 ${new Date(gameData.timestamp).toLocaleString()}\nID: ${shortId}`;
+            const waResult = await whatsapp.sendImage(pngPath, waCaption);
+            console.log(`   ${waResult ? '✅' : '❌'} Resultado WhatsApp: ${waResult ? 'Enviado' : 'Fallido'}`);
+        }
 
         // 5. Guardar en Supabase
         console.log('💾 Guardando en Supabase...');
@@ -285,6 +295,50 @@ app.post('/api/admin/games/:id/void', adminAuthMiddleware, async (req, res) => {
         res.json({ status: 'voided', gameId: fullId });
     } catch (error) {
         console.error('❌ Error en void admin:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============== ADMIN: WHATSAPP ==============
+
+/**
+ * QR de pairing como imagen PNG (abrir en el navegador y escanear).
+ * 204 si no hay QR pendiente (ya emparejado o servicio apagado).
+ * GET /api/admin/whatsapp/qr
+ */
+app.get('/api/admin/whatsapp/qr', adminAuthMiddleware, async (req, res) => {
+    try {
+        const qr = whatsapp.getQR();
+        if (!qr) {
+            return res.status(204).end();
+        }
+        const QRCode = require('qrcode');
+        const png = await QRCode.toBuffer(qr, { width: 400, margin: 2 });
+        res.set('Content-Type', 'image/png');
+        res.set('Cache-Control', 'no-store');
+        res.send(png);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Estado del servicio de WhatsApp.
+ * GET /api/admin/whatsapp/status
+ */
+app.get('/api/admin/whatsapp/status', adminAuthMiddleware, (req, res) => {
+    res.json(whatsapp.getStatus());
+});
+
+/**
+ * Lista de grupos disponibles (para obtener el WHATSAPP_GROUP_ID).
+ * GET /api/admin/whatsapp/groups
+ */
+app.get('/api/admin/whatsapp/groups', adminAuthMiddleware, async (req, res) => {
+    try {
+        const groups = await whatsapp.listGroups();
+        res.json(groups);
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
@@ -568,7 +622,10 @@ async function start() {
         console.log('\n👀 Esperando reportes de clientes...\n');
     });
 
-
+    // Inicializar WhatsApp en segundo plano (no bloquea el arranque de Express)
+    whatsapp.initialize().catch(err => {
+        console.error('❌ WhatsApp no pudo inicializar:', err.message);
+    });
 }
 
 // Manejo de cierre graceful
