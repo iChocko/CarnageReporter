@@ -10,7 +10,7 @@ const { spawn } = require('child_process');
 
 // ============== CONFIGURACIÓN (Lanzamiento Oficial) ==============
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const GITHUB_REPO = 'iChocko/CarnageReporter';
 const EXE_NAME = 'CarnageReporter.exe';
 const DISCORD_URL = 'https://discord.gg/yD6nGZ3KQX';
