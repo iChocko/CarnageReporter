@@ -36,7 +36,8 @@ class DiscordService {
             return false;
         }
 
-        const caption = `🏆 **${gameData.mapName}** - ${gameData.gameTypeName}\n📅 ${new Date(gameData.timestamp).toLocaleString()}\nID: \`${gameData.gameUniqueId}\``;
+        const shortId = String(gameData.gameUniqueId || '').slice(0, 8);
+        const caption = `🏆 **${gameData.mapName}** - ${gameData.gameTypeName}\n📅 ${new Date(gameData.timestamp).toLocaleString()}\nID: \`${shortId}\` (${gameData.gameUniqueId})`;
 
         try {
             const boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW';

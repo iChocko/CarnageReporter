@@ -1,16 +1,56 @@
 /**
  * Renderer Service
- * Generación de imágenes PNG con Puppeteer AISLADO
+ * Generación de imágenes PNG con Puppeteer AISLADO.
+ *
+ * Diseño: "Post Game Carnage Report" estilo Halo 3 clásico (Bungie).
+ * Sin dependencias de red: todo el CSS es inline y la tipografía es de sistema.
  */
 
 const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+
+// Paleta de equipos estilo Halo 3 (convención del proyecto: 0=Blue, 1=Red)
+const TEAM_PALETTE = {
+    0: { name: 'BLUE TEAM', main: '#4f8fca', dark: '#12283d', light: '#8fc3ef' },
+    1: { name: 'RED TEAM', main: '#c94f4f', dark: '#3d1212', light: '#ef8f8f' },
+    2: { name: 'GREEN TEAM', main: '#5cae5c', dark: '#143d14', light: '#9fe09f' },
+    3: { name: 'ORANGE TEAM', main: '#d98e3c', dark: '#3d2812', light: '#f0bc85' },
+    4: { name: 'PURPLE TEAM', main: '#9a5cc9', dark: '#28123d', light: '#cda1ec' },
+    5: { name: 'GOLD TEAM', main: '#c9b23c', dark: '#3d3512', light: '#ecd985' },
+    6: { name: 'BROWN TEAM', main: '#a1794f', dark: '#2e2012', light: '#cfae87' },
+    7: { name: 'PINK TEAM', main: '#d97ca8', dark: '#3d1228', light: '#f2b0cf' },
+};
+
+function getTeam(teamId) {
+    return TEAM_PALETTE[teamId] || { name: `TEAM ${teamId}`, main: '#8a9aaa', dark: '#1c242c', light: '#c0ccd8' };
+}
+
+function escapeHtml(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatDuration(seconds) {
+    if (!seconds || seconds <= 0) return null;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function fmtKD(kills, deaths) {
+    return deaths > 0 ? (kills / deaths).toFixed(2) : kills.toFixed(2);
+}
 
 class RendererService {
     constructor() {
         // Directorio SEPARADO para el renderer
-        this.profileDir = '/tmp/.puppeteer_renderer';
+        this.profileDir = path.join(os.tmpdir(), '.puppeteer_renderer');
 
         // Crear directorio de perfil
         if (!fs.existsSync(this.profileDir)) {
@@ -26,11 +66,11 @@ class RendererService {
      */
     getChromiumPath() {
         const possiblePaths = [
-            '/snap/bin/chromium',
-            '/usr/bin/chromium-browser',
             '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
             '/usr/bin/google-chrome-stable',
             '/usr/bin/google-chrome',
+            '/snap/bin/chromium',
         ];
 
         for (const p of possiblePaths) {
@@ -44,180 +84,266 @@ class RendererService {
     }
 
     /**
-     * Genera el HTML del reporte de partida
+     * Fila de un jugador (modo equipos o FFA)
+     */
+    playerRow(p, accentColor, place) {
+        const kd = fmtKD(p.kills, p.deaths);
+        const spree = p.killingSpree || p.mostKillsInARow || 0;
+        return `
+            <tr>
+                <td class="c place">${place}</td>
+                <td class="player">
+                    <span class="tag" style="border-color:${accentColor}">${escapeHtml(p.serviceId || p.clanTag || '—')}</span>
+                    <span class="name">${escapeHtml(p.gamertag)}</span>
+                </td>
+                <td class="c score">${p.score}</td>
+                <td class="c">${p.kills}</td>
+                <td class="c dim">${p.deaths}</td>
+                <td class="c dim">${p.assists}</td>
+                <td class="c kd" style="color:${accentColor}">${kd}</td>
+                <td class="c dim">${spree}</td>
+            </tr>`;
+    }
+
+    tableHead() {
+        return `
+            <thead>
+                <tr>
+                    <th class="c w-place">PLACE</th>
+                    <th class="w-player">PLAYER</th>
+                    <th class="c">SCORE</th>
+                    <th class="c">KILLS</th>
+                    <th class="c">DEATHS</th>
+                    <th class="c">ASSISTS</th>
+                    <th class="c">K/D</th>
+                    <th class="c">SPREE</th>
+                </tr>
+            </thead>`;
+    }
+
+    /**
+     * Genera el HTML del reporte de partida (estilo Halo 3 clásico)
      */
     generateHTML(gameData, players) {
-        const blueTeam = players.filter(p => p.teamId === 0);
-        const redTeam = players.filter(p => p.teamId === 1);
+        const isTeams = gameData.isTeamsEnabled !== false;
+        const shortId = String(gameData.gameUniqueId || 'unknown').slice(0, 8);
+        const duration = formatDuration(gameData.duration);
 
-        const calcTotals = (team) => ({
-            kills: team.reduce((sum, p) => sum + p.kills, 0),
-            score: team.reduce((sum, p) => sum + p.score, 0),
-            deaths: team.reduce((sum, p) => sum + p.deaths, 0),
-            assists: team.reduce((sum, p) => sum + p.assists, 0)
-        });
-
-        const blueTotals = calcTotals(blueTeam);
-        const redTotals = calcTotals(redTeam);
-
-        const blueWins = blueTotals.score > redTotals.score;
-        const winnerText = blueWins ? 'Blue Team Victory' : 'Red Team Victory';
-
+        // Fecha/hora en horario de CDMX
         const timestamp = new Date(gameData.timestamp);
-        const options = { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
-        const cdmxParts = new Intl.DateTimeFormat('en-GB', options).formatToParts(timestamp);
+        const options = { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false };
+        const parts = new Intl.DateTimeFormat('en-GB', options).formatToParts(timestamp);
+        const getPart = (type) => (parts.find(p => p.type === type) || {}).value || '';
+        const dateStr = `${getPart('day')}/${getPart('month')}/${getPart('year')}`;
+        const timeStr = `${getPart('hour')}:${getPart('minute')}`;
 
-        const getPart = (type) => cdmxParts.find(p => p.type === type).value;
-        const formatDate = () => `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
-        const formatTime = () => `${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
+        let winnerText, winnerColor, bodyContent;
 
-        const playerRow = (p, isBlue) => {
-            const kd = p.deaths > 0 ? (p.kills / p.deaths).toFixed(2) : p.kills.toFixed(2);
-            const teamColorClass = isBlue ? 'blue' : 'red';
-            const initials = p.gamertag.slice(0, 2).toUpperCase();
+        if (isTeams) {
+            // ---- MODO EQUIPOS (2 o más) ----
+            const teamsMap = new Map();
+            for (const p of players) {
+                const tid = p.teamId ?? 0;
+                if (!teamsMap.has(tid)) teamsMap.set(tid, []);
+                teamsMap.get(tid).push(p);
+            }
 
-            return `
-                <tr class="hover:bg-white hover:bg-opacity-[0.03] transition-colors">
-                    <td class="pl-4 py-3">
-                        <div class="flex items-center gap-3">
-                            <div class="w-8 h-8 bg-${teamColorClass}-900 rounded border border-${teamColorClass}-700 flex items-center justify-center text-xs font-bold ring-1 ring-${teamColorClass}-500/50">
-                                ${initials}
-                            </div>
-                            <div>
-                                <div class="font-bold tracking-wide text-white">${p.gamertag}</div>
-                                <div class="text-xs text-gray-500 uppercase tracking-wider font-semibold">
-                                    Service Tag: ${p.serviceId || p.clanTag || 'N/A'}</div>
-                            </div>
-                        </div>
-                    </td>
-                    <td class="text-center stat-val text-white text-lg">${p.kills}</td>
-                    <td class="text-center stat-val text-halo-gold font-bold text-xl">${p.score}</td>
-                    <td class="text-center stat-val text-gray-400">${p.deaths}</td>
-                    <td class="text-center stat-val text-gray-400">${p.assists}</td>
-                    <td class="text-center stat-val text-halo-${teamColorClass}">${kd}</td>
-                    <td class="text-center stat-val text-red-400 pr-4">${p.deaths}</td>
-                </tr>`;
-        };
+            const teams = [...teamsMap.entries()].map(([tid, members]) => {
+                const totals = members.reduce((acc, p) => ({
+                    score: acc.score + p.score,
+                    kills: acc.kills + p.kills,
+                    deaths: acc.deaths + p.deaths,
+                    assists: acc.assists + p.assists,
+                }), { score: 0, kills: 0, deaths: 0, assists: 0 });
+                return { tid, meta: getTeam(tid), members: [...members].sort((a, b) => b.score - a.score), totals };
+            }).sort((a, b) => b.totals.score - a.totals.score);
 
-        const teamTotalsRow = (totals, isBlue) => {
-            const kd = totals.deaths > 0 ? (totals.kills / totals.deaths).toFixed(2) : totals.kills.toFixed(2);
-            const teamColorClass = isBlue ? 'blue' : 'red';
-            const teamName = isBlue ? 'BLUE' : 'RED';
+            // Ganador (maneja empates)
+            if (teams.length >= 2 && teams[0].totals.score === teams[1].totals.score) {
+                winnerText = 'DRAW';
+                winnerColor = '#c8d2dc';
+            } else {
+                winnerText = `${teams[0].meta.name} WINS`;
+                winnerColor = teams[0].meta.light;
+            }
 
-            return `
-                <tr class="bg-${teamColorClass}-900 bg-opacity-20 border-t border-${teamColorClass}-800">
-                    <td class="pl-4 py-3 font-halo font-bold text-halo-${teamColorClass} tracking-wider text-sm">${teamName} TOTALS</td>
-                    <td class="text-center stat-val text-white font-bold text-lg">${totals.kills}</td>
-                    <td class="text-center stat-val text-white font-bold text-lg">${totals.score}</td>
-                    <td class="text-center stat-val text-gray-300">${totals.deaths}</td>
-                    <td class="text-center stat-val text-gray-300">${totals.assists}</td>
-                    <td class="text-center stat-val text-halo-${teamColorClass}">${kd}</td>
-                    <td class="text-center stat-val text-gray-300 pr-4">${totals.deaths}</td>
-                </tr>`;
-        };
+            bodyContent = teams.map(team => {
+                const kd = fmtKD(team.totals.kills, team.totals.deaths);
+                let place = 0;
+                return `
+            <section class="team">
+                <div class="team-bar" style="background:linear-gradient(90deg, ${team.meta.dark} 0%, rgba(10,15,20,0.4) 85%); border-left:5px solid ${team.meta.main};">
+                    <span class="team-name" style="color:${team.meta.light}">${team.meta.name}</span>
+                    <span class="team-score" style="color:${team.meta.light}">${team.totals.score}</span>
+                </div>
+                <table>
+                    ${this.tableHead()}
+                    <tbody>
+                        ${team.members.map(p => this.playerRow(p, team.meta.light, ++place)).join('')}
+                        <tr class="totals" style="border-top:1px solid ${team.meta.main}">
+                            <td class="c"></td>
+                            <td class="player total-label" style="color:${team.meta.light}">TEAM TOTALS</td>
+                            <td class="c score">${team.totals.score}</td>
+                            <td class="c">${team.totals.kills}</td>
+                            <td class="c dim">${team.totals.deaths}</td>
+                            <td class="c dim">${team.totals.assists}</td>
+                            <td class="c kd" style="color:${team.meta.light}">${kd}</td>
+                            <td class="c"></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>`;
+            }).join('');
+
+        } else {
+            // ---- MODO FFA (cada quien por su lado) ----
+            const sorted = [...players].sort((a, b) => (a.standing - b.standing) || (b.score - a.score));
+            const winner = sorted[0];
+            winnerText = winner ? `${escapeHtml(winner.gamertag).toUpperCase()} WINS` : 'GAME OVER';
+            winnerColor = '#e8d98a';
+
+            let place = 0;
+            bodyContent = `
+            <section class="team">
+                <div class="team-bar" style="background:linear-gradient(90deg, #2e2a14 0%, rgba(10,15,20,0.4) 85%); border-left:5px solid #c9b23c;">
+                    <span class="team-name" style="color:#ecd985">FREE FOR ALL</span>
+                    <span class="team-score" style="color:#ecd985">${players.length} SPARTANS</span>
+                </div>
+                <table>
+                    ${this.tableHead()}
+                    <tbody>
+                        ${sorted.map(p => this.playerRow(p, '#ecd985', ++place)).join('')}
+                    </tbody>
+                </table>
+            </section>`;
+        }
 
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Post Game Carnage Report</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { background-color: #0a141d; color: #e0e6eb; font-family: 'Rajdhani', sans-serif; overflow: hidden; }
-        .font-halo { font-family: 'Orbitron', sans-serif; }
-        .glass-panel { background: rgba(18, 38, 54, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(130, 215, 255, 0.25); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6); }
-        .text-halo-blue { color: #4fc3f7; text-shadow: 0 0 10px rgba(79, 195, 247, 0.6); }
-        .text-halo-red { color: #ef5350; text-shadow: 0 0 10px rgba(239, 83, 80, 0.6); }
-        .text-halo-gold { color: #ffd700; text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
-        .team-header-blue { background: linear-gradient(90deg, rgba(1, 46, 74, 0.9) 0%, rgba(9, 25, 38, 0.2) 100%); border-left: 4px solid #4fc3f7; }
-        .team-header-red { background: linear-gradient(90deg, rgba(66, 11, 11, 0.9) 0%, rgba(38, 9, 9, 0.2) 100%); border-left: 4px solid #ef5350; }
-        .winner-banner { background: linear-gradient(90deg, transparent, rgba(79, 195, 247, 0.2), transparent); border-top: 1px solid #4fc3f7; border-bottom: 1px solid #4fc3f7; }
-        th { text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.1em; color: #90a4ae; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-        td { padding: 0.75rem 0.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); font-weight: 500; }
-        .stat-val { font-family: 'Orbitron', sans-serif; letter-spacing: 0.05em; }
-        .glow-text { text-shadow: 0 0 8px rgba(255, 255, 255, 0.3); }
-    </style>
+<meta charset="UTF-8">
+<title>Post Game Carnage Report</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        background:
+            radial-gradient(ellipse at 50% -20%, #1c2c3e 0%, transparent 60%),
+            linear-gradient(180deg, #0b1119 0%, #0e1620 45%, #0a0e14 100%);
+        color: #c8d2dc;
+        font-family: 'Arial Narrow', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+        padding: 34px 40px;
+        width: 1200px;
+    }
+    .frame {
+        border: 1px solid #2a3a4c;
+        background: rgba(13, 20, 28, 0.88);
+        box-shadow: 0 0 0 1px rgba(120,160,200,0.06), 0 18px 60px rgba(0,0,0,0.7);
+    }
+
+    /* --- Encabezado --- */
+    header {
+        display: flex; justify-content: space-between; align-items: flex-end;
+        padding: 22px 28px 16px 28px;
+        background: linear-gradient(180deg, rgba(46,66,88,0.5) 0%, rgba(18,26,36,0.2) 100%);
+        border-bottom: 1px solid #33475c;
+    }
+    .kicker {
+        font-size: 13px; letter-spacing: 5px; color: #7fa8c9;
+        text-transform: uppercase; margin-bottom: 4px;
+    }
+    h1 {
+        font-size: 44px; font-weight: 700; letter-spacing: 3px;
+        color: #eef3f8; text-transform: uppercase;
+        text-shadow: 0 2px 12px rgba(90,140,190,0.35);
+    }
+    .gametype { font-size: 17px; letter-spacing: 2px; color: #93a6b8; text-transform: uppercase; margin-top: 4px; }
+    .meta { text-align: right; font-size: 15px; color: #7d8fa0; letter-spacing: 1px; line-height: 1.55; }
+    .meta b { color: #b9c9d8; font-weight: 700; }
+
+    /* --- Banner de ganador --- */
+    .winner {
+        text-align: center; padding: 13px 0;
+        border-top: 1px solid rgba(140,180,220,0.28);
+        border-bottom: 1px solid rgba(140,180,220,0.28);
+        background: linear-gradient(90deg, transparent 0%, rgba(90,130,175,0.16) 50%, transparent 100%);
+    }
+    .winner h2 { font-size: 30px; letter-spacing: 8px; font-weight: 700; text-transform: uppercase; }
+
+    /* --- Equipos y tablas --- */
+    .content { padding: 22px 28px 10px 28px; }
+    .team { margin-bottom: 24px; }
+    .team-bar {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 9px 16px; margin-bottom: 2px;
+    }
+    .team-name { font-size: 21px; font-weight: 700; letter-spacing: 4px; }
+    .team-score { font-size: 26px; font-weight: 700; letter-spacing: 1px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th {
+        font-size: 12px; letter-spacing: 2px; color: #6e8093;
+        padding: 8px 10px 6px 10px; border-bottom: 1px solid #2a3a4c;
+        text-align: left; font-weight: 700;
+    }
+    td {
+        padding: 9px 10px; font-size: 17px;
+        border-bottom: 1px solid rgba(90,120,150,0.12);
+        background: linear-gradient(180deg, rgba(70,100,135,0.05) 0%, rgba(20,30,40,0.05) 100%);
+    }
+    tr:nth-child(odd) td { background: rgba(70,100,135,0.09); }
+    .c { text-align: center; }
+    .w-place { width: 64px; }
+    .w-player { width: 34%; }
+    .place { color: #6e8093; font-weight: 700; }
+    .player .name { font-weight: 700; color: #e8eef4; letter-spacing: 0.5px; }
+    .player .tag {
+        display: inline-block; min-width: 40px; text-align: center;
+        font-size: 12px; letter-spacing: 1px; color: #9fb2c4;
+        border: 1px solid #44586c; padding: 2px 6px; margin-right: 10px;
+        background: rgba(20,30,42,0.7);
+    }
+    .score { font-weight: 700; color: #f0e6b4; }
+    .kd { font-weight: 700; }
+    .dim { color: #8b9cad; }
+    .totals td { font-size: 16px; border-bottom: none; background: rgba(25,36,48,0.75) !important; }
+    .total-label { font-weight: 700; letter-spacing: 2px; font-size: 14px; }
+
+    /* --- Pie --- */
+    footer {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 12px 28px; border-top: 1px solid #2a3a4c;
+        background: rgba(9, 14, 20, 0.85);
+        font-size: 12.5px; letter-spacing: 1.5px; color: #5c6f82; text-transform: uppercase;
+    }
+    footer .gid b { color: #9fb2c4; font-size: 14px; letter-spacing: 2px; }
+    footer .gid span { color: #46586a; }
+</style>
 </head>
-<body class="min-h-screen flex flex-col items-center justify-center p-8">
-    <div class="w-full max-w-5xl glass-panel rounded-lg p-1">
-        <div class="bg-opacity-50 bg-black p-6 rounded-t-lg border-b border-gray-800 flex justify-between items-end">
+<body>
+    <div class="frame">
+        <header>
             <div>
-                <h2 class="text-xs uppercase tracking-[0.3em] text-cyan-500 mb-1 font-semibold">Post Game Carnage Report</h2>
-                <h1 class="text-4xl font-halo font-bold text-white uppercase glow-text tracking-wider">${gameData.mapName}</h1>
-                <div class="text-gray-400 text-sm mt-1 font-mono tracking-wide">ID: <span class="text-gray-300">${gameData.gameUniqueId}</span></div>
+                <div class="kicker">Post Game Carnage Report</div>
+                <h1>${escapeHtml(gameData.mapName)}</h1>
+                <div class="gametype">${escapeHtml(gameData.gameTypeName)}</div>
             </div>
-            <div class="text-right">
-                <div class="text-xs uppercase tracking-widest text-gray-500 mb-1">Date Played</div>
-                <div class="text-xl font-halo text-gray-200">${formatDate(timestamp)}</div>
-                <div class="text-sm font-halo text-gray-400">${formatTime(timestamp)}</div>
+            <div class="meta">
+                <div><b>${dateStr}</b> &nbsp;${timeStr} hrs</div>
+                ${duration ? `<div>Duración: <b>${duration}</b></div>` : ''}
+                <div>${players.length} jugadores</div>
             </div>
+        </header>
+
+        <div class="winner"><h2 style="color:${winnerColor}">${winnerText}</h2></div>
+
+        <div class="content">
+            ${bodyContent}
         </div>
 
-        <div class="p-8 space-y-8 bg-gradient-to-b from-gray-900 via-[#0a1116] to-black">
-            <div class="winner-banner py-4 text-center mb-8">
-                <h2 class="text-3xl font-halo font-bold ${blueWins ? 'text-halo-blue' : 'text-halo-red'} uppercase tracking-[0.2em]">${winnerText}</h2>
-            </div>
-
-            <div class="relative">
-                <div class="team-header-blue p-3 mb-4 flex justify-between items-center rounded-r">
-                    <div class="flex items-center gap-3">
-                        <div class="w-2 h-8 bg-[#4fc3f7] rounded-sm mx-2"></div>
-                        <h3 class="text-2xl font-halo font-bold text-white tracking-wider">COBRA <span class="text-sm text-halo-blue opacity-80 ml-2">BLUE TEAM</span></h3>
-                    </div>
-                    <div class="text-3xl font-halo font-bold text-halo-blue mr-4">${blueTotals.score}</div>
-                </div>
-                <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr>
-                            <th class="pl-4 w-1/4">Player</th>
-                            <th class="text-center">Kills</th>
-                            <th class="text-center">Score</th>
-                            <th class="text-center">Deaths</th>
-                            <th class="text-center">Assists</th>
-                            <th class="text-center">K/D</th>
-                            <th class="text-center pr-4">Total Deaths</th>
-                        </tr>
-                    </thead>
-                    <tbody class="text-gray-300">
-                        ${blueTeam.map(p => playerRow(p, true)).join('')}
-                        ${teamTotalsRow(blueTotals, true)}
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="relative mt-8">
-                <div class="team-header-red p-3 mb-4 flex justify-between items-center rounded-r">
-                    <div class="flex items-center gap-3">
-                        <div class="w-2 h-8 bg-[#ef5350] rounded-sm mx-2"></div>
-                        <h3 class="text-2xl font-halo font-bold text-white tracking-wider">EAGLE <span class="text-sm text-halo-red opacity-80 ml-2">RED TEAM</span></h3>
-                    </div>
-                    <div class="text-3xl font-halo font-bold text-halo-red mr-4">${redTotals.score}</div>
-                </div>
-                <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr>
-                            <th class="pl-4 w-1/4">Player</th>
-                            <th class="text-center">Kills</th>
-                            <th class="text-center">Score</th>
-                            <th class="text-center">Deaths</th>
-                            <th class="text-center">Assists</th>
-                            <th class="text-center">K/D</th>
-                            <th class="text-center pr-4">Total Deaths</th>
-                        </tr>
-                    </thead>
-                    <tbody class="text-gray-300">
-                        ${redTeam.map(p => playerRow(p, false)).join('')}
-                        ${teamTotalsRow(redTotals, false)}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="bg-black bg-opacity-80 p-4 text-center border-t border-gray-800 rounded-b-lg">
-            <p class="text-gray-600 text-xs font-mono tracking-widest uppercase">CarnageReporter Server v1.0 // H3MCC // ${gameData.gameTypeName}</p>
-        </div>
+        <footer>
+            <div class="gid">ID: <b>${escapeHtml(shortId)}</b> <span>· ${escapeHtml(gameData.gameUniqueId || '')}</span></div>
+            <div>Carnage Reporter · H3 MCC</div>
+        </footer>
     </div>
 </body>
 </html>`;
@@ -266,13 +392,14 @@ class RendererService {
             browser = await puppeteer.launch(launchOptions);
             const page = await browser.newPage();
 
-            // Configurar viewport y timeout
-            await page.setViewport({ width: 1200, height: 1000 });
+            // Configurar viewport y timeout (altura baja: fullPage crece al contenido
+            // y así las partidas cortas no dejan espacio vacío abajo)
+            await page.setViewport({ width: 1200, height: 400 });
             page.setDefaultTimeout(15000);
 
-            // Cargar contenido
+            // Cargar contenido (sin dependencias de red: basta el DOM)
             await page.setContent(htmlContent, {
-                waitUntil: 'networkidle0',
+                waitUntil: 'domcontentloaded',
                 timeout: 15000
             });
 
