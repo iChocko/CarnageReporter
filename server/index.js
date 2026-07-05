@@ -7,7 +7,10 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const Stripe = require('stripe');
 
 // Servicios
@@ -26,8 +29,38 @@ const stripe = process.env.STRIPE_SECRET_KEY
     : null;
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+
+// Detrás de Caddy (proxy reverso): confiar en 1 hop para que el rate-limit
+// y los logs usen la IP real del cliente, no la del proxy.
+app.set('trust proxy', 1);
+
+// Headers de seguridad. CSP desactivado a propósito: el servidor sirve el
+// dashboard (Vite) y el modal de Stripe carga js.stripe.com; una CSP estricta
+// los rompería. Se conservan noSniff, frameguard, referrer-policy, etc.
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+
+// Un reporte 2v2 es pequeño; 256kb es más que suficiente y acota abuso.
+app.use(express.json({ limit: '256kb' }));
 app.use(cors());
+
+// ---------- Rate limiting ----------
+const reportLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 60, // 60 reportes por IP cada 15 min
+    standardHeaders: true, legacyHeaders: false,
+    message: { error: 'Demasiados reportes; intenta más tarde.' }
+});
+const adminLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20, // 20 intentos admin por IP cada 15 min (freno a fuerza bruta)
+    standardHeaders: true, legacyHeaders: false,
+    message: { error: 'Demasiados intentos.' }
+});
+const publicLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 120, // 120 lecturas por IP por minuto (dashboard)
+    standardHeaders: true, legacyHeaders: false
+});
 
 // Servir archivos estáticos del dashboard (Frontend)
 const DASHBOARD_DIST = path.join(__dirname, '../dashboard/dist');
@@ -56,13 +89,44 @@ const supabase = new SupabaseService();
 const renderer = new RendererService();
 const whatsapp = new WhatsAppService();
 
-// Middleware de autenticación simple
+/**
+ * Comparación de secretos en tiempo constante (evita distinguir claves por
+ * timing). Ambos lados se hashean a longitud fija antes de comparar para no
+ * filtrar la longitud del secreto.
+ */
+function safeEqual(a, b) {
+    const ha = crypto.createHash('sha256').update(String(a || '')).digest();
+    const hb = crypto.createHash('sha256').update(String(b || '')).digest();
+    return crypto.timingSafeEqual(ha, hb);
+}
+
+// Middleware de autenticación de clientes (X-API-Key)
 function authMiddleware(req, res, next) {
-    const apiKey = req.headers['x-api-key'];
-    if (apiKey !== API_KEY) {
+    if (!safeEqual(req.headers['x-api-key'], API_KEY)) {
         return res.status(401).json({ error: 'API key inválida' });
     }
     next();
+}
+
+/**
+ * Validación básica del payload de /api/report. Rechaza formas inesperadas
+ * antes de tocar la BD o el renderer.
+ */
+function validateReportPayload(gameData, players) {
+    if (typeof gameData !== 'object' || gameData === null) return 'gameData inválido';
+    if (!Array.isArray(players)) return 'players debe ser un arreglo';
+    if (players.length < 1 || players.length > 8) return 'cantidad de jugadores fuera de rango';
+    if (typeof gameData.gameUniqueId !== 'string' || gameData.gameUniqueId.length < 1 || gameData.gameUniqueId.length > 255) {
+        return 'gameUniqueId inválido';
+    }
+    for (const p of players) {
+        if (typeof p !== 'object' || p === null) return 'jugador inválido';
+        if (typeof p.gamertag !== 'string' || p.gamertag.length > 64) return 'gamertag inválido';
+        for (const f of ['kills', 'deaths', 'assists', 'score']) {
+            if (p[f] !== undefined && !Number.isFinite(Number(p[f]))) return `campo ${f} inválido`;
+        }
+    }
+    return null;
 }
 
 // ============== ENDPOINTS ==============
@@ -94,13 +158,14 @@ app.get('/api/status', (req, res) => {
  * POST /api/report
  * Body: { gameData, players, filename }
  */
-app.post('/api/report', authMiddleware, async (req, res) => {
+app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
     const { gameData, players, filename } = req.body;
     const schemaVersion = parseInt(req.body.schemaVersion || 1, 10);
     const clientVersion = req.body.clientVersion || null;
 
-    if (!gameData || !players) {
-        return res.status(400).json({ error: 'Faltan gameData o players' });
+    const validationError = validateReportPayload(gameData, players);
+    if (validationError) {
+        return res.status(400).json({ error: validationError });
     }
 
     const gameId = gameData.gameUniqueId;
@@ -188,11 +253,11 @@ app.post('/api/report', authMiddleware, async (req, res) => {
         });
 
     } catch (error) {
-        console.error(`❌ Error procesando ${gameId}:`, error.message);
+        console.error(`❌ Error procesando ${gameId}:`, error);
         res.status(500).json({
             status: 'error',
             gameId,
-            error: error.message
+            error: 'Error interno procesando el reporte'
         });
     }
 });
@@ -228,20 +293,26 @@ function adminAuthMiddleware(req, res, next) {
     if (!process.env.ADMIN_KEY) {
         return res.status(503).json({ error: 'Endpoints admin deshabilitados (ADMIN_KEY no configurada)' });
     }
-    if (req.headers['x-admin-key'] !== process.env.ADMIN_KEY) {
+    if (!safeEqual(req.headers['x-admin-key'], process.env.ADMIN_KEY)) {
         return res.status(401).json({ error: 'Admin key inválida' });
     }
     next();
 }
+
+// Todos los endpoints admin pasan por el rate limiter (freno a fuerza bruta)
+app.use('/api/admin', adminLimiter);
+// Endpoints públicos de lectura (dashboard)
+app.use('/api/stats', publicLimiter);
 
 /**
  * Resuelve un ID (corto o completo) a un único game_unique_id.
  * Responde el error adecuado y devuelve null si no se puede resolver.
  */
 async function resolveGameId(idParam, res) {
+    // Aceptar solo caracteres válidos de un UUID/ID (bloquea comodines de LIKE % _)
     const id = String(idParam || '').trim();
-    if (id.length < 6) {
-        res.status(400).json({ error: 'El ID debe tener al menos 6 caracteres' });
+    if (!/^[a-zA-Z0-9-]{6,64}$/.test(id)) {
+        res.status(400).json({ error: 'ID inválido (mínimo 6 caracteres alfanuméricos)' });
         return null;
     }
 
@@ -275,7 +346,8 @@ app.delete('/api/admin/games/:id', adminAuthMiddleware, async (req, res) => {
         res.json({ status: 'deleted', gameId: fullId });
     } catch (error) {
         console.error('❌ Error en delete admin:', error.message);
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -293,7 +365,8 @@ app.post('/api/admin/games/:id/unvoid', adminAuthMiddleware, async (req, res) =>
         res.json({ status: 'unvoided', gameId: fullId });
     } catch (error) {
         console.error('❌ Error en unvoid admin:', error.message);
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -312,7 +385,8 @@ app.post('/api/admin/games/:id/void', adminAuthMiddleware, async (req, res) => {
         res.json({ status: 'voided', gameId: fullId });
     } catch (error) {
         console.error('❌ Error en void admin:', error.message);
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -335,7 +409,8 @@ app.get('/api/admin/whatsapp/qr', adminAuthMiddleware, async (req, res) => {
         res.set('Cache-Control', 'no-store');
         res.send(png);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -356,7 +431,8 @@ app.get('/api/admin/whatsapp/groups', adminAuthMiddleware, async (req, res) => {
         const groups = await whatsapp.listGroups();
         res.json(groups);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -381,7 +457,8 @@ app.get('/api/admin/whatsapp/preview-partidas', adminAuthMiddleware, async (req,
         const games = await supabase.getRecentGamesWithPlayers(10);
         res.type('text/plain').send(formatRecentGamesWhatsApp(games));
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -417,7 +494,8 @@ app.get('/api/stats/global', async (req, res) => {
             avgKD: totals.totalDeaths > 0 ? (totals.totalKills / totals.totalDeaths).toFixed(2) : totals.totalKills.toFixed(2)
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -471,7 +549,8 @@ app.get('/api/stats/mvp', async (req, res) => {
             mostConsistent: mostConsistent || null
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -480,8 +559,12 @@ app.get('/api/stats/mvp', async (req, res) => {
  */
 app.get('/api/stats/leaderboard', async (req, res) => {
     try {
-        const MIN_GAMES = parseInt(req.query.minGames || process.env.LEADERBOARD_MIN_GAMES || '5', 10);
-        const limit = parseInt(req.query.limit || '20', 10);
+        const clampInt = (v, def, lo, hi) => {
+            const n = parseInt(v, 10);
+            return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : def;
+        };
+        const MIN_GAMES = clampInt(req.query.minGames ?? process.env.LEADERBOARD_MIN_GAMES, 5, 0, 1000);
+        const limit = clampInt(req.query.limit, 20, 1, 100);
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
         // Traer TODOS los jugadores: antes se recortaba a top-20 por total_score
@@ -563,7 +646,8 @@ app.get('/api/stats/leaderboard', async (req, res) => {
 
         res.json(mlgLeaderboard.slice(0, limit));
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -572,7 +656,8 @@ app.get('/api/stats/recent', async (req, res) => {
         const gamesWithPlayers = await supabase.getRecentGamesWithPlayers(10);
         res.json(gamesWithPlayers);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -588,7 +673,8 @@ app.get('/api/stats/players', async (req, res) => {
         if (error) throw error;
         res.json(data || []);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -608,7 +694,8 @@ app.get('/api/stats/h2h', async (req, res) => {
         const games = await supabase.getAllValidGamesWithPlayers();
         res.json(computeH2H(games, p1, p2));
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -625,7 +712,8 @@ app.get('/api/stats/player/:gamertag', async (req, res) => {
         }
         res.json(profile);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -636,7 +724,7 @@ app.get('/api/stats/player/:gamertag', async (req, res) => {
  * POST /api/stripe/create-payment-intent
  * Body: { amount: number } // amount in cents
  */
-app.post('/api/stripe/create-payment-intent', async (req, res) => {
+app.post('/api/stripe/create-payment-intent', publicLimiter, async (req, res) => {
     try {
         if (!stripe) {
             return res.status(503).json({
@@ -644,11 +732,12 @@ app.post('/api/stripe/create-payment-intent', async (req, res) => {
             });
         }
 
-        const { amount } = req.body;
+        const amount = Number(req.body?.amount);
 
-        if (!amount || amount < 50) { // Minimum $0.50
+        // Entre $0.50 y $1,000 (evita PaymentIntents absurdos / abuso de la API)
+        if (!Number.isFinite(amount) || amount < 50 || amount > 100000) {
             return res.status(400).json({
-                error: 'Amount must be at least 50 cents'
+                error: 'Amount must be between 50 and 100000 cents'
             });
         }
 
@@ -671,8 +760,7 @@ app.post('/api/stripe/create-payment-intent', async (req, res) => {
     } catch (error) {
         console.error('Error creating payment intent:', error);
         res.status(500).json({
-            error: 'Failed to create payment intent',
-            details: error.message
+            error: 'Failed to create payment intent'
         });
     }
 });

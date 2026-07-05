@@ -7,6 +7,20 @@
 
 const { formatCDMXDateTime } = require('./cdmxTime');
 
+/**
+ * Neutraliza contenido controlado por el usuario (gamertags, mapas) antes de
+ * meterlo en un caption de Discord/WhatsApp: quita saltos de línea y los
+ * caracteres de formato de Markdown/WhatsApp para que un payload malicioso no
+ * pueda inyectar negritas, menciones ni líneas falsas. Los gamertags reales de
+ * Xbox no usan estos caracteres, así que no se ven afectados.
+ */
+function sanitizeCaptionText(str) {
+    return String(str == null ? '' : str)
+        .replace(/[\r\n\t]+/g, ' ')
+        .replace(/[*_~`<>|@#\[\]()]/g, '')
+        .trim();
+}
+
 const TEAM_NAMES = {
     0: 'BLUE TEAM',
     1: 'RED TEAM',
@@ -71,12 +85,16 @@ function determineWinner(gameData, players) {
  */
 function buildCaptionParts(gameData, players) {
     const { winnerText, winners } = determineWinner(gameData, players);
-    const winnerLine = winners.length > 0 ? `${winnerText}: ${winners.join(', ')}` : winnerText;
+    // Sanitizar gamertags/mapa (contenido del payload) antes de armar el caption
+    const safeWinners = winners.map(sanitizeCaptionText).filter(Boolean);
+    const winnerLine = safeWinners.length > 0
+        ? `${sanitizeCaptionText(winnerText)}: ${safeWinners.join(', ')}`
+        : sanitizeCaptionText(winnerText);
     const { dateStr, timeStr } = formatCDMXDateTime(gameData.timestamp);
 
     return {
         winnerLine,
-        mapName: gameData.mapName,
+        mapName: sanitizeCaptionText(gameData.mapName),
         dateStr,
         timeStr,
         shortId: String(gameData.gameUniqueId || '').slice(0, 8),
@@ -101,13 +119,15 @@ function formatRecentGamesWhatsApp(games) {
         const { dateStr, timeStr } = formatCDMXDateTime(g.timestamp);
         const when = `*${dateStr} ${timeStr} hrs*`;
 
+        const tag = p => sanitizeCaptionText(p.gamertag);
+
         let body;
         if (g.is_teams_enabled === false) {
             // FFA: ganador en negritas, resto por puntuación
             const sorted = [...(g.players || [])].sort((a, b) => b.score - a.score);
             const [winner, ...rest] = sorted;
             body = winner
-                ? `FFA: *${winner.gamertag}* (${winner.score})${rest.length ? ', ' + rest.map(p => `${p.gamertag} (${p.score})`).join(', ') : ''}`
+                ? `FFA: *${tag(winner)}* (${winner.score})${rest.length ? ', ' + rest.map(p => `${tag(p)} (${p.score})`).join(', ') : ''}`
                 : 'Sin datos de jugadores';
         } else {
             // Equipos: agrupar por team_id y ordenar por puntuación descendente,
@@ -126,7 +146,7 @@ function formatRecentGamesWhatsApp(games) {
                 .sort((a, b) => b.score - a.score);
 
             // Cada jugador con su score individual entre paréntesis
-            const roster = t => t.members.map(p => `${p.gamertag} (${p.score})`).join(', ');
+            const roster = t => t.members.map(p => `${tag(p)} (${p.score})`).join(', ');
 
             if (teams.length === 0) {
                 body = 'Sin datos de jugadores';
@@ -144,10 +164,10 @@ function formatRecentGamesWhatsApp(games) {
             }
         }
 
-        lines.push(`\n${idx + 1}. ${g.map_name} — ${when}\n${body}`);
+        lines.push(`\n${idx + 1}. ${sanitizeCaptionText(g.map_name)} — ${when}\n${body}`);
     });
 
     return lines.join('\n');
 }
 
-module.exports = { determineWinner, teamName, buildCaptionParts, formatRecentGamesWhatsApp };
+module.exports = { determineWinner, teamName, buildCaptionParts, formatRecentGamesWhatsApp, sanitizeCaptionText };
