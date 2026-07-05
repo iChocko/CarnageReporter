@@ -14,7 +14,7 @@ class MCCClient {
         this.serverHost = config.serverHost || 'localhost';
         this.serverPort = config.serverPort || 3000;
         this.useHttps = config.useHttps || false;
-        this.apiKey = config.apiKey || 'h3mcc-carnage-2024-secret';
+        this.apiKey = config.apiKey || process.env.API_KEY || 'dev-key';
         this.pollInterval = config.pollInterval || 1500; // 1.5 segundos
 
         this.processedFiles = new Set();

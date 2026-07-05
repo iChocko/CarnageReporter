@@ -1,6 +1,11 @@
 # Despliegue Automático a VPS
 
-Este script desplegará los cambios del dashboard a h3mccstats.cloud
+Este flujo despliega los cambios del dashboard a h3mccstats.cloud.
+
+## Requisitos
+
+- Acceso SSH por llave al VPS (`ssh root@<TU_VPS>` debe entrar sin password).
+- `/root/carnage-reporter-docker/.env` creado en el VPS con las variables de producción (ver `.env.example`).
 
 ## Pasos:
 
@@ -9,16 +14,14 @@ Este script desplegará los cambios del dashboard a h3mccstats.cloud
 
 ```bash
 # Hacer commit de los cambios
-cd /home/jluis/Documentos/repos/CarnageReporter
 git add .
-git commit -m "feat: Prueba realista de 2 partidas y mejoras en dashboard"
+git commit -m "feat: descripción de los cambios"
 git push origin main
 
-# Conectarse al VPS y actualizar
-ssh root@31.97.209.182 "cd /root/CarnageReporter && git pull && cd server && docker-compose restart"
+# Desplegar (usa deploy.sh, que lee DEPLOY_HOST de .env.deploy)
+./deploy.sh
 ```
 
 ## Verificación
 - Dashboard: https://h3mccstats.cloud/
 - API Health: https://h3mccstats.cloud/api/health
-

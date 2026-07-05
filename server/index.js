@@ -32,7 +32,12 @@ if (fs.existsSync(DASHBOARD_DIST)) {
 }
 
 const PORT = process.env.PORT || 3000;
-const API_KEY = process.env.API_KEY || 'h3mcc-carnage-2024-secret';
+const API_KEY = process.env.API_KEY;
+
+if (!API_KEY) {
+    console.error('❌ Falta la variable de entorno API_KEY. Configúrala en el .env antes de iniciar.');
+    process.exit(1);
+}
 
 // Directorio de output para PNGs temporales
 const OUTPUT_DIR = path.join(__dirname, 'output');

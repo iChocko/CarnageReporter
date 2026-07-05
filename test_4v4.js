@@ -1,7 +1,7 @@
 const http = require('http');
 
-const API_KEY = 'h3mcc-carnage-2024-secret';
-const SERVER_URL = '31.97.209.182';
+const API_KEY = process.env.API_KEY || 'dev-key';
+const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000/api/report';
 
 // Fecha actual en CDMX para el test
 const cdmxNow = new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" });

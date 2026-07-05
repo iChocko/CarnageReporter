@@ -5,9 +5,9 @@
 
 const http = require('http');
 
-const API_KEY = 'h3mcc-carnage-2024-secret';
-const SERVER_HOST = 'localhost';
-const SERVER_PORT = 3000;
+const API_KEY = process.env.API_KEY || 'dev-key';
+const SERVER_HOST = process.env.SERVER_HOST || 'localhost';
+const SERVER_PORT = process.env.SERVER_PORT || 3000;
 
 // Generar ID único para esta prueba
 const gameUniqueId = `test-discord-${Date.now()}`;

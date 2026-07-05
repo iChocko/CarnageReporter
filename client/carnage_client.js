@@ -16,9 +16,8 @@ const EXE_NAME = 'CarnageReporter.exe';
 const DISCORD_URL = 'https://discord.gg/yD6nGZ3KQX';
 
 const CONFIG = {
-    // Valores de producción integrados directamente
     serverUrl: 'https://h3mccstats.cloud',
-    apiKey: 'h3mcc-carnage-2024-secret',
+    apiKey: null, // Se resuelve en resolveConfig(): build (config.gen.js) > config.json > env
 
     // Mapeo de nombres de mapas (Halo 3 Legacy)
     maps: {
@@ -54,6 +53,51 @@ const CONFIG = {
         'asq_descent': 'Assembly',
     }
 };
+
+// ============== RESOLUCIÓN DE CONFIGURACIÓN ==============
+// Prioridad (de menor a mayor): config.gen.js (build) < config.json (junto al exe) < variables de entorno
+
+function resolveConfig() {
+    // 1. config.gen.js: generado por el CI al compilar el .exe (no existe en el repo)
+    try {
+        const gen = require('./config.gen.js');
+        if (gen.apiKey) CONFIG.apiKey = gen.apiKey;
+        if (gen.serverUrl) CONFIG.serverUrl = gen.serverUrl;
+    } catch (e) { }
+
+    // 2. config.json junto al ejecutable (o al cwd en modo desarrollo):
+    //    permite rotar la key o apuntar a otro servidor sin recompilar
+    const candidates = [
+        path.join(path.dirname(process.execPath), 'config.json'),
+        path.join(process.cwd(), 'config.json')
+    ];
+    for (const cfgPath of candidates) {
+        try {
+            if (fs.existsSync(cfgPath)) {
+                const userCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+                if (userCfg.apiKey) CONFIG.apiKey = userCfg.apiKey;
+                if (userCfg.serverUrl) CONFIG.serverUrl = userCfg.serverUrl;
+                console.log(`⚙️  Configuración cargada desde: ${cfgPath}`);
+                break;
+            }
+        } catch (e) {
+            console.log(`⚠️  config.json inválido (${cfgPath}): ${e.message}`);
+        }
+    }
+
+    // 3. Variables de entorno (útil para pruebas locales)
+    if (process.env.CARNAGE_API_KEY) CONFIG.apiKey = process.env.CARNAGE_API_KEY;
+    if (process.env.CARNAGE_SERVER_URL) CONFIG.serverUrl = process.env.CARNAGE_SERVER_URL;
+
+    if (!CONFIG.apiKey) {
+        console.error('\n❌ No hay API key configurada.');
+        console.error('   Descarga el ejecutable oficial desde GitHub Releases, o crea un');
+        console.error('   archivo config.json junto al programa con este contenido:');
+        console.error('   { "apiKey": "TU_API_KEY", "serverUrl": "https://h3mccstats.cloud" }');
+        return false;
+    }
+    return true;
+}
 
 // ============== UTILIDADES ==============
 
@@ -366,10 +410,16 @@ async function main() {
     console.log(`║                 Registro de Estadísticas v${VERSION}        ║`);
     console.log('╚══════════════════════════════════════════════════════════╝\n');
 
+    // Resolver configuración (API key y servidor)
+    if (!resolveConfig()) {
+        console.log('\nPresiona Ctrl+C para salir.');
+        return;
+    }
+
     // Revisar actualizaciones al iniciar
     await checkForUpdates();
 
-    console.log('\nServidor: h3mccstats.cloud');
+    console.log(`\nServidor: ${CONFIG.serverUrl.replace(/^https?:\/\//, '')}`);
 
     // Verificar conexión
     try {

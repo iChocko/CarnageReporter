@@ -1,9 +1,15 @@
 
+require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const { execSync } = require('child_process');
 
-const supabaseUrl = 'https://isxjfvrdnmrwxyzfbvua.supabase.co';
-const supabaseKey = 'sb_secret_bgUkXG9EjVga3lIy8k-StA_W_I6VDGa'; // From deploy.sh
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+    console.error('❌ Faltan SUPABASE_URL y/o SUPABASE_KEY en el entorno (.env).');
+    process.exit(1);
+}
 
 async function checkSupabase() {
     console.log('Testing Supabase connection...');

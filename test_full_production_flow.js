@@ -23,7 +23,7 @@ async function runProductionSimulation() {
         serverHost: 'h3mccstats.cloud',
         serverPort: 443,
         useHttps: true,
-        apiKey: 'h3mcc-carnage-2024-secret'
+        apiKey: process.env.API_KEY || 'dev-key'
     });
 
     try {

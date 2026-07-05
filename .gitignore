@@ -13,6 +13,11 @@ package-lock.json
 .env.development.local
 .env.test.local
 .env.production.local
+.env.deploy
+
+# Config generado en build / config local del cliente (contienen la API key)
+client/config.gen.js
+config.json
 
 # Build Artifacts
 dist/

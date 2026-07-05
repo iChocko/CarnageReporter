@@ -59,10 +59,12 @@ Si deseas correr el proyecto desde el código fuente o contribuir:
    npm install
    ```
 3. **Variables de entorno**:
-   Configura un archivo `.env` basado en `.env.example`:
+   Configura un archivo `.env` basado en `.env.example` (todas las variables están documentadas ahí):
    ```env
-   SUPABASE_PROJECT_ID=tu_id
-   SUPABASE_PASSWORD=tu_password
+   API_KEY=una-cadena-aleatoria-larga
+   SUPABASE_URL=https://tu-proyecto.supabase.co
+   SUPABASE_KEY=tu_service_role_key
+   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
    ```
 4. **Ejecutar**:
    - Cliente: `npm start`

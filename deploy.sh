@@ -3,13 +3,42 @@
 # ============================================================
 # CarnageReporter - Docker Deployment Script
 # ============================================================
+# Requisitos:
+#   1. Acceso SSH por llave al VPS (sin password):
+#        ssh root@<host> debe entrar directo.
+#   2. Archivo de entorno EN EL VPS (una sola vez, nunca en git):
+#        /root/carnage-reporter-docker/.env
+#      con: PORT, SUPABASE_URL, SUPABASE_KEY, DISCORD_WEBHOOK_URL,
+#           API_KEY, ADMIN_KEY, STRIPE_SECRET_KEY, etc. (ver .env.example)
+#   3. Configuración local del deploy (variables de entorno o un
+#      archivo .env.deploy junto a este script, gitignoreado):
+#        DEPLOY_HOST=ip.o.dominio.del.vps
+#        DEPLOY_USER=root   (opcional, default root)
+# ============================================================
 
 set -e
 
-# Configuración del servidor
-SERVER_IP="31.97.209.182"
-SERVER_USER="root"
-SERVER_PASS="1Chockownz(@)"
+cd "$(dirname "$0")"
+
+# Cargar configuración local del deploy si existe
+if [ -f .env.deploy ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source .env.deploy
+    set +a
+fi
+
+DEPLOY_USER="${DEPLOY_USER:-root}"
+
+if [ -z "$DEPLOY_HOST" ]; then
+    echo "❌ Falta DEPLOY_HOST."
+    echo "   Define la variable de entorno o crea un archivo .env.deploy con:"
+    echo "     DEPLOY_HOST=tu.vps.com"
+    echo "     DEPLOY_USER=root"
+    exit 1
+fi
+
+SSH_TARGET="$DEPLOY_USER@$DEPLOY_HOST"
 
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║        CARNAGE REPORTER - DOCKER DEPLOYMENT              ║"
@@ -17,28 +46,28 @@ echo "║             Target: h3mccstats.cloud                     ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 
-# Verificar sshpass
-if ! command -v sshpass &> /dev/null; then
-    echo "❌ sshpass no está instalado. Instalar con: sudo apt install sshpass"
-    exit 1
-fi
-
 echo "📦 Preparando archivos para deployment..."
 
 # Empaquetar todo el repositorio para construirlo en el VPS
-cd "$(dirname "$0")"
 tar --exclude=.git --exclude=node_modules --exclude=dashboard/node_modules -czf /tmp/carnage-docker-deploy.tar.gz .
 
-echo "🚀 Conectando al servidor $SERVER_IP..."
+echo "🚀 Conectando a $SSH_TARGET..."
 
-# FASE 1: Subir archivos
-sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no /tmp/carnage-docker-deploy.tar.gz "$SERVER_USER@$SERVER_IP:/tmp/"
+# FASE 1: Subir archivos (autenticación por llave SSH)
+scp -o StrictHostKeyChecking=accept-new /tmp/carnage-docker-deploy.tar.gz "$SSH_TARGET:/tmp/"
 
 # FASE 2: Desplegar en el VPS
-sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$SERVER_USER@$SERVER_IP" << 'ENDSSH'
+ssh -o StrictHostKeyChecking=accept-new "$SSH_TARGET" << 'ENDSSH'
 set -e
 mkdir -p /root/carnage-reporter-docker
 cd /root/carnage-reporter-docker
+
+# Verificar que el archivo de entorno exista ANTES de tocar nada
+if [ ! -f /root/carnage-reporter-docker/.env ]; then
+    echo "❌ No existe /root/carnage-reporter-docker/.env en el VPS."
+    echo "   Créalo una sola vez con las variables de producción (ver .env.example del repo)."
+    exit 1
+fi
 
 # Extraer archivos
 echo "📦 Extrayendo archivos..."
@@ -59,7 +88,7 @@ else
     cp /root/docker-compose.yml /root/docker-compose.yml.bak
 fi
 
-# Crear el bloque del servicio
+# Crear el bloque del servicio (secretos vía env_file, nunca inline)
 cat > /tmp/carnage-service.yml << 'EOF'
   carnage-dashboard:
     image: carnage-reporter:latest
@@ -70,12 +99,10 @@ cat > /tmp/carnage-service.yml << 'EOF'
       - traefik.http.routers.h3mcc.tls=true
       - traefik.http.routers.h3mcc.entrypoints=web,websecure
       - traefik.http.routers.h3mcc.tls.certresolver=mytlschallenge
+    env_file:
+      - /root/carnage-reporter-docker/.env
     volumes:
       - /root/carnage-reporter-docker/server/output:/app/server/output
-    environment:
-      - PORT=3000
-      - SUPABASE_URL=https://isxjfvrdnmrwxyzfbvua.supabase.co
-      - SUPABASE_KEY=sb_secret_bgUkXG9EjVga3lIy8k-StA_W_I6VDGa
 EOF
 
 # Dividir el archivo y reconstruirlo
@@ -105,4 +132,4 @@ ENDSSH
 rm -f /tmp/carnage-docker-deploy.tar.gz
 
 echo ""
-echo "✅ Proceso terminado. Verifica DNS en Hostinger."
+echo "✅ Proceso terminado."

@@ -23,6 +23,15 @@ jobs:
           cd client
           npm install
 
+      - name: Inject API key (build-time config)
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.CARNAGE_API_KEY }}" ]; then
+            echo "::error::Falta el secret CARNAGE_API_KEY en el repositorio (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          echo "module.exports = { apiKey: '${{ secrets.CARNAGE_API_KEY }}' };" > client/config.gen.js
+
       - name: Build executable
         run: |
           npx pkg client/carnage_client.js --targets node18-win-x64 --output dist/CarnageReporter.exe
