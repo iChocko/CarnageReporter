@@ -3,6 +3,15 @@
 # ============================================================
 # CarnageReporter - Docker Deployment Script
 # ============================================================
+# Este VPS es infraestructura COMPARTIDA con otros proyectos:
+#   - xochimilcovive.com corre nativo (PM2) en el puerto 3000
+#   - Supabase self-hosted ocupa 3100/8000/8443/5432/6543
+#   - Caddy (nativo, no Docker) es el único proxy reverso del VPS
+# Por eso CarnageReporter usa un docker-compose PROPIO y AISLADO
+# (no toca ningún compose ni contenedor de otros proyectos), y se
+# expone en HOST_PORT (ver abajo) — Caddy enruta el dominio hacia
+# ese puerto vía un bloque dedicado en /etc/caddy/Caddyfile.
+#
 # Requisitos:
 #   1. Acceso SSH por llave al VPS (sin password):
 #        ssh root@<host> debe entrar directo.
@@ -14,6 +23,10 @@
 #      archivo .env.deploy junto a este script, gitignoreado):
 #        DEPLOY_HOST=ip.o.dominio.del.vps
 #        DEPLOY_USER=root   (opcional, default root)
+#        HOST_PORT=3001     (opcional, default 3001 — puerto libre en el VPS)
+#   4. Bloque de Caddy para el dominio ya configurado (ver
+#      docs/caddy-h3mccstats.conf o la sección correspondiente
+#      del Caddyfile del VPS) apuntando a reverse_proxy localhost:$HOST_PORT
 # ============================================================
 
 set -e
@@ -29,6 +42,7 @@ if [ -f .env.deploy ]; then
 fi
 
 DEPLOY_USER="${DEPLOY_USER:-root}"
+HOST_PORT="${HOST_PORT:-3001}"
 
 if [ -z "$DEPLOY_HOST" ]; then
     echo "❌ Falta DEPLOY_HOST."
@@ -57,7 +71,7 @@ echo "🚀 Conectando a $SSH_TARGET..."
 scp -o StrictHostKeyChecking=accept-new /tmp/carnage-docker-deploy.tar.gz "$SSH_TARGET:/tmp/"
 
 # FASE 2: Desplegar en el VPS
-ssh -o StrictHostKeyChecking=accept-new "$SSH_TARGET" << 'ENDSSH'
+ssh -o StrictHostKeyChecking=accept-new "$SSH_TARGET" "HOST_PORT=$HOST_PORT bash -s" << 'ENDSSH'
 set -e
 mkdir -p /root/carnage-reporter-docker
 cd /root/carnage-reporter-docker
@@ -78,27 +92,17 @@ rm /tmp/carnage-docker-deploy.tar.gz
 echo "🏗️  Construyendo imagen Docker..."
 docker build -t carnage-reporter:latest .
 
-# 2. Reconstruir docker-compose.yml
-echo "🔧 Configurando docker-compose.yml..."
-
-# Empezamos desde el backup original para evitar duplicados
-if [ -f /root/docker-compose.yml.bak ]; then
-    cp /root/docker-compose.yml.bak /root/docker-compose.yml
-else
-    cp /root/docker-compose.yml /root/docker-compose.yml.bak
-fi
-
-# Crear el bloque del servicio (secretos vía env_file, nunca inline)
-cat > /tmp/carnage-service.yml << 'EOF'
+# 2. Escribir el docker-compose PROPIO de este proyecto (aislado, sin
+#    tocar ningún compose/Traefik global — este VPS no usa Traefik).
+echo "🔧 Escribiendo docker-compose.yml del proyecto (puerto host: ${HOST_PORT})..."
+cat > /root/carnage-reporter-docker/docker-compose.yml << EOF
+services:
   carnage-dashboard:
     image: carnage-reporter:latest
+    container_name: carnage-dashboard
     restart: always
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.h3mcc.rule=Host(`h3mccstats.cloud`) || Host(`www.h3mccstats.cloud`)
-      - traefik.http.routers.h3mcc.tls=true
-      - traefik.http.routers.h3mcc.entrypoints=web,websecure
-      - traefik.http.routers.h3mcc.tls.certresolver=mytlschallenge
+    ports:
+      - "127.0.0.1:${HOST_PORT}:3000"
     env_file:
       - /root/carnage-reporter-docker/.env
     volumes:
@@ -107,26 +111,17 @@ cat > /tmp/carnage-service.yml << 'EOF'
       - /root/carnage-reporter-docker/wwebjs_auth:/app/server/.wwebjs_auth
 EOF
 
-# Dividir el archivo y reconstruirlo
-# Tomamos todo antes de 'volumes:'
-sed -n '1,/^volumes:/p' /root/docker-compose.yml | head -n -1 > /root/docker-compose.new.yml
-# Añadimos el servicio
-cat /tmp/carnage-service.yml >> /root/docker-compose.new.yml
-echo "" >> /root/docker-compose.new.yml
-# Añadimos el resto del archivo original
-sed -n '/^volumes:/,$p' /root/docker-compose.yml >> /root/docker-compose.new.yml
-
-mv /root/docker-compose.new.yml /root/docker-compose.yml
-
-# 3. Reiniciar el stack con docker compose
-echo "🚀 Reiniciando stack..."
-cd /root
+# 3. Levantar SOLO este servicio (no afecta nada más del VPS)
+echo "🚀 Reiniciando contenedor..."
+cd /root/carnage-reporter-docker
 docker compose up -d
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║              ✅ DEPLOYMENT COMPLETADO                    ║"
 echo "║      URL: https://h3mccstats.cloud                       ║"
+echo "║      (verifica que Caddy ya tenga el bloque de este      ║"
+echo "║       dominio apuntando a localhost:${HOST_PORT})              ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 ENDSSH
 
