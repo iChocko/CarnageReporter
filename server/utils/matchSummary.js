@@ -23,7 +23,8 @@ function teamName(teamId) {
 }
 
 /**
- * @returns {{ winnerText: string, winners: string[] }} winnerText: "BLUE TEAM WINS" | "DRAW" | "<gamertag> WINS"
+ * @returns {{ winnerText: string, winners: string[] }}
+ * winnerText: "BLUE TEAM" | "EMPATE" | "<GAMERTAG>" (FFA) | "GAME OVER" (sin datos)
  */
 function determineWinner(gameData, players) {
     const isTeams = gameData.isTeamsEnabled !== false;
@@ -31,9 +32,10 @@ function determineWinner(gameData, players) {
     if (!isTeams) {
         const sorted = [...players].sort((a, b) => (a.standing - b.standing) || (b.score - a.score));
         const winner = sorted[0];
+        // FFA: el ganador ES el texto; sin lista de winners para no duplicar el nombre
         return {
-            winnerText: winner ? `${winner.gamertag.toUpperCase()} WINS` : 'GAME OVER',
-            winners: winner ? [winner.gamertag] : []
+            winnerText: winner ? winner.gamertag.toUpperCase() : 'GAME OVER',
+            winners: []
         };
     }
 
@@ -53,12 +55,12 @@ function determineWinner(gameData, players) {
         .sort((a, b) => b.totalScore - a.totalScore);
 
     if (teams.length >= 2 && teams[0].totalScore === teams[1].totalScore) {
-        return { winnerText: 'DRAW', winners: [] };
+        return { winnerText: 'EMPATE', winners: [] };
     }
 
     const winningTeam = teams[0];
     return {
-        winnerText: winningTeam ? `${teamName(winningTeam.tid)} WINS` : 'GAME OVER',
+        winnerText: winningTeam ? teamName(winningTeam.tid) : 'GAME OVER',
         winners: winningTeam ? winningTeam.members.map(p => p.gamertag) : []
     };
 }
