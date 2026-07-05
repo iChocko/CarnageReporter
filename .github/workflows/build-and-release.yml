@@ -8,7 +8,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    
+    timeout-minutes: 15   # red de seguridad: ningún paso puede colgar el job por horas
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -36,15 +37,8 @@ jobs:
         run: |
           npx pkg client/carnage_client.js --targets node18-win-x64 --output dist/CarnageReporter.exe
 
-      # Metadatos del ejecutable (buena práctica y requisito futuro de SignPath).
-      # NO bloquea el release: si rcedit falla, el exe se publica igual sin metadata.
-      - name: Set executable metadata (opcional)
-        continue-on-error: true
-        shell: bash
-        run: |
-          export VERSION="${GITHUB_REF_NAME#v}.0"
-          npm install --no-save rcedit
-          node -e "require('rcedit')('dist/CarnageReporter.exe',{'version-string':{ProductName:'Carnage Reporter',FileDescription:'Carnage Reporter - Halo 3 MCC Stats Tracker',CompanyName:'iChocko',LegalCopyright:'GPL-3.0 (c) iChocko - github.com/iChocko/CarnageReporter'},'file-version':process.env.VERSION,'product-version':process.env.VERSION}).then(()=>console.log('metadata OK')).catch(e=>{console.error(e);process.exit(1)});"
+      # (El paso de metadatos con rcedit se retiró: colgaba el runner. Se
+      #  reintroducirá junto con la firma de SignPath, ya probado.)
 
       - name: Create Release
         id: create_release
