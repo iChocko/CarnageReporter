@@ -192,7 +192,11 @@ function formatRondasMessage(session) {
         });
         if (e.current) {
             const [curL, curR] = flip ? [e.current.winsB, e.current.winsA] : [e.current.winsA, e.current.winsB];
-            lines.push(`🕐 *Ronda ${e.rondas.length + 1}* — jugándose (van ${curL}-${curR})`);
+            let estadoRonda;
+            if (curL > curR) estadoRonda = `va ganando *${nameL}* ${curL}-${curR}`;
+            else if (curR > curL) estadoRonda = `va ganando *${nameR}* ${curR}-${curL}`;
+            else estadoRonda = `van parejos ${curL}-${curR}`;
+            lines.push(`🕐 *Ronda ${e.rondas.length + 1}* (jugándose) — ${estadoRonda}`);
             e.current.games.forEach(g => lines.push(`     • ${gameStr(g)}`));
         }
     }

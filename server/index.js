@@ -896,17 +896,15 @@ async function start() {
     // Comando del grupo: !equipos <lista> -> divide en dos equipos parejos por skill
     whatsapp.registerCommand('!equipos', async ({ format, args }) => buildEquiposReply(format, args));
 
-    // Comando del grupo: !rondas (alias !hoy) -> marcador de la sesión en rondas
-    // ($25/ronda). EXCLUSIVO del grupo 2v2 (así se apuesta en Retas H3).
-    const rondasHandler = async ({ format }) => {
+    // Comando del grupo: !rondas -> marcador de la sesión en rondas ($25/ronda),
+    // con la ronda en curso en vivo. EXCLUSIVO del grupo 2v2 (así se apuesta).
+    whatsapp.registerCommand('!rondas', async ({ format }) => {
         if (format !== '2v2') {
             return '🎮 !rondas solo está disponible en el grupo de retas 2v2.';
         }
         const games = await supabase.getAllValidGamesWithPlayers('2v2');
         return formatRondasMessage(currentOrLastSession(games));
-    };
-    whatsapp.registerCommand('!rondas', rondasHandler);
-    whatsapp.registerCommand('!hoy', rondasHandler);
+    });
 
     // Tareas programadas (mensaje semanal de los lunes -> solo grupo 2v2 / Retas H3)
     startSchedules(whatsapp);
