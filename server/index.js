@@ -191,6 +191,104 @@ app.post('/api/discord/webhook', authMiddleware, (req, res) => {
     });
 });
 
+// ============== ADMIN ENDPOINTS ==============
+
+/**
+ * Middleware de administración: requiere header X-Admin-Key.
+ * Si ADMIN_KEY no está configurada, los endpoints admin quedan deshabilitados (503).
+ */
+function adminAuthMiddleware(req, res, next) {
+    if (!process.env.ADMIN_KEY) {
+        return res.status(503).json({ error: 'Endpoints admin deshabilitados (ADMIN_KEY no configurada)' });
+    }
+    if (req.headers['x-admin-key'] !== process.env.ADMIN_KEY) {
+        return res.status(401).json({ error: 'Admin key inválida' });
+    }
+    next();
+}
+
+/**
+ * Resuelve un ID (corto o completo) a un único game_unique_id.
+ * Responde el error adecuado y devuelve null si no se puede resolver.
+ */
+async function resolveGameId(idParam, res) {
+    const id = String(idParam || '').trim();
+    if (id.length < 6) {
+        res.status(400).json({ error: 'El ID debe tener al menos 6 caracteres' });
+        return null;
+    }
+
+    const matches = await supabase.findGamesByIdPrefix(id);
+    if (matches.length === 0) {
+        res.status(404).json({ error: `No existe partida con ID '${id}'` });
+        return null;
+    }
+    if (matches.length > 1) {
+        res.status(409).json({
+            error: `El prefijo '${id}' es ambiguo (${matches.length} coincidencias). Usa más caracteres.`,
+            candidates: matches
+        });
+        return null;
+    }
+    return matches[0].game_unique_id;
+}
+
+/**
+ * Eliminar una partida (y sus jugadores) por ID corto o completo.
+ * DELETE /api/admin/games/:id
+ * Header: X-Admin-Key
+ */
+app.delete('/api/admin/games/:id', adminAuthMiddleware, async (req, res) => {
+    try {
+        const fullId = await resolveGameId(req.params.id, res);
+        if (!fullId) return;
+
+        await supabase.deleteGame(fullId);
+        console.log(`🗑️  [ADMIN] Partida eliminada: ${fullId}`);
+        res.json({ status: 'deleted', gameId: fullId });
+    } catch (error) {
+        console.error('❌ Error en delete admin:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Restaurar una partida anulada (falso positivo del validador).
+ * POST /api/admin/games/:id/unvoid
+ */
+app.post('/api/admin/games/:id/unvoid', adminAuthMiddleware, async (req, res) => {
+    try {
+        const fullId = await resolveGameId(req.params.id, res);
+        if (!fullId) return;
+
+        await supabase.setVoided(fullId, false);
+        console.log(`♻️  [ADMIN] Partida restaurada: ${fullId}`);
+        res.json({ status: 'unvoided', gameId: fullId });
+    } catch (error) {
+        console.error('❌ Error en unvoid admin:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Anular manualmente una partida (ej. detectada tarde como reiniciada).
+ * POST /api/admin/games/:id/void
+ * Body opcional: { reason: "texto" }
+ */
+app.post('/api/admin/games/:id/void', adminAuthMiddleware, async (req, res) => {
+    try {
+        const fullId = await resolveGameId(req.params.id, res);
+        if (!fullId) return;
+
+        await supabase.setVoided(fullId, true, req.body?.reason || 'manual');
+        console.log(`🚫 [ADMIN] Partida anulada manualmente: ${fullId}`);
+        res.json({ status: 'voided', gameId: fullId });
+    } catch (error) {
+        console.error('❌ Error en void admin:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ============== DASHBOARD STATS ENDPOINTS ==============
 
 /**

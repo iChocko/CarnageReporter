@@ -219,6 +219,66 @@ class SupabaseService {
         }
     }
 
+    /**
+     * Busca partidas cuyo ID empiece con el prefijo dado (ID corto de la imagen).
+     * @param {string} prefix - Prefijo del game_unique_id (>= 6 caracteres)
+     * @returns {array} - Lista de { game_unique_id, map_name, timestamp, is_voided }
+     */
+    async findGamesByIdPrefix(prefix) {
+        if (!this.client) return [];
+
+        const { data, error } = await this.client
+            .from('games')
+            .select('game_unique_id, map_name, game_type_name, timestamp, is_voided')
+            .like('game_unique_id', `${prefix}%`)
+            .limit(10);
+
+        if (error) throw new Error(`Error buscando por prefijo: ${error.message}`);
+        return data || [];
+    }
+
+    /**
+     * Elimina una partida y sus jugadores.
+     * @param {string} gameUniqueId - ID completo de la partida
+     */
+    async deleteGame(gameUniqueId) {
+        if (!this.client) throw new Error('Supabase no disponible');
+
+        // Borrar jugadores primero (el FK tiene ON DELETE CASCADE, pero
+        // el orden explícito es defensa extra ante esquemas viejos)
+        const { error: pError } = await this.client
+            .from('players')
+            .delete()
+            .eq('game_unique_id', gameUniqueId);
+        if (pError) throw new Error(`Error borrando jugadores: ${pError.message}`);
+
+        const { error: gError } = await this.client
+            .from('games')
+            .delete()
+            .eq('game_unique_id', gameUniqueId);
+        if (gError) throw new Error(`Error borrando juego: ${gError.message}`);
+
+        return true;
+    }
+
+    /**
+     * Marca o desmarca una partida como anulada.
+     * @param {string} gameUniqueId - ID completo de la partida
+     * @param {boolean} voided - true para anular, false para restaurar
+     * @param {string|null} reason - Motivo (se limpia al restaurar)
+     */
+    async setVoided(gameUniqueId, voided, reason = null) {
+        if (!this.client) throw new Error('Supabase no disponible');
+
+        const { error } = await this.client
+            .from('games')
+            .update({ is_voided: voided, void_reason: voided ? (reason || 'manual') : null })
+            .eq('game_unique_id', gameUniqueId);
+
+        if (error) throw new Error(`Error actualizando is_voided: ${error.message}`);
+        return true;
+    }
+
     getProcessedCount() {
         return this.processedCount;
     }
