@@ -12,6 +12,12 @@
 > **[📥 Descargar CarnageReporter.exe para PC](https://github.com/iChocko/CarnageReporter/releases/latest/download/CarnageReporter.exe)**
 > *Compatible con Windows 10/11 (Halo 3 MCC PC).*
 
+> [!NOTE]
+> **¿Windows bloquea la descarga o aparece "Editor: Desconocido"?** Es SmartScreen y es normal
+> (el ejecutable aún no está firmado digitalmente; el código es abierto y puedes revisarlo aquí mismo).
+> - **Al descargar**: en la barra de descargas → ⋯ → **Conservar** → "Mostrar más" → **Conservar de todas formas**.
+> - **Al abrir**: clic en **"Más información"** → **"Ejecutar de todas formas"** (solo la primera vez).
+
 ---
 
 ## 📌 Sobre este proyecto
