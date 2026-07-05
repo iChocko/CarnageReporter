@@ -189,6 +189,7 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
         //    Códigos desconocidos -> placeholder + se guarda el código para mapearlo.
         const mapResolved = resolveMap({
             mapCode: gameData.mapCode,
+            filename,
             mapName: gameData.mapName,
             gameTypeName: gameData.gameTypeName
         });

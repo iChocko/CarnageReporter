@@ -325,7 +325,8 @@ class RendererService {
             <div>
                 <div class="kicker">Post Game Carnage Report</div>
                 <h1>${escapeHtml(gameData.mapName)}</h1>
-                <div class="gametype">${escapeHtml(gameData.gameTypeName)}</div>
+                ${gameData.gameTypeName && gameData.gameTypeName !== gameData.mapName
+                    ? `<div class="gametype">${escapeHtml(gameData.gameTypeName)}</div>` : ''}
             </div>
             <div class="meta">
                 <div><b>${dateStr}</b> &nbsp;${timeStr} hrs</div>

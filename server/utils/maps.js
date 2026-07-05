@@ -65,12 +65,16 @@ function isKnownMap(code) {
  * Resuelve el nombre a mostrar y el código crudo a guardar.
  * @param {object} p
  * @param {string} [p.mapCode]   Código crudo del archivo (cliente v1.4.0+)
+ * @param {string} [p.filename]  Nombre del archivo XML (todos los clientes lo mandan);
+ *                               de aquí se extrae el código si no vino mapCode.
  * @param {string} [p.mapName]   Nombre ya resuelto por el cliente (compat clientes viejos)
  * @param {string} [p.gameTypeName] Tipo de juego (respaldo cuando no hay mapa: matchmaking)
  * @returns {{ mapName: string, mapCode: string|null }}
  */
-function resolveMap({ mapCode, mapName, gameTypeName }) {
-    const code = normalizeCode(mapCode);
+function resolveMap({ mapCode, filename, mapName, gameTypeName }) {
+    // El código puede venir explícito (v1.4.0) o extraerse del nombre de archivo
+    // (funciona con clientes viejos: "asq_standoff-18-15.xml" -> "asq_standoff").
+    const code = normalizeCode(mapCode) || normalizeCode(filename);
 
     // 1. Código conocido -> nombre bonito
     if (code && MAP_NAMES[code]) {
