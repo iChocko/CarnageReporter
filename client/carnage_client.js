@@ -10,7 +10,7 @@ const { spawn } = require('child_process');
 
 // ============== CONFIGURACIÓN (Lanzamiento Oficial) ==============
 
-const VERSION = '1.3.1';
+const VERSION = '1.4.0';
 const GITHUB_REPO = 'iChocko/CarnageReporter';
 const EXE_NAME = 'CarnageReporter.exe';
 const DISCORD_URL = 'https://discord.gg/yD6nGZ3KQX';
@@ -191,6 +191,12 @@ function parseXML(filePath) {
     } else {
         gameData.mapName = mapFromName;
     }
+
+    // v1.4.0: mandar el CÓDIGO crudo del mapa (del nombre de archivo, ej. "asq_guardia").
+    // El servidor lo traduce a nombre bonito y recopila los códigos desconocidos.
+    // En matchmaking no hay código -> null (el servidor usará el tipo de juego).
+    const codeMatch = path.basename(filePath).toLowerCase().match(/asq_[a-z0-9_]+/);
+    gameData.mapCode = codeMatch ? codeMatch[0] : null;
 
     const playersNode = root.Players?.Player;
     const players = (Array.isArray(playersNode) ? playersNode : [playersNode]).filter(Boolean).map(p => {

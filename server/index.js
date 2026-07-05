@@ -21,7 +21,9 @@ const WhatsAppService = require('./services/whatsapp');
 const { evaluateMatch } = require('./services/validator');
 const { startSchedules, WEEKLY_MESSAGE } = require('./services/scheduler');
 const { buildCaptionParts, formatRecentGamesWhatsApp } = require('./utils/matchSummary');
-const { computeRecords, computeH2H, computePlayerProfile } = require('./utils/records');
+const { computeRecords, computeH2H, computePlayerProfile, aggregatePlayers } = require('./utils/records');
+const { classifyFormat, FORMATS } = require('./utils/format');
+const { resolveMap, MAP_NAMES } = require('./utils/maps');
 
 // Initialize Stripe
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -183,74 +185,69 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
             });
         }
 
-        // 2. Evaluar si la partida es válida (reinicios, abandonos, partidas cortas)
+        // 2. Resolver el mapa del lado servidor (el cliente v1.4.0 manda mapCode).
+        //    Códigos desconocidos -> placeholder + se guarda el código para mapearlo.
+        const mapResolved = resolveMap({
+            mapCode: gameData.mapCode,
+            mapName: gameData.mapName,
+            gameTypeName: gameData.gameTypeName
+        });
+        gameData.mapName = mapResolved.mapName;
+        const mapCode = mapResolved.mapCode;
+
+        // 3. Clasificar formato (2v2 / 4v4 / null)
+        const format = classifyFormat(players);
+        const saveMeta = { schemaVersion, clientVersion, mapCode, format };
+
+        // 4. Evaluar validez (formato no soportado, reinicios, abandonos, cortas)
         const verdict = evaluateMatch(gameData, players, schemaVersion);
         if (verdict.voided) {
             console.log(`🚫 Partida ${gameId} anulada (${verdict.reason}) — se guarda sin publicar`);
-            await supabase.saveGame(gameData, players, {
-                isVoided: true,
-                voidReason: verdict.reason,
-                schemaVersion,
-                clientVersion
-            });
+            await supabase.saveGame(gameData, players, { ...saveMeta, isVoided: true, voidReason: verdict.reason });
             return res.json({
-                status: 'voided',
-                gameId,
-                reason: verdict.reason,
-                message: 'Partida anulada (reiniciada o no concluida); no cuenta para stats'
+                status: 'voided', gameId, reason: verdict.reason,
+                message: 'Partida anulada; no cuenta para stats'
             });
         }
 
-        // 3. Matchmaking: se ignora por completo (ni se guarda ni se publica).
-        //    Este bot es exclusivamente para customs 2v2 de la comunidad; además
-        //    el XML de matchmaking no trae el mapa real en ningún campo fiable
-        //    (HopperName es la playlist, ej. "Team Doubles", no un mapa).
-        if (gameData.isMatchmaking === true) {
-            console.log(`🎮 Partida ${gameId} es matchmaking — ignorada por completo (solo customs 2v2)`);
+        // 5. 2v2 en matchmaking se ignora (solo customs 2v2). 4v4 sí acepta matchmaking.
+        if (format === '2v2' && gameData.isMatchmaking === true) {
+            console.log(`🎮 Partida ${gameId} es 2v2 matchmaking — ignorada (2v2 solo customs)`);
             return res.json({
-                status: 'skipped',
-                gameId,
-                message: 'Partida de matchmaking ignorada; el bot solo procesa customs 2v2'
+                status: 'skipped', gameId,
+                message: 'Partida 2v2 de matchmaking ignorada'
             });
         }
 
-        // 4. Generar PNG
-        console.log(`🎨 Generando imagen para partida ${gameId}...`);
+        // 6. Generar PNG
+        console.log(`🎨 Generando imagen ${format} para partida ${gameId} (${gameData.mapName})...`);
         const pngPath = path.join(OUTPUT_DIR, `match_${gameId}.png`);
         await renderer.generatePNG(gameData, players, pngPath);
 
-        if (fs.existsSync(pngPath)) {
-            const stats = fs.statSync(pngPath);
-            console.log(`   ✅ PNG generado exitosamente: ${pngPath} (${stats.size} bytes)`);
-        } else {
-            console.error(`   ❌ Falló la generación del PNG: ${pngPath}`);
+        // 7. Publicar según formato:
+        //    2v2 -> Discord + WhatsApp(Retas H3) · 4v4 -> WhatsApp(Torneos Halo 3), sin Discord
+        if (format === '2v2') {
+            const dsResult = await discord.sendImage(pngPath, gameData, players);
+            console.log(`   ${dsResult ? '✅' : '❌'} Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
         }
 
-        // 5. Enviar a Discord
-        console.log('💬 Enviando a Discord...');
-        const dsResult = await discord.sendImage(pngPath, gameData, players);
-        console.log(`   ${dsResult ? '✅' : '❌'} Resultado Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
-
-        // 5b. Enviar a WhatsApp (si está habilitado y listo; su fallo nunca tumba el request)
         if (whatsapp.isReady()) {
-            const { winnerLine, mapName, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
-            // WhatsApp usa *asterisco simple* para negritas (no ** como Discord/Markdown)
-            const waCaption = `🏆 *${winnerLine}*\n${mapName}\n📅 ${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
-            const waResult = await whatsapp.sendImage(pngPath, waCaption);
-            console.log(`   ${waResult ? '✅' : '❌'} Resultado WhatsApp: ${waResult ? 'Enviado' : 'Fallido'}`);
+            const chatId = whatsapp.groupIdFor(format);
+            if (chatId) {
+                const { winnerLine, mapName, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
+                const waCaption = `🏆 *${winnerLine}*\n${mapName}\n📅 ${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
+                const waResult = await whatsapp.sendImage(pngPath, waCaption, chatId);
+                console.log(`   ${waResult ? '✅' : '❌'} WhatsApp (${format}): ${waResult ? 'Enviado' : 'Fallido'}`);
+            } else {
+                console.log(`   ⚠️  Sin grupo de WhatsApp configurado para ${format}`);
+            }
         }
 
-        // 6. Guardar en Supabase
-        console.log('💾 Guardando en Supabase...');
-        await supabase.saveGame(gameData, players, { schemaVersion, clientVersion });
+        // 8. Guardar en Supabase
+        await supabase.saveGame(gameData, players, saveMeta);
+        console.log(`✅ Juego ${gameId} (${format}) procesado completamente`);
 
-        console.log(`✅ Juego ${gameId} procesado completamente`);
-
-        res.json({
-            status: 'processed',
-            gameId,
-            message: 'Reporte procesado y enviado exitosamente'
-        });
+        res.json({ status: 'processed', gameId, format, message: 'Reporte procesado' });
 
     } catch (error) {
         console.error(`❌ Error procesando ${gameId}:`, error);
@@ -444,18 +441,72 @@ app.post('/api/admin/whatsapp/test-weekly', adminAuthMiddleware, async (req, res
     if (!whatsapp.isReady()) {
         return res.status(503).json({ error: 'WhatsApp no está listo' });
     }
-    const ok = await whatsapp.sendMessage(WEEKLY_MESSAGE);
+    const chatId = whatsapp.groupIdFor('2v2');
+    if (!chatId) return res.status(503).json({ error: 'Sin grupo 2v2 configurado' });
+    const ok = await whatsapp.sendMessage(WEEKLY_MESSAGE, chatId);
     res.json({ status: ok ? 'sent' : 'failed', message: WEEKLY_MESSAGE });
 });
 
 /**
  * Vista previa del texto del comando !partidas SIN enviarlo al grupo.
- * GET /api/admin/whatsapp/preview-partidas
+ * GET /api/admin/whatsapp/preview-partidas?format=2v2|4v4
  */
 app.get('/api/admin/whatsapp/preview-partidas', adminAuthMiddleware, async (req, res) => {
     try {
-        const games = await supabase.getRecentGamesWithPlayers(10);
+        const format = FORMATS.includes(req.query.format) ? req.query.format : '2v2';
+        const games = await supabase.getRecentGamesWithPlayers(10, format);
         res.type('text/plain').send(formatRecentGamesWhatsApp(games));
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+/**
+ * Mapas sin identificar: códigos crudos vistos que aún no tienen nombre.
+ * Para recopilarlos y luego mapearlos. GET /api/admin/unknown-maps
+ */
+app.get('/api/admin/unknown-maps', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { data, error } = await supabase.client
+            .from('games')
+            .select('map_code, timestamp')
+            .not('map_code', 'is', null);
+        if (error) throw error;
+
+        const known = new Set(Object.keys(MAP_NAMES));
+        const counts = {};
+        for (const g of data || []) {
+            if (known.has(g.map_code)) continue;
+            if (!counts[g.map_code]) counts[g.map_code] = { code: g.map_code, count: 0, lastSeen: g.timestamp };
+            counts[g.map_code].count++;
+            if (g.timestamp > counts[g.map_code].lastSeen) counts[g.map_code].lastSeen = g.timestamp;
+        }
+        res.json(Object.values(counts).sort((a, b) => b.count - a.count));
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+/**
+ * Backfill: aplica un nombre a todas las partidas con un map_code dado.
+ * Se usa tras agregar el código a utils/maps.js (para corregir partidas viejas).
+ * POST /api/admin/map-backfill  Body: { code, name }
+ */
+app.post('/api/admin/map-backfill', adminAuthMiddleware, async (req, res) => {
+    try {
+        const code = String(req.body?.code || '').trim().toLowerCase();
+        const name = String(req.body?.name || '').trim();
+        if (!code || !name) return res.status(400).json({ error: 'Faltan code y/o name' });
+
+        const { data, error } = await supabase.client
+            .from('games')
+            .update({ map_name: name })
+            .eq('map_code', code)
+            .select('game_unique_id');
+        if (error) throw error;
+        res.json({ status: 'ok', code, name, updated: (data || []).length });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Error interno del servidor' });
@@ -464,33 +515,28 @@ app.get('/api/admin/whatsapp/preview-partidas', adminAuthMiddleware, async (req,
 
 // ============== DASHBOARD STATS ENDPOINTS ==============
 
+// Formato pedido en el query (?format=2v2|4v4), default 2v2.
+function reqFormat(req) {
+    return FORMATS.includes(req.query.format) ? req.query.format : '2v2';
+}
+
 /**
- * Global Stats (Customs Only)
+ * Global Stats por formato
  */
 app.get('/api/stats/global', async (req, res) => {
     try {
-        const { data: allStats, error: aError } = await supabase.client
-            .from('player_stats')
-            .select('total_games, total_kills, total_deaths, total_assists');
+        const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
+        const players = aggregatePlayers(games);
 
-        if (aError) throw aError;
-
-        const totals = allStats.reduce((acc, curr) => ({
-            totalKills: acc.totalKills + curr.total_kills,
-            totalDeaths: acc.totalDeaths + curr.total_deaths,
+        const totals = players.reduce((acc, p) => ({
+            totalKills: acc.totalKills + p.total_kills,
+            totalDeaths: acc.totalDeaths + p.total_deaths,
             totalPlayers: acc.totalPlayers + 1
         }), { totalKills: 0, totalDeaths: 0, totalPlayers: 0 });
 
-        // Mismo criterio que las vistas: solo customs válidas
-        const { count: gameCount } = await supabase.client
-            .from('games')
-            .select('*', { count: 'exact', head: true })
-            .eq('is_matchmaking', false)
-            .eq('is_voided', false);
-
         res.json({
             ...totals,
-            totalGames: gameCount || 0,
+            totalGames: games.length,
             avgKD: totals.totalDeaths > 0 ? (totals.totalKills / totals.totalDeaths).toFixed(2) : totals.totalKills.toFixed(2)
         });
     } catch (error) {
@@ -500,17 +546,14 @@ app.get('/api/stats/global', async (req, res) => {
 });
 
 /**
- * MVP & Top Performers
+ * MVP & Top Performers por formato
  */
 app.get('/api/stats/mvp', async (req, res) => {
     try {
         const MIN_GAMES = parseInt(process.env.LEADERBOARD_MIN_GAMES || '5', 10);
 
-        const { data, error } = await supabase.client
-            .from('player_stats')
-            .select('*');
-
-        if (error) throw error;
+        const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
+        const data = aggregatePlayers(games);
 
         // Calculate KDA and efficiency for all players
         const playersWithMLG = data.map(p => {
@@ -567,16 +610,9 @@ app.get('/api/stats/leaderboard', async (req, res) => {
         const limit = clampInt(req.query.limit, 20, 1, 100);
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-        // Traer TODOS los jugadores: antes se recortaba a top-20 por total_score
-        // ANTES de calcular el Slayer Score, excluyendo jugadores injustamente.
-        const { data, error } = await supabase.client
-            .from('player_stats')
-            .select('*');
-
-        if (error) throw error;
-
-        // Récord V-D-E por jugador (calculado desde las partidas)
-        const allGames = await supabase.getAllValidGamesWithPlayers();
+        // Agregar jugadores y récord V-D-E desde las partidas del formato pedido
+        const allGames = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
+        const data = aggregatePlayers(allGames);
         const records = computeRecords(allGames);
 
         // Calcular métricas MLG para cada jugador
@@ -653,7 +689,7 @@ app.get('/api/stats/leaderboard', async (req, res) => {
 
 app.get('/api/stats/recent', async (req, res) => {
     try {
-        const gamesWithPlayers = await supabase.getRecentGamesWithPlayers(10);
+        const gamesWithPlayers = await supabase.getRecentGamesWithPlayers(10, reqFormat(req));
         res.json(gamesWithPlayers);
     } catch (error) {
         console.error(error);
@@ -662,16 +698,15 @@ app.get('/api/stats/recent', async (req, res) => {
 });
 
 /**
- * Lista simple de jugadores (para buscadores/selectores del dashboard)
+ * Lista simple de jugadores del formato (para buscadores/selectores del dashboard)
  */
 app.get('/api/stats/players', async (req, res) => {
     try {
-        const { data, error } = await supabase.client
-            .from('player_stats')
-            .select('gamertag, total_games')
-            .order('gamertag', { ascending: true });
-        if (error) throw error;
-        res.json(data || []);
+        const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
+        const players = aggregatePlayers(games)
+            .map(p => ({ gamertag: p.gamertag, total_games: p.total_games }))
+            .sort((a, b) => a.gamertag.localeCompare(b.gamertag));
+        res.json(players);
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Error interno del servidor' });
@@ -691,7 +726,7 @@ app.get('/api/stats/h2h', async (req, res) => {
         if (String(p1).toLowerCase() === String(p2).toLowerCase()) {
             return res.status(400).json({ error: 'Elige dos jugadores distintos' });
         }
-        const games = await supabase.getAllValidGamesWithPlayers();
+        const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
         res.json(computeH2H(games, p1, p2));
     } catch (error) {
         console.error(error);
@@ -705,7 +740,7 @@ app.get('/api/stats/h2h', async (req, res) => {
  */
 app.get('/api/stats/player/:gamertag', async (req, res) => {
     try {
-        const games = await supabase.getAllValidGamesWithPlayers();
+        const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
         const profile = computePlayerProfile(games, req.params.gamertag);
         if (!profile) {
             return res.status(404).json({ error: `No hay partidas de '${req.params.gamertag}'` });
@@ -797,13 +832,14 @@ async function start() {
         console.error('❌ WhatsApp no pudo inicializar:', err.message);
     });
 
-    // Comando del grupo: !partidas -> últimas 10 partidas formateadas
-    whatsapp.registerCommand('!partidas', async () => {
-        const games = await supabase.getRecentGamesWithPlayers(10);
+    // Comando del grupo: !partidas -> últimas 10 partidas del formato del grupo
+    // (Retas H3 -> 2v2, Torneos Halo 3 -> 4v4).
+    whatsapp.registerCommand('!partidas', async ({ format }) => {
+        const games = await supabase.getRecentGamesWithPlayers(10, format);
         return formatRecentGamesWhatsApp(games);
     });
 
-    // Tareas programadas (mensaje semanal de los lunes, solo WhatsApp)
+    // Tareas programadas (mensaje semanal de los lunes -> solo grupo 2v2 / Retas H3)
     startSchedules(whatsapp);
 }
 

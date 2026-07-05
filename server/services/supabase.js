@@ -59,7 +59,8 @@ class SupabaseService {
             return false;
         }
 
-        const { isVoided = false, voidReason = null, schemaVersion = 1, clientVersion = null } = meta;
+        const { isVoided = false, voidReason = null, schemaVersion = 1, clientVersion = null,
+                mapCode = null, format = null } = meta;
 
         try {
             // 1. Insertar el juego (upsert para evitar duplicados)
@@ -83,7 +84,9 @@ class SupabaseService {
                     is_voided: isVoided,
                     void_reason: voidReason,
                     schema_version: schemaVersion,
-                    client_version: clientVersion
+                    client_version: clientVersion,
+                    map_code: mapCode,
+                    format: format
                 }, { onConflict: 'game_unique_id' });
 
             if (gameError) {
@@ -220,19 +223,23 @@ class SupabaseService {
     }
 
     /**
-     * TODAS las partidas válidas (customs, no anuladas) con jugadores anidados,
-     * ordenadas de más reciente a más antigua. Fuente para récords, H2H y perfiles.
-     * A escala de comunidad esto son cientos de filas; se consulta por chunks.
+     * Helper interno: partidas válidas (no anuladas) de un formato, con jugadores
+     * anidados, más reciente primero. La columna `format` es el filtro (2v2 incluye
+     * solo customs; 4v4 incluye customs y matchmaking).
+     * @param {object} opts { format?: '2v2'|'4v4', limit?: number }
      */
-    async getAllValidGamesWithPlayers() {
+    async _gamesWithPlayers({ format, limit } = {}) {
         if (!this.client) return [];
 
-        const { data: games, error: gError } = await this.client
+        let query = this.client
             .from('games')
-            .select('game_unique_id, map_name, game_type_name, timestamp, duration, is_teams_enabled')
+            .select('game_unique_id, map_name, game_type_name, timestamp, duration, is_teams_enabled, format')
             .eq('is_voided', false)
-            .eq('is_matchmaking', false)
             .order('timestamp', { ascending: false });
+        if (format) query = query.eq('format', format);
+        if (limit) query = query.limit(limit);
+
+        const { data: games, error: gError } = await query;
         if (gError) throw new Error(gError.message);
         if (!games || games.length === 0) return [];
 
@@ -256,34 +263,14 @@ class SupabaseService {
         return games.map(g => ({ ...g, players: byGame.get(g.game_unique_id) || [] }));
     }
 
-    /**
-     * Últimas N partidas válidas (vista recent_games) con sus jugadores anidados.
-     * Fuente única para /api/stats/recent y el comando !partidas de WhatsApp.
-     * @param {number} limit
-     */
-    async getRecentGamesWithPlayers(limit = 10) {
-        if (!this.client) return [];
+    /** TODAS las partidas válidas de un formato (récords, H2H, perfiles, leaderboard). */
+    async getAllValidGamesWithPlayers(format) {
+        return this._gamesWithPlayers({ format });
+    }
 
-        const { data: games, error: gError } = await this.client
-            .from('recent_games')
-            .select('*')
-            .order('timestamp', { ascending: false }) // más reciente primero, explícito
-            .limit(limit);
-        if (gError) throw new Error(gError.message);
-
-        if (!games || games.length === 0) return [];
-
-        const gameIds = games.map(g => g.game_unique_id);
-        const { data: players, error: pError } = await this.client
-            .from('players')
-            .select('game_unique_id, gamertag, team_id, score, kills, deaths, assists')
-            .in('game_unique_id', gameIds);
-        if (pError) throw new Error(pError.message);
-
-        return games.map(game => ({
-            ...game,
-            players: (players || []).filter(p => p.game_unique_id === game.game_unique_id)
-        }));
+    /** Últimas N partidas válidas de un formato (recientes y comando !partidas). */
+    async getRecentGamesWithPlayers(limit = 10, format) {
+        return this._gamesWithPlayers({ format, limit });
     }
 
     /**

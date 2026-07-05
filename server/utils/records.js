@@ -151,4 +151,37 @@ function computePlayerProfile(games, gamertag) {
     };
 }
 
-module.exports = { teamOutcomes, computeRecords, computeH2H, computePlayerProfile };
+/**
+ * Agrega stats por jugador a partir de las partidas (con jugadores anidados).
+ * Reemplaza la vista SQL `player_stats` para poder filtrar por formato.
+ * Devuelve el mismo shape que consumían el leaderboard/mvp/global.
+ */
+function aggregatePlayers(games) {
+    const map = new Map();
+    for (const g of games) {
+        for (const p of g.players || []) {
+            if (!map.has(p.gamertag)) {
+                map.set(p.gamertag, {
+                    gamertag: p.gamertag,
+                    total_games: 0, total_kills: 0, total_deaths: 0,
+                    total_assists: 0, total_score: 0, best_spree: 0
+                });
+            }
+            const a = map.get(p.gamertag);
+            a.total_games++;
+            a.total_kills += p.kills;
+            a.total_deaths += p.deaths;
+            a.total_assists += p.assists;
+            a.total_score += p.score;
+            a.best_spree = Math.max(a.best_spree, p.most_kills_in_a_row || 0);
+        }
+    }
+    for (const a of map.values()) {
+        a.overall_kd = a.total_deaths > 0
+            ? Math.round((a.total_kills / a.total_deaths) * 100) / 100
+            : a.total_kills;
+    }
+    return [...map.values()];
+}
+
+module.exports = { teamOutcomes, computeRecords, computeH2H, computePlayerProfile, aggregatePlayers };

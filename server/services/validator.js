@@ -7,27 +7,9 @@
  * endpoint admin de unvoid si la detección fue un falso positivo.
  */
 
+const { classifyFormat } = require('../utils/format');
+
 const VOID_MIN_DURATION_SECONDS = parseInt(process.env.VOID_MIN_DURATION_SECONDS || '150', 10);
-
-// El bot registra EXCLUSIVAMENTE partidas 2v2 (2 equipos de 2 jugadores).
-// Escape hatch: REQUIRE_2V2=false en el .env si algún día se quiere abrir.
-const REQUIRE_2V2 = process.env.REQUIRE_2V2 !== 'false';
-
-/**
- * ¿Es una partida 2v2? Equipos habilitados, exactamente 2 equipos, 2 jugadores cada uno.
- */
-function is2v2(gameData, players) {
-    if (gameData.isTeamsEnabled === false) return false;
-
-    const teamCounts = new Map();
-    for (const p of players) {
-        const tid = p.teamId ?? 0;
-        teamCounts.set(tid, (teamCounts.get(tid) || 0) + 1);
-    }
-
-    if (teamCounts.size !== 2) return false;
-    return [...teamCounts.values()].every(count => count === 2);
-}
 
 /**
  * Evalúa una partida entrante.
@@ -42,9 +24,9 @@ function is2v2(gameData, players) {
  * @returns {{voided: boolean, reason: string|null}}
  */
 function evaluateMatch(gameData, players, schemaVersion) {
-    // Regla 0: solo partidas 2v2 (estructural, aplica a cualquier versión de payload)
-    if (REQUIRE_2V2 && !is2v2(gameData, players)) {
-        return { voided: true, reason: 'not_2v2' };
+    // Regla 0: solo formatos soportados (2v2 o 4v4). Estructural, cualquier versión.
+    if (classifyFormat(players) === null) {
+        return { voided: true, reason: 'unsupported_format' };
     }
 
     // Regla 1: el propio juego marcó la partida como incompleta
@@ -72,4 +54,4 @@ function evaluateMatch(gameData, players, schemaVersion) {
     return { voided: false, reason: null };
 }
 
-module.exports = { evaluateMatch, is2v2, VOID_MIN_DURATION_SECONDS, REQUIRE_2V2 };
+module.exports = { evaluateMatch, VOID_MIN_DURATION_SECONDS };

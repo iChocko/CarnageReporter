@@ -18,11 +18,16 @@ class WhatsAppService {
         this.enabled = process.env.WHATSAPP_ENABLED === 'true';
         this.client = null;
         this.ready = false;
-        this.targetGroup = null;
         this.currentQR = null;
         this.status = this.enabled ? 'initializing' : 'disabled';
-        this.groupName = process.env.WHATSAPP_GROUP_NAME || null;
-        this.groupId = process.env.WHATSAPP_GROUP_ID || null;
+        // Grupos destino por formato. 2v2 -> Retas H3, 4v4 -> Torneos Halo 3.
+        this.groupConfig = {
+            '2v2': { id: process.env.WHATSAPP_GROUP_ID || null, name: process.env.WHATSAPP_GROUP_NAME || null },
+            '4v4': { id: process.env.WHATSAPP_GROUP_ID_4V4 || null, name: process.env.WHATSAPP_GROUP_NAME_4V4 || null },
+        };
+        // format -> chatId resuelto (tras conectar); y el inverso chatId -> format
+        this.resolvedGroups = {};
+        this.chatIdToFormat = {};
         this.authPath = process.env.WHATSAPP_AUTH_DIR || path.join(__dirname, '..', '.wwebjs_auth');
         this.isRestarting = false;
         this.keepAliveInterval = null;
@@ -173,15 +178,8 @@ class WhatsAppService {
                 this.isRestarting = false;
                 console.log('📱 WhatsApp listo.');
 
-                // Resolver el grupo destino desde env (ID o nombre)
-                const result = await this.setTargetGroup(this.groupId, this.groupName);
-                if (!result.success) {
-                    console.log(`⚠️  ${result.message}`);
-                    if (result.availableGroups?.length) {
-                        console.log('   Grupos disponibles:');
-                        result.availableGroups.forEach(g => console.log(`   - ${g.name}: ${g.id}`));
-                    }
-                }
+                // Resolver ambos grupos (2v2 y 4v4) desde su config de env
+                await this.resolveGroups();
 
                 this.startKeepAlive();
                 resolve();
@@ -268,10 +266,18 @@ class WhatsAppService {
     }
 
     /**
-     * Envía una imagen con caption al grupo destino.
-     * Nunca lanza: devuelve false en fallo (no debe tumbar /api/report).
+     * chatId configurado para un formato ('2v2' | '4v4').
      */
-    async sendImage(imagePath, caption) {
+    groupIdFor(format) {
+        return this.resolvedGroups[format] || this.groupConfig[format]?.id || null;
+    }
+
+    /**
+     * Envía una imagen con caption a un chat específico.
+     * Nunca lanza: devuelve false en fallo (no debe tumbar /api/report).
+     * @param {string} chatId - grupo destino (obligatorio)
+     */
+    async sendImage(imagePath, caption, chatId) {
         if (!this.enabled) return false;
 
         const isConnected = await this.ensureConnection();
@@ -280,9 +286,8 @@ class WhatsAppService {
             return false;
         }
 
-        const chatId = this.targetGroup?.id?._serialized || this.groupId;
         if (!chatId) {
-            console.log('⚠️  WhatsApp sin grupo destino (configura WHATSAPP_GROUP_ID o WHATSAPP_GROUP_NAME)');
+            console.log('⚠️  sendImage sin chatId destino');
             return false;
         }
 
@@ -319,13 +324,16 @@ class WhatsAppService {
         return false;
     }
 
-    async sendMessage(text) {
+    /**
+     * Envía un mensaje de texto a un chat específico.
+     * @param {string} text
+     * @param {string} chatId
+     */
+    async sendMessage(text, chatId) {
         if (!this.enabled) return false;
 
         const isConnected = await this.ensureConnection();
         if (!isConnected) return false;
-
-        const chatId = this.targetGroup?.id?._serialized || this.groupId;
         if (!chatId) return false;
 
         try {
@@ -338,8 +346,8 @@ class WhatsAppService {
     }
 
     /**
-     * Registra un comando del grupo: cuando alguien escribe exactamente el
-     * trigger (ej. "!partidas"), se responde con lo que devuelva el handler.
+     * Registra un comando del grupo. El handler recibe { format } según el grupo
+     * de origen ('2v2' en Retas H3, '4v4' en Torneos Halo 3) y devuelve el texto.
      */
     registerCommand(trigger, handler) {
         this.commands.set(trigger.toLowerCase(), handler);
@@ -349,20 +357,20 @@ class WhatsAppService {
     async handleIncomingMessage(msg) {
         if (!this.ready || this.commands.size === 0) return;
 
-        // Solo mensajes del grupo destino
-        const chatId = this.targetGroup?.id?._serialized || this.groupId;
+        // El mensaje debe venir de uno de los grupos configurados
         const msgChat = msg.fromMe ? msg.to : msg.from;
-        if (!chatId || msgChat !== chatId) return;
+        const format = this.chatIdToFormat[msgChat];
+        if (!format) return;
 
         const trigger = (msg.body || '').trim().toLowerCase();
         const handler = this.commands.get(trigger);
         if (!handler) return;
 
-        console.log(`📨 Comando WhatsApp recibido en el grupo: ${trigger}`);
-        const reply = await handler();
+        console.log(`📨 Comando WhatsApp '${trigger}' recibido en grupo ${format}`);
+        const reply = await handler({ format });
         if (reply) {
-            await this.client.sendMessage(chatId, reply);
-            console.log(`📤 Respuesta de ${trigger} enviada`);
+            await this.client.sendMessage(msgChat, reply);
+            console.log(`📤 Respuesta de ${trigger} enviada a ${format}`);
         }
     }
 
@@ -380,9 +388,14 @@ class WhatsAppService {
     getStatus() {
         return {
             status: this.status,
-            group: this.targetGroup ? { id: this.targetGroup.id._serialized, name: this.targetGroup.name } : null,
-            configuredGroupId: this.groupId,
-            configuredGroupName: this.groupName
+            groups: {
+                '2v2': this.resolvedGroups['2v2'] || null,
+                '4v4': this.resolvedGroups['4v4'] || null,
+            },
+            configured: {
+                '2v2': this.groupConfig['2v2'],
+                '4v4': this.groupConfig['4v4'],
+            }
         };
     }
 
@@ -408,43 +421,46 @@ class WhatsAppService {
     }
 
     /**
-     * Cambia el grupo de destino por ID (preciso) o por nombre
+     * Resuelve los grupos configurados (2v2 y 4v4) contra los chats reales,
+     * llena resolvedGroups (format -> {id,name}) y chatIdToFormat (inverso).
      */
-    async setTargetGroup(groupId, groupName) {
-        if (!this.ready || !this.client) {
-            return { success: false, message: 'WhatsApp no está listo' };
-        }
+    async resolveGroups() {
+        this.resolvedGroups = {};
+        this.chatIdToFormat = {};
 
-        if (!groupId && !groupName) {
-            return { success: false, message: 'Sin grupo configurado (WHATSAPP_GROUP_ID / WHATSAPP_GROUP_NAME)' };
-        }
+        if (!this.ready || !this.client) return;
 
+        let groups = [];
         try {
             const chats = await this.client.getChats();
-            const groups = chats.filter(chat => chat.isGroup);
-
-            let newGroup = null;
-            if (groupId) {
-                newGroup = groups.find(g => g.id._serialized === groupId);
-            }
-            if (!newGroup && groupName) {
-                newGroup = groups.find(g => g.name.toLowerCase() === groupName.toLowerCase());
-            }
-
-            if (newGroup) {
-                this.targetGroup = newGroup;
-                console.log(`📱 Grupo destino: ${newGroup.name} (${newGroup.id._serialized})`);
-                return { success: true, groupId: newGroup.id._serialized, groupName: newGroup.name };
-            }
-
-            return {
-                success: false,
-                message: `Grupo no encontrado: ${groupId || groupName}`,
-                availableGroups: groups.map(g => ({ id: g.id._serialized, name: g.name }))
-            };
+            groups = chats.filter(chat => chat.isGroup);
         } catch (error) {
-            console.error('❌ Error cambiando grupo:', error.message);
-            return { success: false, message: error.message };
+            console.error('❌ Error obteniendo chats:', error.message);
+            return;
+        }
+
+        for (const format of ['2v2', '4v4']) {
+            const cfg = this.groupConfig[format];
+            if (!cfg?.id && !cfg?.name) continue; // formato no configurado
+
+            let match = null;
+            if (cfg.id) match = groups.find(g => g.id._serialized === cfg.id);
+            if (!match && cfg.name) match = groups.find(g => g.name.toLowerCase() === cfg.name.toLowerCase());
+
+            if (match) {
+                const id = match.id._serialized;
+                this.resolvedGroups[format] = { id, name: match.name };
+                this.chatIdToFormat[id] = format;
+                console.log(`📱 Grupo ${format}: ${match.name} (${id})`);
+            } else {
+                console.log(`⚠️  Grupo ${format} no encontrado (id/nombre configurado: ${cfg.id || cfg.name})`);
+            }
+        }
+
+        if (Object.keys(this.resolvedGroups).length === 0) {
+            console.log('⚠️  Ningún grupo de WhatsApp configurado/encontrado.');
+            console.log('   Grupos disponibles:');
+            groups.forEach(g => console.log(`   - ${g.name}: ${g.id._serialized}`));
         }
     }
 

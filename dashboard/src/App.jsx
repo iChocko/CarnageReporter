@@ -238,7 +238,7 @@ const PartidasView = ({ recent }) => (
   </>
 )
 
-const H2HView = ({ players }) => {
+const H2HView = ({ players, format }) => {
   const [p1, setP1] = useState('')
   const [p2, setP2] = useState('')
   const [data, setData] = useState(null)
@@ -248,7 +248,7 @@ const H2HView = ({ players }) => {
   const compare = async () => {
     setLoading(true); setError(null); setData(null)
     try {
-      setData(await getJSON(`${API}/h2h?p1=${encodeURIComponent(p1)}&p2=${encodeURIComponent(p2)}`))
+      setData(await getJSON(`${API}/h2h?p1=${encodeURIComponent(p1)}&p2=${encodeURIComponent(p2)}&format=${format}`))
     } catch (e) {
       setError('No se pudo comparar. Intenta de nuevo.')
     } finally {
@@ -340,7 +340,7 @@ const H2HView = ({ players }) => {
   )
 }
 
-const PerfilView = ({ players, selected, onSelect }) => {
+const PerfilView = ({ players, selected, onSelect, format }) => {
   const [query, setQuery] = useState('')
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -350,12 +350,12 @@ const PerfilView = ({ players, selected, onSelect }) => {
     if (!selected) { setProfile(null); return }
     let cancelled = false
     setLoading(true); setError(null)
-    getJSON(`${API}/player/${encodeURIComponent(selected)}`)
+    getJSON(`${API}/player/${encodeURIComponent(selected)}?format=${format}`)
       .then(d => { if (!cancelled) setProfile(d) })
       .catch(() => { if (!cancelled) setError(`No se encontró el perfil de "${selected}".`) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [selected])
+  }, [selected, format])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -436,7 +436,13 @@ const PerfilView = ({ players, selected, onSelect }) => {
 
 // ---------- App ----------
 
+const FORMATS = [
+  ['2v2', '2v2', 'Customs · Retas H3'],
+  ['4v4', '4v4', 'Customs y matchmaking · Torneos H3'],
+]
+
 const App = () => {
+  const [format, setFormat] = useState('2v2')
   const [view, setView] = useState('rankings')
   const [leaderboard, setLeaderboard] = useState([])
   const [recent, setRecent] = useState([])
@@ -446,26 +452,26 @@ const App = () => {
   const [stripeOpen, setStripeOpen] = useState(false)
 
   useEffect(() => {
+    setLoading(true)
+    setSelectedPlayer(null) // el perfil seleccionado puede no existir en el otro formato
     Promise.allSettled([
-      getJSON(`${API}/leaderboard?limit=50`),
-      getJSON(`${API}/recent`),
-      getJSON(`${API}/players`)
+      getJSON(`${API}/leaderboard?limit=50&format=${format}`),
+      getJSON(`${API}/recent?format=${format}`),
+      getJSON(`${API}/players?format=${format}`)
     ]).then(([l, r, p]) => {
-      if (l.status === 'fulfilled') setLeaderboard(l.value || [])
-      if (r.status === 'fulfilled') setRecent(r.value || [])
-      if (p.status === 'fulfilled') setPlayers(p.value || [])
+      setLeaderboard(l.status === 'fulfilled' ? (l.value || []) : [])
+      setRecent(r.status === 'fulfilled' ? (r.value || []) : [])
+      setPlayers(p.status === 'fulfilled' ? (p.value || []) : [])
       setLoading(false)
     })
-  }, [])
+  }, [format])
 
   const openProfile = (gamertag) => {
     setSelectedPlayer(gamertag)
     setView('perfil')
   }
 
-  if (loading) {
-    return <div className="loading">Cargando Carnage Reporter...</div>
-  }
+  const sub = FORMATS.find(f => f[0] === format)?.[2] || ''
 
   const TABS = [
     ['rankings', 'Rankings'],
@@ -480,10 +486,18 @@ const App = () => {
         <div className="brand">
           <div className="kicker">Post Game Carnage Report</div>
           <h1>Carnage Reporter</h1>
-          <div className="sub">Halo 3 MCC · Customs 2v2 · Comunidad Retas H3</div>
+          <div className="sub">Halo 3 MCC · {format.toUpperCase()} · {sub}</div>
         </div>
         <div className="head-right">
-          <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer">Discord ↗</a>
+          <div className="format-toggle" role="tablist" aria-label="Formato">
+            {FORMATS.map(([id, label]) => (
+              <button key={id} className={`fmt-btn ${format === id ? 'active' : ''}`}
+                      role="tab" aria-selected={format === id} onClick={() => setFormat(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer" style={{ marginTop: 8, display: 'inline-block' }}>Discord ↗</a>
         </div>
       </header>
 
@@ -496,14 +510,18 @@ const App = () => {
       </nav>
 
       <section className="view">
-        {view === 'rankings' && (
-          <RankingsView leaderboard={leaderboard} recent={recent}
-                        onOpenProfile={openProfile} onSeeAll={() => setView('partidas')} />
-        )}
-        {view === 'partidas' && <PartidasView recent={recent} />}
-        {view === 'h2h' && <H2HView players={players} />}
-        {view === 'perfil' && (
-          <PerfilView players={players} selected={selectedPlayer} onSelect={setSelectedPlayer} />
+        {loading ? <div className="loading">Cargando {format.toUpperCase()}...</div> : (
+          <>
+            {view === 'rankings' && (
+              <RankingsView leaderboard={leaderboard} recent={recent}
+                            onOpenProfile={openProfile} onSeeAll={() => setView('partidas')} />
+            )}
+            {view === 'partidas' && <PartidasView recent={recent} />}
+            {view === 'h2h' && <H2HView players={players} format={format} />}
+            {view === 'perfil' && (
+              <PerfilView players={players} selected={selectedPlayer} onSelect={setSelectedPlayer} format={format} />
+            )}
+          </>
         )}
       </section>
 

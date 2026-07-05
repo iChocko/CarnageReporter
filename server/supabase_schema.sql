@@ -23,9 +23,11 @@ CREATE TABLE IF NOT EXISTS public.games (
     last_match_incomplete BOOLEAN DEFAULT FALSE, -- flag crudo del XML
     party_size INTEGER,
     is_voided BOOLEAN NOT NULL DEFAULT FALSE,    -- partida anulada (no cuenta para stats)
-    void_reason TEXT,                            -- last_match_incomplete | too_short | majority_quit | manual
+    void_reason TEXT,                            -- unsupported_format | last_match_incomplete | too_short | majority_quit | manual
     schema_version INTEGER DEFAULT 1,            -- versión del payload del cliente
     client_version VARCHAR(20),
+    format VARCHAR(8),                           -- '2v2' | '4v4' (derivado de la estructura de equipos)
+    map_code VARCHAR(64),                        -- código crudo del mapa (ej. asq_guardia); para mapear desconocidos
     timestamp TIMESTAMPTZ DEFAULT NOW(),
     timestamp_cdmx TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -35,8 +37,18 @@ CREATE TABLE IF NOT EXISTS public.games (
 CREATE INDEX IF NOT EXISTS idx_games_timestamp ON public.games(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_games_map_name ON public.games(map_name);
 CREATE INDEX IF NOT EXISTS idx_games_voided ON public.games(is_voided);
+CREATE INDEX IF NOT EXISTS idx_games_format ON public.games(format);
+CREATE INDEX IF NOT EXISTS idx_games_map_code ON public.games(map_code);
 -- Para búsqueda por prefijo de ID (borrado admin con ID corto)
 CREATE INDEX IF NOT EXISTS idx_games_id_prefix ON public.games(game_unique_id varchar_pattern_ops);
+
+-- ============================================================
+-- MIGRACIÓN para bases ya existentes (correr una sola vez):
+--   ALTER TABLE public.games ADD COLUMN IF NOT EXISTS format VARCHAR(8);
+--   ALTER TABLE public.games ADD COLUMN IF NOT EXISTS map_code VARCHAR(64);
+--   CREATE INDEX IF NOT EXISTS idx_games_format ON public.games(format);
+--   CREATE INDEX IF NOT EXISTS idx_games_map_code ON public.games(map_code);
+-- ============================================================
 
 -- Tabla de jugadores (stats por partida)
 CREATE TABLE IF NOT EXISTS public.players (

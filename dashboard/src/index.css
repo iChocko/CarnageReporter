@@ -69,6 +69,20 @@ header.site {
 .head-right { text-align: right; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; }
 .head-right a { text-decoration: none; }
 
+/* Selector de formato 2v2 / 4v4 */
+.format-toggle { display: inline-flex; border: 1px solid var(--line); }
+.fmt-btn {
+  appearance: none; cursor: pointer;
+  background: rgba(20, 30, 42, 0.6); color: var(--steel-dim);
+  border: none; border-right: 1px solid var(--line);
+  padding: 7px 16px; font-size: 13px; letter-spacing: 2px; font-weight: 700;
+  transition: background .15s ease, color .15s ease;
+}
+.fmt-btn:last-child { border-right: none; }
+.fmt-btn:hover { color: var(--steel); }
+.fmt-btn:focus-visible { outline: 2px solid var(--blue-light); outline-offset: -2px; }
+.fmt-btn.active { background: var(--blue-dark); color: var(--blue-light); }
+
 /* ---------- Tabs ---------- */
 nav.tabs { display: flex; gap: 2px; margin-top: 18px; flex-wrap: wrap; }
 .tab {
