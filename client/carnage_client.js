@@ -176,6 +176,9 @@ function parseXML(filePath) {
         hopperName: hopperName,
         gameTypeName: root.GameTypeName?.GameTypeName || 'Slayer',
         timestamp: parseTimestamp(path.basename(filePath)),
+        // v2: flags de completitud de la partida
+        lastMatchIncomplete: root.mLastMatchIncomplete?.mLastMatchIncomplete === 'true',
+        partySize: parseInt(root.mPartySize?.mPartySize || 0),
     };
 
     const mapFromName = getMapName(path.basename(filePath), gameData);
@@ -188,21 +191,44 @@ function parseXML(filePath) {
     }
 
     const playersNode = root.Players?.Player;
-    const players = (Array.isArray(playersNode) ? playersNode : [playersNode]).filter(Boolean).map(p => ({
-        xboxUserId: p.mXboxUserId || '',
-        gamertag: p.mGamertagText || 'Unknown',
-        clanTag: p.ClantagText || '',
-        serviceId: p.ServiceId || '',
-        teamId: parseInt(p.mTeamId || 0),
-        score: parseInt(p.Score || 0),
-        standing: parseInt(p.mStanding || 0),
-        kills: parseInt(p.mKills || 0),
-        deaths: parseInt(p.mDeaths || 0),
-        assists: parseInt(p.mAssists || 0),
-        betrayals: parseInt(p.mBetrayals || 0),
-        suicides: parseInt(p.mSuicides || 0),
-        mostKillsInARow: parseInt(p.mMostKillsInARow || 0)
-    }));
+    const players = (Array.isArray(playersNode) ? playersNode : [playersNode]).filter(Boolean).map(p => {
+        // v2: medallas — solo las que tienen conteo > 0 (de 384 posibles quedan pocas)
+        const medalsNode = p.MedalsCount?.Medal;
+        const medals = (Array.isArray(medalsNode) ? medalsNode : [medalsNode])
+            .filter(Boolean)
+            .map(m => ({ id: parseInt(m.mId || 0), count: parseInt(m.mCount || 0) }))
+            .filter(m => m.count > 0);
+
+        return {
+            xboxUserId: p.mXboxUserId || '',
+            gamertag: p.mGamertagText || 'Unknown',
+            clanTag: p.ClantagText || '',
+            serviceId: p.ServiceId || '',
+            teamId: parseInt(p.mTeamId || 0),
+            score: parseInt(p.Score || 0),
+            standing: parseInt(p.mStanding || 0),
+            kills: parseInt(p.mKills || 0),
+            deaths: parseInt(p.mDeaths || 0),
+            assists: parseInt(p.mAssists || 0),
+            betrayals: parseInt(p.mBetrayals || 0),
+            suicides: parseInt(p.mSuicides || 0),
+            mostKillsInARow: parseInt(p.mMostKillsInARow || 0),
+            // v2: duración y completitud por jugador
+            secondsPlayed: parseInt(p.mSecondsPlayed || 0),
+            secondsAlive: parseInt(p.mSecondsAlive || 0),
+            completedGame: p.mCompletedGame !== undefined ? parseInt(p.mCompletedGame) : null,
+            // v2: desglose de kills por tipo
+            killsWeapon: parseInt(p.mKillsWeapon || 0),
+            killsGrenade: parseInt(p.mKillsGrenade || 0),
+            killsMelee: parseInt(p.mKillsMelee || 0),
+            killsOther: parseInt(p.mKillsOther || 0),
+            isGuest: p.isGuest === 'true',
+            medals: medals
+        };
+    });
+
+    // v2: duración de la partida = el mayor tiempo jugado entre los presentes
+    gameData.duration = players.reduce((max, p) => Math.max(max, p.secondsPlayed || 0), 0);
 
     return { gameData, players };
 }
@@ -210,7 +236,13 @@ function parseXML(filePath) {
 // ============== ENVÍO AL SERVIDOR ==============
 
 async function sendToServer(gameData, players, filename) {
-    const payload = JSON.stringify({ gameData, players, filename });
+    const payload = JSON.stringify({
+        schemaVersion: 2,
+        clientVersion: VERSION,
+        gameData,
+        players,
+        filename
+    });
     const url = new URL(`${CONFIG.serverUrl}/api/report`);
     const isHttps = url.protocol === 'https:';
     const httpModule = isHttps ? https : http;
@@ -467,4 +499,8 @@ async function main() {
     });
 }
 
-main().catch(console.error);
+if (require.main === module) {
+    main().catch(console.error);
+} else {
+    module.exports = { parseXML, resolveConfig, CONFIG, VERSION };
+}
