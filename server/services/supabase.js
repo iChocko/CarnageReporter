@@ -220,6 +220,35 @@ class SupabaseService {
     }
 
     /**
+     * Últimas N partidas válidas (vista recent_games) con sus jugadores anidados.
+     * Fuente única para /api/stats/recent y el comando !partidas de WhatsApp.
+     * @param {number} limit
+     */
+    async getRecentGamesWithPlayers(limit = 10) {
+        if (!this.client) return [];
+
+        const { data: games, error: gError } = await this.client
+            .from('recent_games')
+            .select('*')
+            .limit(limit);
+        if (gError) throw new Error(gError.message);
+
+        if (!games || games.length === 0) return [];
+
+        const gameIds = games.map(g => g.game_unique_id);
+        const { data: players, error: pError } = await this.client
+            .from('players')
+            .select('game_unique_id, gamertag, team_id, score, kills, deaths, assists')
+            .in('game_unique_id', gameIds);
+        if (pError) throw new Error(pError.message);
+
+        return games.map(game => ({
+            ...game,
+            players: (players || []).filter(p => p.game_unique_id === game.game_unique_id)
+        }));
+    }
+
+    /**
      * Busca partidas cuyo ID empiece con el prefijo dado (ID corto de la imagen).
      * @param {string} prefix - Prefijo del game_unique_id (>= 6 caracteres)
      * @returns {array} - Lista de { game_unique_id, map_name, timestamp, is_voided }

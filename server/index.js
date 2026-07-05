@@ -16,7 +16,8 @@ const SupabaseService = require('./services/supabase');
 const RendererService = require('./services/renderer');
 const WhatsAppService = require('./services/whatsapp');
 const { evaluateMatch } = require('./services/validator');
-const { buildCaptionParts } = require('./utils/matchSummary');
+const { startSchedules, WEEKLY_MESSAGE } = require('./services/scheduler');
+const { buildCaptionParts, formatRecentGamesWhatsApp } = require('./utils/matchSummary');
 
 // Initialize Stripe
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -345,6 +346,31 @@ app.get('/api/admin/whatsapp/groups', adminAuthMiddleware, async (req, res) => {
     }
 });
 
+/**
+ * Dispara AHORA el mensaje semanal (para probar sin esperar al lunes).
+ * POST /api/admin/whatsapp/test-weekly
+ */
+app.post('/api/admin/whatsapp/test-weekly', adminAuthMiddleware, async (req, res) => {
+    if (!whatsapp.isReady()) {
+        return res.status(503).json({ error: 'WhatsApp no está listo' });
+    }
+    const ok = await whatsapp.sendMessage(WEEKLY_MESSAGE);
+    res.json({ status: ok ? 'sent' : 'failed', message: WEEKLY_MESSAGE });
+});
+
+/**
+ * Vista previa del texto del comando !partidas SIN enviarlo al grupo.
+ * GET /api/admin/whatsapp/preview-partidas
+ */
+app.get('/api/admin/whatsapp/preview-partidas', adminAuthMiddleware, async (req, res) => {
+    try {
+        const games = await supabase.getRecentGamesWithPlayers(10);
+        res.type('text/plain').send(formatRecentGamesWhatsApp(games));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ============== DASHBOARD STATS ENDPOINTS ==============
 
 /**
@@ -520,29 +546,7 @@ app.get('/api/stats/leaderboard', async (req, res) => {
 
 app.get('/api/stats/recent', async (req, res) => {
     try {
-        const { data: games, error: gError } = await supabase.client
-            .from('recent_games')
-            .select('*')
-            .limit(10);
-
-        if (gError) throw gError;
-
-        // Fetch players for these games
-        const gameIds = games.map(g => g.game_unique_id);
-
-        const { data: players, error: pError } = await supabase.client
-            .from('players')
-            .select('game_unique_id, gamertag, team_id, score, kills, deaths, assists')
-            .in('game_unique_id', gameIds);
-
-        if (pError) throw pError;
-
-        // Group players by game
-        const gamesWithPlayers = games.map(game => ({
-            ...game,
-            players: players.filter(p => p.game_unique_id === game.game_unique_id)
-        }));
-
+        const gamesWithPlayers = await supabase.getRecentGamesWithPlayers(10);
         res.json(gamesWithPlayers);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -628,6 +632,15 @@ async function start() {
     whatsapp.initialize().catch(err => {
         console.error('❌ WhatsApp no pudo inicializar:', err.message);
     });
+
+    // Comando del grupo: !partidas -> últimas 10 partidas formateadas
+    whatsapp.registerCommand('!partidas', async () => {
+        const games = await supabase.getRecentGamesWithPlayers(10);
+        return formatRecentGamesWhatsApp(games);
+    });
+
+    // Tareas programadas (mensaje semanal de los lunes, solo WhatsApp)
+    startSchedules(whatsapp);
 }
 
 // Manejo de cierre graceful

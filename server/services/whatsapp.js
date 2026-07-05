@@ -30,6 +30,7 @@ class WhatsAppService {
         this.initTimeoutMs = 180000; // 180s (VPS lentos)
         this.maxRetries = 5;
         this.baseRetryDelayMs = 1000;
+        this.commands = new Map(); // trigger (lowercase) -> async handler que devuelve el texto de respuesta
 
         if (!this.enabled) {
             console.log('📴 WhatsApp deshabilitado (WHATSAPP_ENABLED != true)');
@@ -203,6 +204,15 @@ class WhatsAppService {
                 }
             });
 
+            // Comandos del grupo. message_create cubre mensajes de otros Y del
+            // propio teléfono del bot; el match EXACTO del trigger evita que el
+            // bot reaccione a sus propias respuestas.
+            this.client.on('message_create', (msg) => {
+                this.handleIncomingMessage(msg).catch(err =>
+                    console.error('❌ Error atendiendo comando WhatsApp:', err.message)
+                );
+            });
+
             this.client.initialize().catch((error) => {
                 console.error('❌ Error inicializando WhatsApp:', error.message);
                 this.status = 'disconnected';
@@ -324,6 +334,35 @@ class WhatsAppService {
         } catch (error) {
             console.error('❌ Error enviando mensaje WhatsApp:', error.message);
             return false;
+        }
+    }
+
+    /**
+     * Registra un comando del grupo: cuando alguien escribe exactamente el
+     * trigger (ej. "!partidas"), se responde con lo que devuelva el handler.
+     */
+    registerCommand(trigger, handler) {
+        this.commands.set(trigger.toLowerCase(), handler);
+        console.log(`💬 Comando WhatsApp registrado: ${trigger}`);
+    }
+
+    async handleIncomingMessage(msg) {
+        if (!this.ready || this.commands.size === 0) return;
+
+        // Solo mensajes del grupo destino
+        const chatId = this.targetGroup?.id?._serialized || this.groupId;
+        const msgChat = msg.fromMe ? msg.to : msg.from;
+        if (!chatId || msgChat !== chatId) return;
+
+        const trigger = (msg.body || '').trim().toLowerCase();
+        const handler = this.commands.get(trigger);
+        if (!handler) return;
+
+        console.log(`📨 Comando WhatsApp recibido en el grupo: ${trigger}`);
+        const reply = await handler();
+        if (reply) {
+            await this.client.sendMessage(chatId, reply);
+            console.log(`📤 Respuesta de ${trigger} enviada`);
         }
     }
 
