@@ -18,6 +18,10 @@
 > - **Al descargar**: en la barra de descargas → ⋯ → **Conservar** → "Mostrar más" → **Conservar de todas formas**.
 > - **Al abrir**: clic en **"Más información"** → **"Ejecutar de todas formas"** (solo la primera vez).
 
+<sub>🔐 Free code signing on Windows provided by [SignPath.io](https://signpath.io), certificate by
+[SignPath Foundation](https://signpath.org) *(en proceso de integración)*. Consulta la
+[Política de Privacidad](PRIVACY.md) para saber qué datos procesa la aplicación.</sub>
+
 ---
 
 ## 📌 Sobre este proyecto
