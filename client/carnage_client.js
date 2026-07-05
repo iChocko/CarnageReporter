@@ -312,6 +312,8 @@ async function processXMLFile(filePath) {
             console.log(`   ✅ Datos guardados correctamente.`);
         } else if (response.status === 'duplicate') {
             console.log(`   ⏭️  Esta partida ya estaba en el sistema.`);
+        } else if (response.status === 'voided') {
+            console.log(`   🚫 Partida anulada (${response.reason}): no cuenta para stats.`);
         } else {
             console.log(`   ⚠️  Servidor: ${response.message || response.error}`);
         }

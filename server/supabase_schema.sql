@@ -1,7 +1,11 @@
 -- ============================================================
--- CARNAGE REPORTER - SCHEMA DE BASE DE DATOS
+-- CARNAGE REPORTER - SCHEMA DE BASE DE DATOS (v2, consolidado)
 -- ============================================================
--- Ejecutar en Supabase SQL Editor: https://supabase.com/dashboard
+-- Ejecutar UNA VEZ en el SQL Editor del proyecto Supabase nuevo:
+-- https://supabase.com/dashboard
+--
+-- Este archivo reemplaza a los antiguos supabase_migration.sql,
+-- update_views_customs_only.sql y update_views_include_all.sql.
 -- ============================================================
 
 -- Tabla de juegos (partidas)
@@ -14,6 +18,14 @@ CREATE TABLE IF NOT EXISTS public.games (
     hopper_name VARCHAR(255),
     game_type_name VARCHAR(255),
     map_name VARCHAR(255),
+    duration INTEGER DEFAULT 0,                  -- segundos (max mSecondsPlayed)
+    playlist_name VARCHAR(255),
+    last_match_incomplete BOOLEAN DEFAULT FALSE, -- flag crudo del XML
+    party_size INTEGER,
+    is_voided BOOLEAN NOT NULL DEFAULT FALSE,    -- partida anulada (no cuenta para stats)
+    void_reason TEXT,                            -- last_match_incomplete | too_short | majority_quit | manual
+    schema_version INTEGER DEFAULT 1,            -- versión del payload del cliente
+    client_version VARCHAR(20),
     timestamp TIMESTAMPTZ DEFAULT NOW(),
     timestamp_cdmx TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -22,11 +34,14 @@ CREATE TABLE IF NOT EXISTS public.games (
 -- Índices para búsquedas rápidas
 CREATE INDEX IF NOT EXISTS idx_games_timestamp ON public.games(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_games_map_name ON public.games(map_name);
+CREATE INDEX IF NOT EXISTS idx_games_voided ON public.games(is_voided);
+-- Para búsqueda por prefijo de ID (borrado admin con ID corto)
+CREATE INDEX IF NOT EXISTS idx_games_id_prefix ON public.games(game_unique_id varchar_pattern_ops);
 
 -- Tabla de jugadores (stats por partida)
 CREATE TABLE IF NOT EXISTS public.players (
     id SERIAL PRIMARY KEY,
-    game_unique_id VARCHAR(255) NOT NULL,
+    game_unique_id VARCHAR(255) NOT NULL REFERENCES public.games(game_unique_id) ON DELETE CASCADE,
     xbox_user_id VARCHAR(255),
     gamertag VARCHAR(255) NOT NULL,
     clan_tag VARCHAR(50),
@@ -40,13 +55,21 @@ CREATE TABLE IF NOT EXISTS public.players (
     betrayals INTEGER DEFAULT 0,
     suicides INTEGER DEFAULT 0,
     most_kills_in_a_row INTEGER DEFAULT 0,
+    seconds_played INTEGER DEFAULT 0,
+    seconds_alive INTEGER DEFAULT 0,
+    completed_game SMALLINT,                     -- 1/0; NULL = desconocido (cliente v1)
+    kills_weapon INTEGER DEFAULT 0,
+    kills_grenade INTEGER DEFAULT 0,
+    kills_melee INTEGER DEFAULT 0,
+    kills_other INTEGER DEFAULT 0,
+    is_guest BOOLEAN DEFAULT FALSE,
+    medals JSONB,                                -- [{"id": 123, "count": 2}, ...]
+    player_index INTEGER,
+    kd_ratio NUMERIC(6,2),
     created_at TIMESTAMPTZ DEFAULT NOW(),
 
     -- Evitar duplicados: mismo jugador en misma partida
-    UNIQUE(game_unique_id, xbox_user_id),
-
-    -- Referencia a la tabla de juegos
-    FOREIGN KEY (game_unique_id) REFERENCES public.games(game_unique_id) ON DELETE CASCADE
+    UNIQUE(game_unique_id, xbox_user_id)
 );
 
 -- Índices para búsquedas rápidas
@@ -56,43 +79,56 @@ CREATE INDEX IF NOT EXISTS idx_players_game_id ON public.players(game_unique_id)
 -- ============================================================
 -- POLÍTICAS DE SEGURIDAD (RLS)
 -- ============================================================
+-- El servidor usa la service_role key (bypassa RLS). RLS queda
+-- habilitado para que la anon key NO pueda escribir nada.
 
--- Habilitar RLS
 ALTER TABLE public.games ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.players ENABLE ROW LEVEL SECURITY;
 
--- Política para permitir inserción con service_role key
-CREATE POLICY "Allow service role full access to games" ON public.games
-    FOR ALL USING (true) WITH CHECK (true);
+-- Lectura pública (dashboard puede leer con anon key si hiciera falta)
+CREATE POLICY "Public read access to games" ON public.games
+    FOR SELECT USING (true);
 
-CREATE POLICY "Allow service role full access to players" ON public.players
-    FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public read access to players" ON public.players
+    FOR SELECT USING (true);
 
 -- ============================================================
 -- VISTA: Estadísticas por jugador (agregadas)
+-- Criterio único en todo el sistema: solo customs válidas
+-- (is_voided = FALSE AND is_matchmaking = FALSE)
 -- ============================================================
 
 CREATE OR REPLACE VIEW public.player_stats AS
 SELECT
-    gamertag,
+    p.gamertag,
     COUNT(*) as total_games,
-    SUM(kills) as total_kills,
-    SUM(deaths) as total_deaths,
-    SUM(assists) as total_assists,
-    SUM(score) as total_score,
-    ROUND(AVG(kills)::numeric, 2) as avg_kills,
-    ROUND(AVG(deaths)::numeric, 2) as avg_deaths,
+    SUM(p.kills) as total_kills,
+    SUM(p.deaths) as total_deaths,
+    SUM(p.assists) as total_assists,
+    SUM(p.score) as total_score,
+    ROUND(AVG(p.kills)::numeric, 2) as avg_kills,
+    ROUND(AVG(p.deaths)::numeric, 2) as avg_deaths,
+    ROUND(AVG(p.assists)::numeric, 2) as avg_assists,
+    ROUND(AVG(p.score)::numeric, 2) as avg_score,
     CASE
-        WHEN SUM(deaths) > 0 THEN ROUND((SUM(kills)::numeric / SUM(deaths)::numeric), 2)
-        ELSE SUM(kills)::numeric
+        WHEN SUM(p.deaths) > 0 THEN ROUND((SUM(p.kills)::numeric / SUM(p.deaths)::numeric), 2)
+        ELSE SUM(p.kills)::numeric
     END as overall_kd,
-    MAX(most_kills_in_a_row) as best_spree
-FROM public.players
-GROUP BY gamertag
+    CASE
+        WHEN SUM(p.deaths) > 0 THEN ROUND(((SUM(p.kills)::numeric + SUM(p.assists)::numeric) / SUM(p.deaths)::numeric), 2)
+        ELSE (SUM(p.kills) + SUM(p.assists))::numeric
+    END as overall_kda,
+    MAX(p.most_kills_in_a_row) as best_spree,
+    MAX(p.kills) as most_kills_single_game
+FROM public.players p
+INNER JOIN public.games g ON p.game_unique_id = g.game_unique_id
+WHERE g.is_voided = FALSE
+  AND g.is_matchmaking = FALSE
+GROUP BY p.gamertag
 ORDER BY total_score DESC;
 
 -- ============================================================
--- VISTA: Últimas partidas
+-- VISTA: Últimas partidas (solo customs válidas)
 -- ============================================================
 
 CREATE OR REPLACE VIEW public.recent_games AS
@@ -100,6 +136,8 @@ SELECT
     g.game_unique_id,
     g.map_name,
     g.game_type_name,
+    g.is_teams_enabled,
+    g.duration,
     g.timestamp,
     g.timestamp_cdmx,
     COUNT(p.id) as player_count,
@@ -107,12 +145,14 @@ SELECT
     SUM(CASE WHEN p.team_id = 1 THEN p.score ELSE 0 END) as red_score
 FROM public.games g
 LEFT JOIN public.players p ON g.game_unique_id = p.game_unique_id
-GROUP BY g.game_unique_id, g.map_name, g.game_type_name, g.timestamp, g.timestamp_cdmx
+WHERE g.is_voided = FALSE
+  AND g.is_matchmaking = FALSE
+GROUP BY g.game_unique_id, g.map_name, g.game_type_name, g.is_teams_enabled,
+         g.duration, g.timestamp, g.timestamp_cdmx
 ORDER BY g.timestamp DESC
 LIMIT 50;
 
 -- ============================================================
--- MENSAJE DE ÉXITO
+-- Verificación: si llegas aquí sin errores, todo quedó creado.
+-- SELECT * FROM public.games LIMIT 1;
 -- ============================================================
--- Si llegas aquí sin errores, las tablas se crearon correctamente.
--- Puedes verificar con: SELECT * FROM public.games LIMIT 1;

@@ -14,6 +14,7 @@ const Stripe = require('stripe');
 const DiscordService = require('./services/discord');
 const SupabaseService = require('./services/supabase');
 const RendererService = require('./services/renderer');
+const { evaluateMatch } = require('./services/validator');
 
 // Initialize Stripe
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -90,15 +91,15 @@ app.get('/api/status', (req, res) => {
  */
 app.post('/api/report', authMiddleware, async (req, res) => {
     const { gameData, players, filename } = req.body;
+    const schemaVersion = parseInt(req.body.schemaVersion || 1, 10);
+    const clientVersion = req.body.clientVersion || null;
 
     if (!gameData || !players) {
         return res.status(400).json({ error: 'Faltan gameData o players' });
     }
 
     const gameId = gameData.gameUniqueId;
-    console.log(`\n📥 Recibido reporte: ${gameId} (${gameData.mapName})`);
-    console.log(`   📋 gameData completo:`, JSON.stringify(gameData, null, 2));
-    console.log(`   👥 players (${players.length}):`, JSON.stringify(players.slice(0, 2), null, 2));
+    console.log(`\n📥 Recibido reporte: ${gameId} (${gameData.mapName}) [v${schemaVersion}${clientVersion ? `, cliente ${clientVersion}` : ''}, ${players.length} jugadores]`);
 
     try {
         // 1. Verificar duplicados en Supabase
@@ -112,7 +113,25 @@ app.post('/api/report', authMiddleware, async (req, res) => {
             });
         }
 
-        // 2. Generar PNG
+        // 2. Evaluar si la partida es válida (reinicios, abandonos, partidas cortas)
+        const verdict = evaluateMatch(gameData, players, schemaVersion);
+        if (verdict.voided) {
+            console.log(`🚫 Partida ${gameId} anulada (${verdict.reason}) — se guarda sin publicar`);
+            await supabase.saveGame(gameData, players, {
+                isVoided: true,
+                voidReason: verdict.reason,
+                schemaVersion,
+                clientVersion
+            });
+            return res.json({
+                status: 'voided',
+                gameId,
+                reason: verdict.reason,
+                message: 'Partida anulada (reiniciada o no concluida); no cuenta para stats'
+            });
+        }
+
+        // 3. Generar PNG
         console.log(`🎨 Generando imagen para partida ${gameId}...`);
         const pngPath = path.join(OUTPUT_DIR, `match_${gameId}.png`);
         await renderer.generatePNG(gameData, players, pngPath);
@@ -124,17 +143,14 @@ app.post('/api/report', authMiddleware, async (req, res) => {
             console.error(`   ❌ Falló la generación del PNG: ${pngPath}`);
         }
 
-        // 3. Enviar a Discord
+        // 4. Enviar a Discord
         console.log('💬 Enviando a Discord...');
         const dsResult = await discord.sendImage(pngPath, gameData, players);
         console.log(`   ${dsResult ? '✅' : '❌'} Resultado Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
 
-        // 4. Guardar en Supabase
+        // 5. Guardar en Supabase
         console.log('💾 Guardando en Supabase...');
-        await supabase.saveGame(gameData, players);
-
-        // 5. Limpiar PNG temporal (opcional, mantener para debug)
-        // fs.unlinkSync(pngPath);
+        await supabase.saveGame(gameData, players, { schemaVersion, clientVersion });
 
         console.log(`✅ Juego ${gameId} procesado completamente`);
 

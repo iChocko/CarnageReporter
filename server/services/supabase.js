@@ -51,12 +51,15 @@ class SupabaseService {
      * Guarda un juego y sus jugadores en Supabase
      * @param {object} gameData - Datos del juego
      * @param {array} players - Lista de jugadores
+     * @param {object} [meta] - { isVoided, voidReason, schemaVersion, clientVersion }
      */
-    async saveGame(gameData, players) {
+    async saveGame(gameData, players, meta = {}) {
         if (!this.client) {
             console.log('⚠️  Supabase no disponible, saltando guardado');
             return false;
         }
+
+        const { isVoided = false, voidReason = null, schemaVersion = 1, clientVersion = null } = meta;
 
         try {
             // 1. Insertar el juego (upsert para evitar duplicados)
@@ -73,25 +76,36 @@ class SupabaseService {
                     timestamp: new Date(gameData.timestamp).toISOString(),
                     // Guardar el tiempo local de CDMX desplazando el UTC para que se vea la hora nominal correcta en la DB
                     timestamp_cdmx: new Date(new Date(gameData.timestamp).getTime() - (6 * 60 * 60 * 1000)).toISOString(),
-                    // Campos adicionales
                     duration: gameData.duration || 0,
-                    playlist_name: gameData.playlistName || null
+                    playlist_name: gameData.playlistName || null,
+                    last_match_incomplete: gameData.lastMatchIncomplete === true,
+                    party_size: gameData.partySize ?? null,
+                    is_voided: isVoided,
+                    void_reason: voidReason,
+                    schema_version: schemaVersion,
+                    client_version: clientVersion
                 }, { onConflict: 'game_unique_id' });
 
             if (gameError) {
                 throw new Error(`Error guardando juego: ${gameError.message}`);
             }
 
-            // 2. Insertar jugadores con índices y cálculos
-            // Separar jugadores por equipo y ordenar por score descendente
-            const team0 = players.filter(p => p.teamId === 0).sort((a, b) => b.score - a.score);
-            const team1 = players.filter(p => p.teamId === 1).sort((a, b) => b.score - a.score);
+            // 2. Insertar jugadores con índices y cálculos.
+            // Agrupar por CUALQUIER teamId presente (no solo 0/1): en FFA o
+            // partidas multi-equipo antes se perdían los jugadores de otros equipos.
+            const teams = new Map();
+            for (const p of players) {
+                const teamId = p.teamId ?? 0;
+                if (!teams.has(teamId)) teams.set(teamId, []);
+                teams.get(teamId).push(p);
+            }
 
-            // Asignar índices por equipo
-            const playersWithIndex = [
-                ...team0.map((p, idx) => ({ ...p, playerIndex: idx })),
-                ...team1.map((p, idx) => ({ ...p, playerIndex: idx }))
-            ];
+            const playersWithIndex = [];
+            for (const teamPlayers of teams.values()) {
+                teamPlayers
+                    .sort((a, b) => b.score - a.score)
+                    .forEach((p, idx) => playersWithIndex.push({ ...p, playerIndex: idx }));
+            }
 
             for (const p of playersWithIndex) {
                 // Calcular K/D ratio
@@ -114,6 +128,15 @@ class SupabaseService {
                         betrayals: p.betrayals,
                         suicides: p.suicides,
                         most_kills_in_a_row: p.killingSpree || p.mostKillsInARow || 0,
+                        seconds_played: p.secondsPlayed || 0,
+                        seconds_alive: p.secondsAlive || 0,
+                        completed_game: (p.completedGame === 0 || p.completedGame === 1) ? p.completedGame : null,
+                        kills_weapon: p.killsWeapon || 0,
+                        kills_grenade: p.killsGrenade || 0,
+                        kills_melee: p.killsMelee || 0,
+                        kills_other: p.killsOther || 0,
+                        is_guest: p.isGuest === true,
+                        medals: Array.isArray(p.medals) && p.medals.length > 0 ? p.medals : null,
                         // Campos calculados
                         player_index: p.playerIndex,
                         kd_ratio: Math.round(kdRatio * 100) / 100 // Redondear a 2 decimales
@@ -128,7 +151,7 @@ class SupabaseService {
             }
 
             this.processedCount++;
-            console.log(`✅ Juego ${gameData.gameUniqueId} guardado en Supabase`);
+            console.log(`✅ Juego ${gameData.gameUniqueId} guardado en Supabase${isVoided ? ` (ANULADO: ${voidReason})` : ''}`);
             return true;
 
         } catch (error) {
