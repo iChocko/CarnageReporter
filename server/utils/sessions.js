@@ -183,20 +183,43 @@ function formatRondasMessage(session) {
             cuenta.push(`${debtor} → $${amount}`);
         }
 
-        // Detalle por ronda (trazabilidad): quién la ganó y las partidas
+        // Detalle por ronda (trazabilidad): quién la ganó, las partidas y la
+        // cuenta corriente de $ al cierre de cada ronda.
         lines.push('');
+        let runL = 0, runR = 0;
         e.rondas.forEach((r, i) => {
             const ganador = sideDisplay(e.sides[r.winner], clean);
+            const wonByLeft = flip ? r.winner === 1 : r.winner === 0;
+            if (wonByLeft) runL++; else runR++;
             lines.push(`✅ *Ronda ${i + 1}* — la ganó ${ganador}`);
             r.games.forEach(g => lines.push(`     • ${gameStr(g)}`));
+            if (runL === runR) {
+                lines.push(`     💰 Cuenta: a mano ($0)`);
+            } else {
+                const debtor = runL > runR ? nameR : nameL;
+                lines.push(`     💰 Cuenta: ${debtor} deben $${Math.abs(runL - runR) * RONDA_MXN}`);
+            }
         });
         if (e.current) {
             const [curL, curR] = flip ? [e.current.winsB, e.current.winsA] : [e.current.winsA, e.current.winsB];
-            let estadoRonda;
-            if (curL > curR) estadoRonda = `va ganando *${nameL}* ${curL}-${curR}`;
-            else if (curR > curL) estadoRonda = `va ganando *${nameR}* ${curR}-${curL}`;
-            else estadoRonda = `van parejos ${curL}-${curR}`;
-            lines.push(`🕐 *Ronda ${e.rondas.length + 1}* (jugándose) — ${estadoRonda}`);
+            const rn = e.rondas.length + 1;
+            let head;
+            if (session.live) {
+                // Sesión viva: la ronda se está jugando ahora
+                let estado;
+                if (curL > curR) estado = `va ganando *${nameL}* ${curL}-${curR}`;
+                else if (curR > curL) estado = `va ganando *${nameR}* ${curR}-${curL}`;
+                else estado = `van parejos ${curL}-${curR}`;
+                head = `🕐 *Ronda ${rn}* (jugándose) — ${estado}`;
+            } else {
+                // Sesión terminada con una ronda a medias: quedó sin resolver, NO cuenta
+                let estado;
+                if (curL > curR) estado = `iban ${curL}-${curR} arriba *${nameL}*`;
+                else if (curR > curL) estado = `iban ${curR}-${curL} arriba *${nameR}*`;
+                else estado = `iban parejos ${curL}-${curR}`;
+                head = `⏸️ *Ronda ${rn}* quedó sin terminar (${estado}) — no cuenta`;
+            }
+            lines.push(head);
             e.current.games.forEach(g => lines.push(`     • ${gameStr(g)}`));
         }
     }
