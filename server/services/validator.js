@@ -11,6 +11,24 @@ const { classifyFormat } = require('../utils/format');
 
 const VOID_MIN_DURATION_SECONDS = parseInt(process.env.VOID_MIN_DURATION_SECONDS || '150', 10);
 
+// Puntaje de victoria en las customs 2v2 de la comunidad. Si un equipo lo
+// alcanzó, la partida fue real aunque haya sido rapidísima (no se anula por corta).
+const WIN_SCORE_2V2 = parseInt(process.env.WIN_SCORE_2V2 || '25', 10);
+
+/**
+ * ¿Algún equipo alcanzó el puntaje de victoria? (solo aplica a 2v2)
+ */
+function reachedWinScore(players) {
+    if (classifyFormat(players) !== '2v2') return false;
+
+    const teamScores = new Map();
+    for (const p of players) {
+        const tid = p.teamId ?? 0;
+        teamScores.set(tid, (teamScores.get(tid) || 0) + (Number(p.score) || 0));
+    }
+    return Math.max(...teamScores.values()) >= WIN_SCORE_2V2;
+}
+
 /**
  * Evalúa una partida entrante.
  *
@@ -35,9 +53,11 @@ function evaluateMatch(gameData, players, schemaVersion) {
     }
 
     if (schemaVersion >= 2) {
-        // Regla 2: partida demasiado corta (típico de reinicios "alguien fue al baño")
+        // Regla 2: partida demasiado corta (típico de reinicios "alguien fue al baño").
+        // Excepción: si un equipo llegó al puntaje de victoria (25 en 2v2), la
+        // partida fue real por rápida que haya sido.
         const duration = parseInt(gameData.duration || 0, 10);
-        if (duration > 0 && duration < VOID_MIN_DURATION_SECONDS) {
+        if (duration > 0 && duration < VOID_MIN_DURATION_SECONDS && !reachedWinScore(players)) {
             return { voided: true, reason: 'too_short' };
         }
 

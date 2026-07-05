@@ -23,6 +23,7 @@ const { startSchedules, WEEKLY_MESSAGE } = require('./services/scheduler');
 const { buildCaptionParts, formatRecentGamesWhatsApp } = require('./utils/matchSummary');
 const { computeRecords, computeH2H, computePlayerProfile, aggregatePlayers, computeSlayerScore } = require('./utils/records');
 const teams = require('./utils/teams');
+const { currentOrLastSession, formatRondasMessage } = require('./utils/sessions');
 const { classifyFormat, FORMATS } = require('./utils/format');
 const { resolveMap, MAP_NAMES } = require('./utils/maps');
 
@@ -465,6 +466,20 @@ app.get('/api/admin/whatsapp/preview-equipos', adminAuthMiddleware, async (req, 
 });
 
 /**
+ * Vista previa del comando !rondas SIN enviarlo al grupo.
+ * GET /api/admin/whatsapp/preview-rondas
+ */
+app.get('/api/admin/whatsapp/preview-rondas', adminAuthMiddleware, async (req, res) => {
+    try {
+        const games = await supabase.getAllValidGamesWithPlayers('2v2');
+        res.type('text/plain').send(formatRondasMessage(currentOrLastSession(games)));
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+/**
  * Vista previa del texto del comando !partidas SIN enviarlo al grupo.
  * GET /api/admin/whatsapp/preview-partidas?format=2v2|4v4
  */
@@ -880,6 +895,18 @@ async function start() {
 
     // Comando del grupo: !equipos <lista> -> divide en dos equipos parejos por skill
     whatsapp.registerCommand('!equipos', async ({ format, args }) => buildEquiposReply(format, args));
+
+    // Comando del grupo: !rondas (alias !hoy) -> marcador de la sesión en rondas
+    // ($25/ronda). EXCLUSIVO del grupo 2v2 (así se apuesta en Retas H3).
+    const rondasHandler = async ({ format }) => {
+        if (format !== '2v2') {
+            return '🎮 !rondas solo está disponible en el grupo de retas 2v2.';
+        }
+        const games = await supabase.getAllValidGamesWithPlayers('2v2');
+        return formatRondasMessage(currentOrLastSession(games));
+    };
+    whatsapp.registerCommand('!rondas', rondasHandler);
+    whatsapp.registerCommand('!hoy', rondasHandler);
 
     // Tareas programadas (mensaje semanal de los lunes -> solo grupo 2v2 / Retas H3)
     startSchedules(whatsapp);
