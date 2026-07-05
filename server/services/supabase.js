@@ -230,6 +230,7 @@ class SupabaseService {
         const { data: games, error: gError } = await this.client
             .from('recent_games')
             .select('*')
+            .order('timestamp', { ascending: false }) // más reciente primero, explícito
             .limit(limit);
         if (gError) throw new Error(gError.message);
 

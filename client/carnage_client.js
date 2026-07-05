@@ -10,7 +10,7 @@ const { spawn } = require('child_process');
 
 // ============== CONFIGURACIÓN (Lanzamiento Oficial) ==============
 
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const GITHUB_REPO = 'iChocko/CarnageReporter';
 const EXE_NAME = 'CarnageReporter.exe';
 const DISCORD_URL = 'https://discord.gg/yD6nGZ3KQX';
@@ -107,7 +107,9 @@ function getMapName(filename, gameData = {}) {
         if (fn.includes(key)) return val;
     }
 
-    if (gameData.hopperName && gameData.hopperName !== 'Unknown' && gameData.hopperName !== '') {
+    // Ignorar tokens de localización sin resolver (ej. "$MP_H3TeamDoubles_Title")
+    if (gameData.hopperName && gameData.hopperName !== 'Unknown' && gameData.hopperName !== ''
+        && !gameData.hopperName.startsWith('$')) {
         return gameData.hopperName;
     }
 

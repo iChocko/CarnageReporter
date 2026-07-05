@@ -9,6 +9,26 @@
 
 const VOID_MIN_DURATION_SECONDS = parseInt(process.env.VOID_MIN_DURATION_SECONDS || '150', 10);
 
+// El bot registra EXCLUSIVAMENTE partidas 2v2 (2 equipos de 2 jugadores).
+// Escape hatch: REQUIRE_2V2=false en el .env si algún día se quiere abrir.
+const REQUIRE_2V2 = process.env.REQUIRE_2V2 !== 'false';
+
+/**
+ * ¿Es una partida 2v2? Equipos habilitados, exactamente 2 equipos, 2 jugadores cada uno.
+ */
+function is2v2(gameData, players) {
+    if (gameData.isTeamsEnabled === false) return false;
+
+    const teamCounts = new Map();
+    for (const p of players) {
+        const tid = p.teamId ?? 0;
+        teamCounts.set(tid, (teamCounts.get(tid) || 0) + 1);
+    }
+
+    if (teamCounts.size !== 2) return false;
+    return [...teamCounts.values()].every(count => count === 2);
+}
+
 /**
  * Evalúa una partida entrante.
  *
@@ -22,6 +42,11 @@ const VOID_MIN_DURATION_SECONDS = parseInt(process.env.VOID_MIN_DURATION_SECONDS
  * @returns {{voided: boolean, reason: string|null}}
  */
 function evaluateMatch(gameData, players, schemaVersion) {
+    // Regla 0: solo partidas 2v2 (estructural, aplica a cualquier versión de payload)
+    if (REQUIRE_2V2 && !is2v2(gameData, players)) {
+        return { voided: true, reason: 'not_2v2' };
+    }
+
     // Regla 1: el propio juego marcó la partida como incompleta
     if (gameData.lastMatchIncomplete === true) {
         return { voided: true, reason: 'last_match_incomplete' };
@@ -47,4 +72,4 @@ function evaluateMatch(gameData, players, schemaVersion) {
     return { voided: false, reason: null };
 }
 
-module.exports = { evaluateMatch, VOID_MIN_DURATION_SECONDS };
+module.exports = { evaluateMatch, is2v2, VOID_MIN_DURATION_SECONDS, REQUIRE_2V2 };

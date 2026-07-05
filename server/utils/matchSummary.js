@@ -110,7 +110,8 @@ function formatRecentGamesWhatsApp(games) {
                 ? `FFA: *${winner.gamertag}* (${winner.score})${rest.length ? ', ' + rest.map(p => `${p.gamertag} (${p.score})`).join(', ') : ''}`
                 : 'Sin datos de jugadores';
         } else {
-            // Equipos: agrupar por team_id, ordenar por puntuación, negritas al ganador
+            // Equipos: agrupar por team_id y ordenar por puntuación descendente,
+            // de modo que el equipo GANADOR siempre quede a la izquierda.
             const teamsMap = new Map();
             for (const p of (g.players || [])) {
                 const tid = p.team_id ?? 0;
@@ -118,17 +119,27 @@ function formatRecentGamesWhatsApp(games) {
                 teamsMap.get(tid).push(p);
             }
             const teams = [...teamsMap.values()]
-                .map(members => ({ members, score: members.reduce((s, p) => s + p.score, 0) }))
+                .map(members => ({
+                    members: [...members].sort((a, b) => b.score - a.score),
+                    score: members.reduce((s, p) => s + p.score, 0)
+                }))
                 .sort((a, b) => b.score - a.score);
+
+            // Cada jugador con su score individual entre paréntesis
+            const roster = t => t.members.map(p => `${p.gamertag} (${p.score})`).join(', ');
 
             if (teams.length === 0) {
                 body = 'Sin datos de jugadores';
+            } else if (teams.length === 2) {
+                const isDraw = teams[0].score === teams[1].score;
+                const left = isDraw ? roster(teams[0]) : `*${roster(teams[0])}*`;
+                body = `${left} ${teams[0].score} vs ${teams[1].score} ${roster(teams[1])}${isDraw ? ' — EMPATE 🤝' : ''}`;
             } else {
+                // Layout genérico para >2 equipos (histórico; el bot ya solo registra 2v2)
                 const isDraw = teams.length >= 2 && teams[0].score === teams[1].score;
                 body = teams.map((t, i) => {
-                    const names = t.members.map(p => p.gamertag).join(', ');
                     const isWinner = !isDraw && i === 0;
-                    return `${isWinner ? `*${names}*` : names} (${t.score})`;
+                    return `${isWinner ? `*${roster(t)}*` : roster(t)} [${t.score}]`;
                 }).join(' vs ') + (isDraw ? ' — EMPATE 🤝' : '');
             }
         }
