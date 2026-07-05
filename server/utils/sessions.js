@@ -56,8 +56,11 @@ function currentOrLastSession(games, now = Date.now(), gapMinutes = SESSION_GAP_
     return { games: last, live: (now - lastTs) < gapMinutes * 60 * 1000 };
 }
 
-/** Nombres de un equipo, orden alfabético, "A·B" */
+/** Nombres de un equipo para agrupar (orden alfabético estable), "A·B" */
 const sideLabel = members => [...members].sort((a, b) => a.localeCompare(b)).join('·');
+
+/** Nombres de un equipo para mostrar al usuario, "A + B" (más legible) */
+const sideDisplay = (members, clean) => [...members].sort((a, b) => a.localeCompare(b)).map(clean).join(' + ');
 
 /**
  * Llave y lados de la alineación de una partida (color-agnóstica).
@@ -146,51 +149,56 @@ function formatRondasMessage(session) {
 
     const games = session.games;
     const label = sessionDateLabel(games[0].timestamp);
-    const estado = session.live ? 'en curso' : 'terminada';
+    const estado = session.live ? '🟢 En curso' : '🔴 Terminada';
     const enfs = computeEnfrentamientos(games);
-
     const clean = s => sanitizeCaptionText(s);
-    const lines = [`🎮 *RETAS DEL ${label}* · ${estado} · ${games.length} partida${games.length !== 1 ? 's' : ''}`];
+
+    const lines = [
+        `🎮 *RETAS · ${label}*`,
+        `${estado} · ${games.length} partida${games.length !== 1 ? 's' : ''} jugada${games.length !== 1 ? 's' : ''}`
+    ];
     const cuenta = [];
 
     for (const e of enfs) {
-        // Orientación de display: el equipo que va ganando (más rondas) va primero.
-        // La agrupación interna (sides) es alfabética y estable; aquí solo se voltea
-        // la presentación. flip=true -> el lado 1 se muestra a la izquierda.
+        // El equipo que va ganando la sesión (más rondas) se muestra a la izquierda.
         const flip = e.wonB > e.wonA;
         const [leftMembers, rightMembers] = flip ? [e.sides[1], e.sides[0]] : [e.sides[0], e.sides[1]];
         const [wonL, wonR] = flip ? [e.wonB, e.wonA] : [e.wonA, e.wonB];
-        const labelL = clean(sideLabel(leftMembers));
-        const labelR = clean(sideLabel(rightMembers));
-        // Marcadores de partida en la orientación de display
+        const nameL = sideDisplay(leftMembers, clean);
+        const nameR = sideDisplay(rightMembers, clean);
+        // Marcador de cada partida en la orientación de display (izquierda-derecha)
         const orient = g => flip ? { map: g.map, sL: g.scoreB, sR: g.scoreA, win: g.win } : { map: g.map, sL: g.scoreA, sR: g.scoreB, win: g.win };
         const gameStr = g => { const o = orient(g); return `${clean(o.map)} ${o.sL}-${o.sR}${o.win === null ? ' (empate)' : ''}`; };
 
-        lines.push('', `━━ *${labelL} vs ${labelR}* ━━`);
+        lines.push('', '━━━━━━━━━━━━', `*${nameL}*  🆚  *${nameR}*`, '');
 
-        // Dinero: el que va perdiendo debe (rondas de diferencia × $RONDA_MXN)
-        let money = '';
-        const diff = wonL - wonR;
-        if (diff !== 0) {
-            const debtor = diff > 0 ? labelR : labelL;
-            const amount = Math.abs(diff) * RONDA_MXN;
-            money = ` · 💰 ${debtor} deben *$${amount}*`;
-            cuenta.push(`${debtor} $${amount}`);
+        // Marcador grande + dinero, en lenguaje natural
+        if (wonL === wonR) {
+            lines.push(`Rondas ganadas: *${wonL} - ${wonR}* (empatados)`);
+        } else {
+            lines.push(`Rondas ganadas: *${wonL} - ${wonR}* → van ganando *${wonL > wonR ? nameL : nameR}*`);
+            const debtor = wonL > wonR ? nameR : nameL;
+            const amount = Math.abs(wonL - wonR) * RONDA_MXN;
+            lines.push(`💰 *${debtor}* deben *$${amount}*`);
+            cuenta.push(`${debtor} → $${amount}`);
         }
-        lines.push(`🏆 Rondas: *${wonL}-${wonR}*${money}`);
 
-        // Trazabilidad: una línea por ronda con sus partidas y su ganador real
+        // Detalle por ronda (trazabilidad): quién la ganó y las partidas
+        lines.push('');
         e.rondas.forEach((r, i) => {
-            lines.push(`R${i + 1} ✅ ${clean(sideLabel(e.sides[r.winner]))} — ${r.games.map(gameStr).join(' · ')}`);
+            const ganador = sideDisplay(e.sides[r.winner], clean);
+            lines.push(`✅ *Ronda ${i + 1}* — la ganó ${ganador}`);
+            r.games.forEach(g => lines.push(`     • ${gameStr(g)}`));
         });
         if (e.current) {
             const [curL, curR] = flip ? [e.current.winsB, e.current.winsA] : [e.current.winsA, e.current.winsB];
-            lines.push(`R${e.rondas.length + 1} ▶️ va ${curL}-${curR} — ${e.current.games.map(gameStr).join(' · ')}`);
+            lines.push(`🕐 *Ronda ${e.rondas.length + 1}* — jugándose (van ${curL}-${curR})`);
+            e.current.games.forEach(g => lines.push(`     • ${gameStr(g)}`));
         }
     }
 
     if (cuenta.length) {
-        lines.push('', `💰 *Cuenta de la noche:* ${cuenta.join(' · ')}`);
+        lines.push('', '━━━━━━━━━━━━', '💰 *Cuenta de la noche*', ...cuenta.map(c => `   ${c}`));
     }
 
     return lines.join('\n');
