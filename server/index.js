@@ -88,7 +88,8 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 }
 
 // Inicializar servicios
-const discord = new DiscordService();
+const discord = new DiscordService(); // 2v2 -> canal Retas H3
+const discord4v4 = new DiscordService(process.env.DISCORD_WEBHOOK_URL_4V4); // 4v4 -> canal de validación
 const supabase = new SupabaseService();
 const renderer = new RendererService();
 const whatsapp = new WhatsAppService();
@@ -228,10 +229,16 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
         await renderer.generatePNG(gameData, players, pngPath);
 
         // 7. Publicar según formato:
-        //    2v2 -> Discord + WhatsApp(Retas H3) · 4v4 -> WhatsApp(Torneos Halo 3), sin Discord
+        //    2v2 -> Discord(Retas H3) + WhatsApp(Retas H3)
+        //    4v4 -> Discord(validación) + WhatsApp(Torneos Halo 3)
         if (format === '2v2') {
             const dsResult = await discord.sendImage(pngPath, gameData, players);
             console.log(`   ${dsResult ? '✅' : '❌'} Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
+        }
+
+        if (format === '4v4') {
+            const ds4Result = await discord4v4.sendImage(pngPath, gameData, players);
+            console.log(`   ${ds4Result ? '✅' : '❌'} Discord (4v4): ${ds4Result ? 'Enviado' : 'Fallido'}`);
         }
 
         if (whatsapp.isReady()) {
