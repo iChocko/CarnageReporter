@@ -36,19 +36,15 @@ jobs:
         run: |
           npx pkg client/carnage_client.js --targets node18-win-x64 --output dist/CarnageReporter.exe
 
-      # Metadatos del ejecutable (requisito de SignPath Foundation y buena práctica:
-      # el exe muestra producto/versión reales en Propiedades en vez de datos genéricos)
-      - name: Set executable metadata
+      # Metadatos del ejecutable (buena práctica y requisito futuro de SignPath).
+      # NO bloquea el release: si rcedit falla, el exe se publica igual sin metadata.
+      - name: Set executable metadata (opcional)
+        continue-on-error: true
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          npx rcedit "dist/CarnageReporter.exe" \
-            --set-version-string "ProductName" "Carnage Reporter" \
-            --set-version-string "FileDescription" "Carnage Reporter - Halo 3 MCC Stats Tracker" \
-            --set-version-string "CompanyName" "iChocko" \
-            --set-version-string "LegalCopyright" "GPL-3.0 (c) iChocko - github.com/iChocko/CarnageReporter" \
-            --set-file-version "$VERSION.0" \
-            --set-product-version "$VERSION.0"
+          export VERSION="${GITHUB_REF_NAME#v}.0"
+          npm install --no-save rcedit
+          node -e "require('rcedit')('dist/CarnageReporter.exe',{'version-string':{ProductName:'Carnage Reporter',FileDescription:'Carnage Reporter - Halo 3 MCC Stats Tracker',CompanyName:'iChocko',LegalCopyright:'GPL-3.0 (c) iChocko - github.com/iChocko/CarnageReporter'},'file-version':process.env.VERSION,'product-version':process.env.VERSION}).then(()=>console.log('metadata OK')).catch(e=>{console.error(e);process.exit(1)});"
 
       - name: Create Release
         id: create_release
