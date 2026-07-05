@@ -262,8 +262,10 @@ const App = () => {
           <h2 className="section-title"><Clock size={20} /> Partidas Recientes</h2>
           <div className="match-list">
             {recentGames && recentGames.length > 0 ? recentGames.map(game => {
+              const isFFA = game.is_teams_enabled === false;
               const blueTeam = game.players?.filter(p => p.team_id === 0) || [];
               const redTeam = game.players?.filter(p => p.team_id === 1) || [];
+              const ffaPlayers = [...(game.players || [])].sort((a, b) => b.score - a.score);
               const isGenericMap = game.map_name === 'Halo 3 Match' || game.map_name === 'Halo 3 Map';
               const mapDisplay = isGenericMap ? 'MCC Match' : game.map_name;
               const displayTitle = `${game.game_type_name} @ ${mapDisplay}`;
@@ -277,42 +279,66 @@ const App = () => {
                         {formatDistanceToNow(new Date(game.timestamp), { addSuffix: true, locale: es })}
                       </p>
                     </div>
-                    <div className="match-score-pill">
-                      <span className="score-blue">{game.blue_score}</span>
-                      <span style={{ margin: '0 0.5rem', opacity: 0.3 }}>-</span>
-                      <span className="score-red">{game.red_score}</span>
-                    </div>
+                    {isFFA ? (
+                      <div className="match-score-pill">
+                        <span style={{ opacity: 0.8, fontSize: '0.75rem', letterSpacing: '0.1em' }}>FFA · {ffaPlayers.length} PLAYERS</span>
+                      </div>
+                    ) : (
+                      <div className="match-score-pill">
+                        <span className="score-blue">{game.blue_score}</span>
+                        <span style={{ margin: '0 0.5rem', opacity: 0.3 }}>-</span>
+                        <span className="score-red">{game.red_score}</span>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="match-roster-grid-enhanced">
-                    <div className={`roster-team blue ${isMobile ? 'mobile-stack' : ''}`}>
-                      {blueTeam.map(p => {
-                        const { kd, kda } = calculateRatios(p.kills, p.deaths, p.assists);
-                        return (
-                          <div key={p.gamertag} className="player-stat-row">
-                            <span className="roster-player">{p.gamertag}</span>
-                            <span className="player-brief-stats">
-                              {p.kills}/{p.deaths}/{p.assists} • <small>{kd} KD</small>
-                            </span>
-                          </div>
-                        );
-                      })}
+                  {isFFA ? (
+                    <div className="match-roster-grid-enhanced" style={{ gridTemplateColumns: '1fr' }}>
+                      <div className={`roster-team ${isMobile ? 'mobile-stack' : ''}`}>
+                        {ffaPlayers.map((p, idx) => {
+                          const { kd } = calculateRatios(p.kills, p.deaths, p.assists);
+                          return (
+                            <div key={p.gamertag} className="player-stat-row">
+                              <span className="roster-player">{idx === 0 ? '👑 ' : ''}{p.gamertag}</span>
+                              <span className="player-brief-stats">
+                                {p.kills}/{p.deaths}/{p.assists} • <small>{kd} KD</small>
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <div className="roster-vs">VS</div>
-                    <div className={`roster-team red ${isMobile ? 'mobile-stack' : ''}`}>
-                      {redTeam.map(p => {
-                        const { kd, kda } = calculateRatios(p.kills, p.deaths, p.assists);
-                        return (
-                          <div key={p.gamertag} className="player-stat-row" style={{ textAlign: 'left' }}>
-                            <span className="roster-player">{p.gamertag}</span>
-                            <span className="player-brief-stats">
-                              {p.kills}/{p.deaths}/{p.assists} • <small>{kd} KD</small>
-                            </span>
-                          </div>
-                        );
-                      })}
+                  ) : (
+                    <div className="match-roster-grid-enhanced">
+                      <div className={`roster-team blue ${isMobile ? 'mobile-stack' : ''}`}>
+                        {blueTeam.map(p => {
+                          const { kd, kda } = calculateRatios(p.kills, p.deaths, p.assists);
+                          return (
+                            <div key={p.gamertag} className="player-stat-row">
+                              <span className="roster-player">{p.gamertag}</span>
+                              <span className="player-brief-stats">
+                                {p.kills}/{p.deaths}/{p.assists} • <small>{kd} KD</small>
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="roster-vs">VS</div>
+                      <div className={`roster-team red ${isMobile ? 'mobile-stack' : ''}`}>
+                        {redTeam.map(p => {
+                          const { kd, kda } = calculateRatios(p.kills, p.deaths, p.assists);
+                          return (
+                            <div key={p.gamertag} className="player-stat-row" style={{ textAlign: 'left' }}>
+                              <span className="roster-player">{p.gamertag}</span>
+                              <span className="player-brief-stats">
+                                {p.kills}/{p.deaths}/{p.assists} • <small>{kd} KD</small>
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               );
             }) : <p style={{ opacity: 0.5 }}>No hay partidas recientes registradas.</p>}
@@ -323,7 +349,7 @@ const App = () => {
         <section className="section-panel">
           <h2 className="section-title"><Shield size={20} /> MLG Slayer Rankings</h2>
           <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '-1rem', marginBottom: '1rem' }}>
-            Ranked by Slayer Score (40% KDA + 30% Efficiency + 30% Spree)
+            Ranked by Slayer Score 0-100 (40% KDA + 30% Efficiency + 30% Spree) • PLACEMENT = pocas partidas aún
           </p>
 
           {isMobile ? (
@@ -380,7 +406,7 @@ const App = () => {
                       </span>
                     </td>
                   </tr>
-                )) : <tr><td colSpan="7" style={{ textAlign: 'center', opacity: 0.5 }}>No player data available.</td></tr>}
+                )) : <tr><td colSpan="8" style={{ textAlign: 'center', opacity: 0.5 }}>No player data available.</td></tr>}
               </tbody>
             </table>
           )}

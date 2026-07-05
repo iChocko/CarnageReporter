@@ -308,11 +308,12 @@ app.get('/api/stats/global', async (req, res) => {
             totalPlayers: acc.totalPlayers + 1
         }), { totalKills: 0, totalDeaths: 0, totalPlayers: 0 });
 
-        // Count only customs (non-matchmaking)
+        // Mismo criterio que las vistas: solo customs válidas
         const { count: gameCount } = await supabase.client
             .from('games')
             .select('*', { count: 'exact', head: true })
-            .eq('is_matchmaking', false);
+            .eq('is_matchmaking', false)
+            .eq('is_voided', false);
 
         res.json({
             ...totals,
@@ -329,10 +330,11 @@ app.get('/api/stats/global', async (req, res) => {
  */
 app.get('/api/stats/mvp', async (req, res) => {
     try {
+        const MIN_GAMES = parseInt(process.env.LEADERBOARD_MIN_GAMES || '5', 10);
+
         const { data, error } = await supabase.client
             .from('player_stats')
-            .select('*')
-            .limit(100);
+            .select('*');
 
         if (error) throw error;
 
@@ -346,24 +348,24 @@ app.get('/api/stats/mvp', async (req, res) => {
             return { ...p, kda, efficiency };
         });
 
-        // Find MVP (best KDA with minimum 2 games) 
-        const eligiblePlayers = playersWithMLG.filter(p => p.total_games >= 2);
-        const mvp = eligiblePlayers.length > 0 ? eligiblePlayers.sort((a, b) => b.kda - a.kda)[0] : null;
+        // Mismo mínimo de partidas que el leaderboard.
+        // Nota: los sorts usan copias ([...arr]) para no mutar la lista base
+        // (antes el segundo cálculo heredaba el orden del primero).
+        const eligiblePlayers = playersWithMLG.filter(p => p.total_games >= MIN_GAMES);
 
-        // Best Efficiency (highest kill efficiency)
-        const topEfficiency = eligiblePlayers.length > 0 ? eligiblePlayers.sort((a, b) => b.efficiency - a.efficiency)[0] : null;
+        const mvp = eligiblePlayers.length > 0
+            ? [...eligiblePlayers].sort((a, b) => b.kda - a.kda)[0] : null;
 
-        // Spree King (best killing spree)
-        const spreeKing = [...playersWithMLG].sort((a, b) => b.best_spree - a.best_spree)[0];
+        const topEfficiency = eligiblePlayers.length > 0
+            ? [...eligiblePlayers].sort((a, b) => b.efficiency - a.efficiency)[0] : null;
 
-        // Most Consistent (best score average with >=3 games)
-        const consistentPlayers = playersWithMLG.filter(p => p.total_games >= 3);
-        const mostConsistent = consistentPlayers.length > 0
-            ? consistentPlayers.sort((a, b) => {
-                const winRateA = a.total_games > 0 ? (a.total_score / a.total_games) : 0;
-                const winRateB = b.total_games > 0 ? (b.total_score / b.total_games) : 0;
-                return winRateB - winRateA;
-            })[0]
+        // Spree King: dato puntual, cuenta para todos (sin mínimo)
+        const spreeKing = playersWithMLG.length > 0
+            ? [...playersWithMLG].sort((a, b) => (b.best_spree || 0) - (a.best_spree || 0))[0] : null;
+
+        const mostConsistent = eligiblePlayers.length > 0
+            ? [...eligiblePlayers].sort((a, b) =>
+                (b.total_score / b.total_games) - (a.total_score / a.total_games))[0]
             : null;
 
         res.json({
@@ -382,11 +384,15 @@ app.get('/api/stats/mvp', async (req, res) => {
  */
 app.get('/api/stats/leaderboard', async (req, res) => {
     try {
+        const MIN_GAMES = parseInt(req.query.minGames || process.env.LEADERBOARD_MIN_GAMES || '5', 10);
+        const limit = parseInt(req.query.limit || '20', 10);
+        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+        // Traer TODOS los jugadores: antes se recortaba a top-20 por total_score
+        // ANTES de calcular el Slayer Score, excluyendo jugadores injustamente.
         const { data, error } = await supabase.client
             .from('player_stats')
-            .select('*')
-            .order('total_score', { ascending: false })
-            .limit(20);
+            .select('*');
 
         if (error) throw error;
 
@@ -398,41 +404,59 @@ app.get('/api/stats/leaderboard', async (req, res) => {
 
             const gamesPlayed = player.total_games || 1;
             const efficiency = (player.total_kills / gamesPlayed) - (player.total_deaths / gamesPlayed);
+            const bestSpree = player.best_spree || 0;
 
-            const avgSpree = player.best_spree || 0;
+            // Componentes normalizados a 0-100 (evita que una métrica domine):
+            //  - KDA con tope en 3.0 (un smurf con pocas partidas no rompe la escala)
+            //  - Efficiency en rango útil -5..+10 por partida
+            //  - Spree con tope en 10 (Killing Frenzy)
+            const kdaScore = clamp(kda, 0, 3) / 3 * 100;
+            const effScore = clamp((efficiency + 5) / 15, 0, 1) * 100;
+            const spreeScore = clamp(bestSpree, 0, 10) / 10 * 100;
 
-            // Slayer Score: 40% KDA + 30% Efficiency + 30% Avg Spree
-            const slayerScore = (kda * 0.4) + (Math.max(0, efficiency) * 0.3) + (avgSpree * 0.03);
+            // Slayer Score 0-100: 40% KDA + 30% Efficiency + 30% Spree
+            const slayerScore = (kdaScore * 0.4) + (effScore * 0.3) + (spreeScore * 0.3);
 
-            // Tier classification
-            let tier = 'Amateur';
-            let tierColor = '#94a3b8';
-            if (kda >= 1.8 && efficiency >= 5) {
+            // Tier por Slayer Score; con pocas partidas aún no compite (Placement)
+            const isPlacement = (player.total_games || 0) < MIN_GAMES;
+            let tier, tierColor;
+            if (isPlacement) {
+                tier = 'Placement';
+                tierColor = '#7d8fa0'; // Gris
+            } else if (slayerScore >= 75) {
                 tier = 'Pro';
                 tierColor = '#FFD700'; // Gold
-            } else if (kda >= 1.5 && efficiency >= 2) {
+            } else if (slayerScore >= 60) {
                 tier = 'Semi-Pro';
                 tierColor = '#C0C0C0'; // Silver
-            } else if (kda >= 1.2 && efficiency >= 0) {
+            } else if (slayerScore >= 45) {
                 tier = 'Competitive';
                 tierColor = '#CD7F32'; // Bronze
+            } else {
+                tier = 'Amateur';
+                tierColor = '#94a3b8';
             }
 
             return {
                 ...player,
                 kda: Math.round(kda * 100) / 100,
                 efficiency: Math.round(efficiency * 10) / 10,
-                avg_spree: avgSpree,
-                slayer_score: Math.round(slayerScore * 100) / 100,
+                avg_spree: bestSpree,
+                slayer_score: Math.round(slayerScore * 10) / 10,
                 tier,
-                tier_color: tierColor
+                tier_color: tierColor,
+                is_placement: isPlacement
             };
         });
 
-        // Ordenar por Slayer Score
-        mlgLeaderboard.sort((a, b) => b.slayer_score - a.slayer_score);
+        // Placement al final; el resto por Slayer Score
+        mlgLeaderboard.sort((a, b) =>
+            (a.is_placement === b.is_placement)
+                ? b.slayer_score - a.slayer_score
+                : (a.is_placement ? 1 : -1)
+        );
 
-        res.json(mlgLeaderboard);
+        res.json(mlgLeaderboard.slice(0, limit));
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
