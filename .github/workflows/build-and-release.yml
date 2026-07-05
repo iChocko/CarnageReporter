@@ -36,6 +36,20 @@ jobs:
         run: |
           npx pkg client/carnage_client.js --targets node18-win-x64 --output dist/CarnageReporter.exe
 
+      # Metadatos del ejecutable (requisito de SignPath Foundation y buena práctica:
+      # el exe muestra producto/versión reales en Propiedades en vez de datos genéricos)
+      - name: Set executable metadata
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npx rcedit "dist/CarnageReporter.exe" \
+            --set-version-string "ProductName" "Carnage Reporter" \
+            --set-version-string "FileDescription" "Carnage Reporter - Halo 3 MCC Stats Tracker" \
+            --set-version-string "CompanyName" "iChocko" \
+            --set-version-string "LegalCopyright" "GPL-3.0 (c) iChocko - github.com/iChocko/CarnageReporter" \
+            --set-file-version "$VERSION.0" \
+            --set-product-version "$VERSION.0"
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
