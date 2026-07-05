@@ -267,9 +267,11 @@ class WhatsAppService {
 
     /**
      * chatId configurado para un formato ('2v2' | '4v4').
+     * Prioriza el grupo resuelto (verificado contra los chats reales) y cae al
+     * ID configurado si aún no se resolvió.
      */
     groupIdFor(format) {
-        return this.resolvedGroups[format] || this.groupConfig[format]?.id || null;
+        return this.resolvedGroups[format]?.id || this.groupConfig[format]?.id || null;
     }
 
     /**
