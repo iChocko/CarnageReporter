@@ -135,7 +135,20 @@ app.post('/api/report', authMiddleware, async (req, res) => {
             });
         }
 
-        // 3. Generar PNG
+        // 3. Matchmaking: se ignora por completo (ni se guarda ni se publica).
+        //    Este bot es exclusivamente para customs 2v2 de la comunidad; además
+        //    el XML de matchmaking no trae el mapa real en ningún campo fiable
+        //    (HopperName es la playlist, ej. "Team Doubles", no un mapa).
+        if (gameData.isMatchmaking === true) {
+            console.log(`🎮 Partida ${gameId} es matchmaking — ignorada por completo (solo customs 2v2)`);
+            return res.json({
+                status: 'skipped',
+                gameId,
+                message: 'Partida de matchmaking ignorada; el bot solo procesa customs 2v2'
+            });
+        }
+
+        // 4. Generar PNG
         console.log(`🎨 Generando imagen para partida ${gameId}...`);
         const pngPath = path.join(OUTPUT_DIR, `match_${gameId}.png`);
         await renderer.generatePNG(gameData, players, pngPath);
@@ -147,12 +160,12 @@ app.post('/api/report', authMiddleware, async (req, res) => {
             console.error(`   ❌ Falló la generación del PNG: ${pngPath}`);
         }
 
-        // 4. Enviar a Discord
+        // 5. Enviar a Discord
         console.log('💬 Enviando a Discord...');
         const dsResult = await discord.sendImage(pngPath, gameData, players);
         console.log(`   ${dsResult ? '✅' : '❌'} Resultado Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
 
-        // 4b. Enviar a WhatsApp (si está habilitado y listo; su fallo nunca tumba el request)
+        // 5b. Enviar a WhatsApp (si está habilitado y listo; su fallo nunca tumba el request)
         if (whatsapp.isReady()) {
             const { winnerLine, mapName, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
             // WhatsApp usa *asterisco simple* para negritas (no ** como Discord/Markdown)
@@ -161,7 +174,7 @@ app.post('/api/report', authMiddleware, async (req, res) => {
             console.log(`   ${waResult ? '✅' : '❌'} Resultado WhatsApp: ${waResult ? 'Enviado' : 'Fallido'}`);
         }
 
-        // 5. Guardar en Supabase
+        // 6. Guardar en Supabase
         console.log('💾 Guardando en Supabase...');
         await supabase.saveGame(gameData, players, { schemaVersion, clientVersion });
 

@@ -316,6 +316,8 @@ async function processXMLFile(filePath) {
             console.log(`   ⏭️  Esta partida ya estaba en el sistema.`);
         } else if (response.status === 'voided') {
             console.log(`   🚫 Partida anulada (${response.reason}): no cuenta para stats.`);
+        } else if (response.status === 'skipped') {
+            console.log(`   ⏭️  Partida de matchmaking ignorada (solo se registran customs 2v2).`);
         } else {
             console.log(`   ⚠️  Servidor: ${response.message || response.error}`);
         }
