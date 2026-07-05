@@ -18,6 +18,7 @@ const WhatsAppService = require('./services/whatsapp');
 const { evaluateMatch } = require('./services/validator');
 const { startSchedules, WEEKLY_MESSAGE } = require('./services/scheduler');
 const { buildCaptionParts, formatRecentGamesWhatsApp } = require('./utils/matchSummary');
+const { computeRecords, computeH2H, computePlayerProfile } = require('./utils/records');
 
 // Initialize Stripe
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -491,6 +492,10 @@ app.get('/api/stats/leaderboard', async (req, res) => {
 
         if (error) throw error;
 
+        // Récord V-D-E por jugador (calculado desde las partidas)
+        const allGames = await supabase.getAllValidGamesWithPlayers();
+        const records = computeRecords(allGames);
+
         // Calcular métricas MLG para cada jugador
         const mlgLeaderboard = data.map(player => {
             const kda = player.total_deaths > 0
@@ -532,6 +537,8 @@ app.get('/api/stats/leaderboard', async (req, res) => {
                 tierColor = '#94a3b8';
             }
 
+            const record = records.get(player.gamertag) || { wins: 0, losses: 0, draws: 0 };
+
             return {
                 ...player,
                 kda: Math.round(kda * 100) / 100,
@@ -540,7 +547,10 @@ app.get('/api/stats/leaderboard', async (req, res) => {
                 slayer_score: Math.round(slayerScore * 10) / 10,
                 tier,
                 tier_color: tierColor,
-                is_placement: isPlacement
+                is_placement: isPlacement,
+                wins: record.wins,
+                losses: record.losses,
+                draws: record.draws
             };
         });
 
@@ -561,6 +571,59 @@ app.get('/api/stats/recent', async (req, res) => {
     try {
         const gamesWithPlayers = await supabase.getRecentGamesWithPlayers(10);
         res.json(gamesWithPlayers);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Lista simple de jugadores (para buscadores/selectores del dashboard)
+ */
+app.get('/api/stats/players', async (req, res) => {
+    try {
+        const { data, error } = await supabase.client
+            .from('player_stats')
+            .select('gamertag, total_games')
+            .order('gamertag', { ascending: true });
+        if (error) throw error;
+        res.json(data || []);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Head-to-head entre dos jugadores: como rivales y como dupla.
+ * GET /api/stats/h2h?p1=<gamertag>&p2=<gamertag>
+ */
+app.get('/api/stats/h2h', async (req, res) => {
+    try {
+        const { p1, p2 } = req.query;
+        if (!p1 || !p2) {
+            return res.status(400).json({ error: 'Faltan p1 y/o p2' });
+        }
+        if (String(p1).toLowerCase() === String(p2).toLowerCase()) {
+            return res.status(400).json({ error: 'Elige dos jugadores distintos' });
+        }
+        const games = await supabase.getAllValidGamesWithPlayers();
+        res.json(computeH2H(games, p1, p2));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Perfil de un jugador: totales, récord V-D-E e historial de partidas.
+ * GET /api/stats/player/:gamertag
+ */
+app.get('/api/stats/player/:gamertag', async (req, res) => {
+    try {
+        const games = await supabase.getAllValidGamesWithPlayers();
+        const profile = computePlayerProfile(games, req.params.gamertag);
+        if (!profile) {
+            return res.status(404).json({ error: `No hay partidas de '${req.params.gamertag}'` });
+        }
+        res.json(profile);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

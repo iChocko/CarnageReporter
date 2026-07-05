@@ -1,533 +1,528 @@
-import React, { useEffect, useState } from 'react'
-import { Trophy, Activity, Target, Shield, Users, Clock, Award, Crosshair, TriangleAlert, CreditCard } from 'lucide-react'
-import { formatDistanceToNow } from 'date-fns'
-import { es } from 'date-fns/locale'
+import React, { useEffect, useMemo, useState } from 'react'
 import { StripePaymentModal } from './StripePaymentModal'
-import { LeaderboardCard } from './LeaderboardCard'
 
-const API_BASE_URL = '/api/stats'
+const API = '/api/stats'
+const DISCORD_URL = 'https://discord.gg/yD6nGZ3KQX'
+const GITHUB_URL = 'https://github.com/iChocko/CarnageReporter'
 
-const DONATION_METHODS = [
-  {
-    name: 'PayPal',
-    label: 'SUPPORT VIA PAYPAL (USD)',
-    url: 'https://paypal.me/xChocko',
-    icon: (props) => (
-      <svg {...props} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M20.067 8.478c.492.2.825.403 1.054.66.19.213.313.434.337.765.04.542-.1 1.081-.42 1.61L18.002 16.5c-.322.529-.861.851-1.442.851H13.5l-1.5 4.5H9.5l3.5-10.5h2.5c2.5 0 4.5-2.015 4.5-4.5 0-.125-.005-.248-.016-.369.028-.002.056-.004.083-.004zM5.5 13.5h2.5l1.5-4.5h2.5l-1.5 4.5h2.5L10.5 22.5h-2.5l2.5-7.5H4L5.5 4.5H8L6.5 9h2.5L10.5 4.5h2.5l-1.5 4.5h2.5l-1.5 4.5z" />
-      </svg>
-    ),
-    external: true
-  },
-  {
-    name: 'Stripe',
-    label: 'SUPPORT VIA STRIPE (USD)',
-    modal: true,
-    icon: (props) => <CreditCard {...props} />,
-    external: false
-  }
-]
+// ---------- Helpers ----------
 
-const calculateRatios = (k, d, a) => {
-  const kd = d > 0 ? (k / d).toFixed(2) : k.toFixed(2);
-  const kda = d > 0 ? ((k + a) / d).toFixed(2) : (k + a).toFixed(2);
-  return { kd, kda };
+function formatCDMX(timestamp) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(new Date(timestamp))
+  const get = t => (parts.find(p => p.type === t) || {}).value || ''
+  return { dateStr: `${get('day')}/${get('month')}/${get('year')}`, timeStr: `${get('hour')}:${get('minute')}` }
 }
 
-const App = () => {
-  const [globalStats, setGlobalStats] = useState({
-    totalGames: 0,
-    totalKills: 0,
-    totalDeaths: 0,
-    avgKD: 0,
-    totalPlayers: 0
-  })
-  const [mvpData, setMvpData] = useState(null)
-  const [leaderboard, setLeaderboard] = useState([])
-  const [recentGames, setRecentGames] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [isStripeModalOpen, setIsStripeModalOpen] = useState(false)
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+const kdOf = p => p.deaths > 0 ? (p.kills / p.deaths) : p.kills
+const kdaOf = p => p.deaths > 0 ? ((p.kills + p.assists) / p.deaths) : (p.kills + p.assists)
+const fmt2 = n => (Math.round(n * 100) / 100).toFixed(2)
 
-  useEffect(() => {
-    fetchData()
-    const handleResize = () => setIsMobile(window.innerWidth < 768)
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [])
+/**
+ * Analiza una partida (con players anidados): equipos ordenados por puntuación
+ * (ganador primero), empate, y MVP (mejor KDA; desempate por puntuación).
+ */
+function analyzeMatch(game) {
+  const teamsMap = new Map()
+  for (const p of game.players || []) {
+    const tid = p.team_id ?? 0
+    if (!teamsMap.has(tid)) teamsMap.set(tid, { tid, members: [], score: 0 })
+    const t = teamsMap.get(tid)
+    t.members.push(p)
+    t.score += p.score
+  }
+  const teams = [...teamsMap.values()]
+    .map(t => ({ ...t, members: [...t.members].sort((a, b) => b.score - a.score) }))
+    .sort((a, b) => b.score - a.score)
 
-  const fetchData = async () => {
-    setLoading(true)
+  const isDraw = teams.length >= 2 && teams[0].score === teams[1].score
+  const players = game.players || []
+  const mvp = players.length
+    ? [...players].sort((a, b) => (kdaOf(b) - kdaOf(a)) || (b.score - a.score))[0]
+    : null
+
+  // Color de banda según el team_id ganador (convención: 0=azul, 1=rojo)
+  const winnerTid = teams[0]?.tid
+  const band = isDraw
+    ? { text: 'Empate', cls: 'draw' }
+    : { text: winnerTid === 1 ? 'Red Team' : 'Blue Team', cls: winnerTid === 1 ? 'red' : 'blue' }
+
+  return { teams, isDraw, mvp, band }
+}
+
+const TIER_CLASS = { 'Pro': 'pro', 'Semi-Pro': 'semi', 'Competitive': 'comp', 'Amateur': '', 'Placement': 'place' }
+
+function recordStr(p) {
+  if (p.wins === undefined) return '—'
+  const base = `${p.wins}-${p.losses}`
+  return p.draws > 0 ? `${base}-${p.draws}E` : base
+}
+
+async function getJSON(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+// ---------- Componentes compartidos ----------
+
+const EmptyState = ({ children }) => (
+  <div className="empty-state">
+    <div className="big">🎮</div>
+    {children || 'Aún no hay partidas registradas. ¡Jueguen la primera custom 2v2!'}
+  </div>
+)
+
+const MatchCard = ({ game }) => {
+  const { teams, isDraw, mvp } = analyzeMatch(game)
+  const { dateStr, timeStr } = formatCDMX(game.timestamp)
+  if (teams.length < 2) return null
+  const [left, right] = teams
+  const names = t => t.members.map(p => p.gamertag).join(' · ')
+
+  return (
+    <div className="mcard">
+      <div className="mc-top">
+        <span className="mc-map">{game.map_name}</span>
+        <span className="mc-date">{dateStr} · {timeStr}</span>
+      </div>
+      <div className="mc-body">
+        <div className={`mc-side ${isDraw ? '' : 'winner'}`}><span className="names">{names(left)}</span></div>
+        <div className="mc-pill">
+          <span className={left.tid === 1 ? 'r' : 'b'}>{left.score}</span>
+          <span className="sep">–</span>
+          <span className={right.tid === 1 ? 'r' : 'b'}>{right.score}</span>
+        </div>
+        <div className="mc-side right"><span className="names">{names(right)}</span></div>
+      </div>
+      <div className="mc-foot">
+        {isDraw && <span className="mc-tag">Empate 🤝</span>}
+        {mvp && <span>★ MVP: <b>{mvp.gamertag}</b> <span className="dim">KD {fmt2(kdOf(mvp))} · KDA {fmt2(kdaOf(mvp))}</span></span>}
+      </div>
+    </div>
+  )
+}
+
+const MatchHero = ({ game }) => {
+  const { teams, mvp, band } = analyzeMatch(game)
+  const { dateStr, timeStr } = formatCDMX(game.timestamp)
+  const duration = game.duration > 0
+    ? `${Math.floor(game.duration / 60)}:${String(game.duration % 60).padStart(2, '0')}`
+    : null
+
+  return (
+    <div className="match-hero">
+      <div className="mh-head">
+        <div>
+          <div className="map">{game.map_name}</div>
+          <div className="gt">{game.game_type_name} · 2v2</div>
+        </div>
+        <div className="meta">
+          <div><b>{dateStr}</b> {timeStr} hrs</div>
+          {duration && <div>Duración {duration}</div>}
+        </div>
+      </div>
+      <div className={`winner-band ${band.cls}`}>{band.text}</div>
+      <div className="team-block">
+        {teams.map(team => (
+          <React.Fragment key={team.tid}>
+            <div className={`team-row ${team.tid === 1 ? 't-red' : 't-blue'}`}>
+              <span className="tt">{team.tid === 1 ? 'Red' : 'Blue'}</span>
+              <span className="pts">{team.score}</span>
+            </div>
+            {team.members.map(p => (
+              <div className="player-line" key={p.gamertag}>
+                <span className={`pl-name ${mvp && p.gamertag === mvp.gamertag ? '' : 'dim'}`}>
+                  {mvp && p.gamertag === mvp.gamertag && <span className="mvp-star">★ </span>}
+                  {p.gamertag}
+                  {mvp && p.gamertag === mvp.gamertag && <span className="mvp-tag">MVP</span>}
+                </span>
+                <span className="pl-stats">
+                  {p.kills} / {p.deaths} / {p.assists} &nbsp;·&nbsp; KD <b>{fmt2(kdOf(p))}</b> &nbsp;·&nbsp; KDA <b>{fmt2(kdaOf(p))}</b>
+                </span>
+              </div>
+            ))}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------- Vistas ----------
+
+const RankingsView = ({ leaderboard, recent, onOpenProfile, onSeeAll }) => (
+  <div className="main-grid">
+    <div>
+      <div className="secbar">
+        <h2>Slayer Rankings</h2>
+        <span className="note formula-hint">
+          <button aria-label="Cómo se calcula el tier">i</button>
+          <span className="tip">
+            El tier sale de un Slayer Score interno 0–100 (40% KDA + 30% eficiencia + 30% mejor racha).
+            Jugadores con menos de 5 partidas aparecen como PLACEMENT.
+          </span>
+        </span>
+      </div>
+      {leaderboard.length === 0 ? <EmptyState /> : (
+        <div className="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th className="c">#</th><th>Jugador</th><th className="c">KD</th>
+                <th className="c">KDA</th><th className="c">V-D</th><th className="c">Tier</th>
+              </tr>
+            </thead>
+            <tbody>
+              {leaderboard.map((p, i) => (
+                <tr key={p.gamertag} className="clickable" tabIndex={0}
+                    onClick={() => onOpenProfile(p.gamertag)}
+                    onKeyDown={e => e.key === 'Enter' && onOpenProfile(p.gamertag)}>
+                  <td className="c rank-col">{p.is_placement ? '—' : i + 1}</td>
+                  <td>
+                    <span className="player-name" style={p.is_placement ? { color: 'var(--steel-dim)' } : undefined}>{p.gamertag}</span>
+                    <br /><span className="games-sub">{p.total_games} partidas</span>
+                  </td>
+                  <td className="c">{p.overall_kd}</td>
+                  <td className={`c ${p.kda >= 1 ? 'kd-pos' : 'kd-neg'}`}>{p.kda}</td>
+                  <td className="c">{recordStr(p)}</td>
+                  <td className="c"><span className={`tier ${TIER_CLASS[p.tier] ?? ''}`}>{p.tier}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+
+    <div>
+      <div className="secbar gold">
+        <h2>Última partida</h2>
+      </div>
+      {recent.length === 0 ? <EmptyState /> : (
+        <>
+          <MatchHero game={recent[0]} />
+          {recent.length > 1 && (
+            <>
+              <div className="secbar" style={{ marginTop: 20 }}>
+                <h2>Recientes</h2>
+                <button className="tab" style={{ border: '1px solid var(--line)', padding: '5px 12px', fontSize: 11 }} onClick={onSeeAll}>
+                  Ver todas
+                </button>
+              </div>
+              <div className="match-list">
+                {recent.slice(1, 4).map(g => <MatchCard key={g.game_unique_id} game={g} />)}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  </div>
+)
+
+const PartidasView = ({ recent }) => (
+  <>
+    <div className="secbar">
+      <h2>Historial de partidas</h2>
+      <span className="note">Solo customs 2v2 válidas · hora CDMX</span>
+    </div>
+    {recent.length === 0 ? <EmptyState /> : (
+      <div className="match-list">
+        {recent.map(g => <MatchCard key={g.game_unique_id} game={g} />)}
+      </div>
+    )}
+  </>
+)
+
+const H2HView = ({ players }) => {
+  const [p1, setP1] = useState('')
+  const [p2, setP2] = useState('')
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const compare = async () => {
+    setLoading(true); setError(null); setData(null)
     try {
-      const [gRes, lRes, rRes, mRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/global`),
-        fetch(`${API_BASE_URL}/leaderboard`),
-        fetch(`${API_BASE_URL}/recent`),
-        fetch(`${API_BASE_URL}/mvp`)
-      ])
-
-      const [gData, lData, rData, mData] = await Promise.all([
-        gRes.ok ? gRes.json() : null,
-        lRes.ok ? lRes.json() : [],
-        rRes.ok ? rRes.json() : [],
-        mRes.ok ? mRes.json() : null
-      ])
-
-      setGlobalStats(gData || {
-        totalGames: 0,
-        totalKills: 0,
-        totalDeaths: 0,
-        avgKD: 0,
-        totalPlayers: 0
-      })
-      setLeaderboard(lData || [])
-      setRecentGames(rData || [])
-      setMvpData(mData)
-
-    } catch (error) {
-      console.error('Error fetching data:', error)
-      // Set empty states to allow UI rendering
-      setLeaderboard([])
-      setRecentGames([])
+      setData(await getJSON(`${API}/h2h?p1=${encodeURIComponent(p1)}&p2=${encodeURIComponent(p2)}`))
+    } catch (e) {
+      setError('No se pudo comparar. Intenta de nuevo.')
     } finally {
       setLoading(false)
     }
   }
 
-  if (loading) {
-    return (
-      <div className="dashboard-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-        <div style={{ textAlign: 'center' }}>
-          <Activity className="animate-pulse" size={64} color="#00f2ff" />
-          <p style={{ marginTop: '1rem', fontFamily: 'Outfit', textTransform: 'uppercase', letterSpacing: '0.2em' }}>
-            Accediendo a la RED DE BATTLE.NET...
-          </p>
-        </div>
-      </div>
-    )
-  }
+  const winrate = data && data.duo.total > 0 ? Math.round((data.duo.wins / data.duo.total) * 100) : null
 
   return (
-    <div className="dashboard-container">
-      <header className="bungie-header">
-        <div>
-          <h1>MLG HALO 3 LEADERBOARD</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>COMPETITIVE STATS • v8 SETTINGS • CARNAGE REPORTER</p>
-        </div>
-        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
-          <div>
-            <p style={{ color: 'var(--accent-cyan)', fontFamily: 'Outfit', fontWeight: 700, margin: 0 }}>LIVE FEED</p>
-            <p style={{ fontSize: '0.75rem', opacity: 0.6, margin: 0 }}>STATUS: OPERATIONAL</p>
-          </div>
-          <a
-            href="https://discord.gg/yD6nGZ3KQX"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Join Discord"
-            style={{
-              color: 'var(--text-secondary)',
-              textDecoration: 'none',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              fontSize: '0.75rem',
-              transition: 'color 0.2s',
-              opacity: 0.7
-            }}
-            onMouseOver={(e) => e.currentTarget.style.color = '#5865F2'}
-            onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.23 10.23 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.419-2.157 2.419zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.419-2.157 2.419z" />
-            </svg>
-            DISCORD
-          </a>
-        </div>
-      </header>
-
-      {/* MVP Spotlight */}
-      {mvpData && (
-        <section style={{ marginBottom: '2rem' }}>
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(42, 109, 189, 0.15), rgba(0, 242, 255, 0.05))',
-            border: '2px solid var(--accent-blue)',
-            padding: '2rem',
-            position: 'relative',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              right: 0,
-              width: '150px',
-              height: '150px',
-              background: 'radial-gradient(circle, rgba(0,242,255,0.2), transparent)',
-              pointerEvents: 'none'
-            }}></div>
-            <h2 style={{
-              fontFamily: 'Outfit',
-              fontSize: '1.5rem',
-              marginBottom: '1.5rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem'
-            }}>
-              <Award size={28} color="var(--accent-gold)" />
-              MLG HALO 3 • TOP PERFORMERS
-            </h2>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem', marginTop: '-1rem' }}>
-              Competitive Stats • MLG v8 Settings
-            </p>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: '1.5rem'
-            }}>
-              {mvpData.mvp && (
-                <PerformerCard
-                  title="👑 HIGHEST KDA"
-                  subtitle="MLG EFFICIENCY"
-                  player={mvpData.mvp}
-                  stat={mvpData.mvp.kda}
-                  icon={<Trophy size={20} />}
-                  color="var(--accent-gold)"
-                />
-              )}
-              {mvpData.topEfficiency && (
-                <PerformerCard
-                  title="⚡ BEST EFFICIENCY"
-                  subtitle="KILL DIFFERENTIAL"
-                  player={mvpData.topEfficiency}
-                  stat={mvpData.topEfficiency.efficiency > 0 ? `+${mvpData.topEfficiency.efficiency}` : mvpData.topEfficiency.efficiency}
-                  icon={<Target size={20} />}
-                  color="var(--accent-cyan)"
-                />
-              )}
-              {mvpData.spreeKing && (
-                <PerformerCard
-                  title="🔥 SPREE KING"
-                  subtitle="LONGEST STREAK"
-                  player={mvpData.spreeKing}
-                  stat={mvpData.spreeKing.best_spree}
-                  icon={<Crosshair size={20} />}
-                  color="#ff5c5c"
-                />
-              )}
-              {mvpData.mostConsistent && (
-                <PerformerCard
-                  title="🎯 MOST CONSISTENT"
-                  subtitle="AVG SCORE PER GAME"
-                  player={mvpData.mostConsistent}
-                  stat={Math.round(mvpData.mostConsistent.total_score / mvpData.mostConsistent.total_games)}
-                  icon={<Activity size={20} />}
-                  color="#a855f7"
-                />
-              )}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Global KPIs */}
-      <div className="stats-grid">
-        <StatCard
-          label="Customs Totales"
-          value={globalStats.totalGames}
-          icon={<Trophy size={20} />}
-          sub="Partidas personalizadas"
-        />
-        <StatCard
-          label="Bajas Globales"
-          value={globalStats.totalKills}
-          icon={<Target size={20} />}
-          sub="Total de eliminaciones"
-        />
-        <StatCard
-          label="K/D Promedio"
-          value={globalStats.avgKD}
-          icon={<Activity size={20} />}
-          sub="Ratio de combate global"
-        />
-        <StatCard
-          label="Jugadores Únicos"
-          value={globalStats.totalPlayers}
-          icon={<Users size={20} />}
-          sub="Encontrados en la red"
-        />
+    <>
+      <div className="secbar"><h2>Head to Head</h2><span className="note">Como rivales y como dupla</span></div>
+      <div className="h2h-pickers">
+        <select className="select-steel" value={p1} onChange={e => setP1(e.target.value)} aria-label="Jugador 1">
+          <option value="">Jugador 1...</option>
+          {players.map(p => <option key={p.gamertag} value={p.gamertag}>{p.gamertag}</option>)}
+        </select>
+        <span className="vs">VS</span>
+        <select className="select-steel" value={p2} onChange={e => setP2(e.target.value)} aria-label="Jugador 2">
+          <option value="">Jugador 2...</option>
+          {players.map(p => <option key={p.gamertag} value={p.gamertag}>{p.gamertag}</option>)}
+        </select>
+        <button className="btn-steel" disabled={!p1 || !p2 || p1 === p2 || loading} onClick={compare}>
+          {loading ? 'Comparando...' : 'Comparar'}
+        </button>
       </div>
-
-      <div className="main-content">
-        {/* Recent Games */}
-        <section className="section-panel">
-          <h2 className="section-title"><Clock size={20} /> Partidas Recientes</h2>
-          <div className="match-list">
-            {recentGames && recentGames.length > 0 ? recentGames.map(game => {
-              const isFFA = game.is_teams_enabled === false;
-              const blueTeam = game.players?.filter(p => p.team_id === 0) || [];
-              const redTeam = game.players?.filter(p => p.team_id === 1) || [];
-              const ffaPlayers = [...(game.players || [])].sort((a, b) => b.score - a.score);
-              const isGenericMap = game.map_name === 'Halo 3 Match' || game.map_name === 'Halo 3 Map';
-              const mapDisplay = isGenericMap ? 'MCC Match' : game.map_name;
-              const displayTitle = `${game.game_type_name} @ ${mapDisplay}`;
-
-              return (
-                <div key={game.game_unique_id} className="match-card-enhanced">
-                  <div className="match-header-row">
-                    <div className="match-info-main">
-                      <h4>{displayTitle}</h4>
-                      <p style={{ opacity: 0.6, fontSize: '0.75rem' }}>
-                        {formatDistanceToNow(new Date(game.timestamp), { addSuffix: true, locale: es })}
-                      </p>
-                    </div>
-                    {isFFA ? (
-                      <div className="match-score-pill">
-                        <span style={{ opacity: 0.8, fontSize: '0.75rem', letterSpacing: '0.1em' }}>FFA · {ffaPlayers.length} PLAYERS</span>
-                      </div>
-                    ) : (
-                      <div className="match-score-pill">
-                        <span className="score-blue">{game.blue_score}</span>
-                        <span style={{ margin: '0 0.5rem', opacity: 0.3 }}>-</span>
-                        <span className="score-red">{game.red_score}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {isFFA ? (
-                    <div className="match-roster-grid-enhanced" style={{ gridTemplateColumns: '1fr' }}>
-                      <div className={`roster-team ${isMobile ? 'mobile-stack' : ''}`}>
-                        {ffaPlayers.map((p, idx) => {
-                          const { kd } = calculateRatios(p.kills, p.deaths, p.assists);
-                          return (
-                            <div key={p.gamertag} className="player-stat-row">
-                              <span className="roster-player">{idx === 0 ? '👑 ' : ''}{p.gamertag}</span>
-                              <span className="player-brief-stats">
-                                {p.kills}/{p.deaths}/{p.assists} • <small>{kd} KD</small>
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="match-roster-grid-enhanced">
-                      <div className={`roster-team blue ${isMobile ? 'mobile-stack' : ''}`}>
-                        {blueTeam.map(p => {
-                          const { kd, kda } = calculateRatios(p.kills, p.deaths, p.assists);
-                          return (
-                            <div key={p.gamertag} className="player-stat-row">
-                              <span className="roster-player">{p.gamertag}</span>
-                              <span className="player-brief-stats">
-                                {p.kills}/{p.deaths}/{p.assists} • <small>{kd} KD</small>
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <div className="roster-vs">VS</div>
-                      <div className={`roster-team red ${isMobile ? 'mobile-stack' : ''}`}>
-                        {redTeam.map(p => {
-                          const { kd, kda } = calculateRatios(p.kills, p.deaths, p.assists);
-                          return (
-                            <div key={p.gamertag} className="player-stat-row" style={{ textAlign: 'left' }}>
-                              <span className="roster-player">{p.gamertag}</span>
-                              <span className="player-brief-stats">
-                                {p.kills}/{p.deaths}/{p.assists} • <small>{kd} KD</small>
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            }) : <p style={{ opacity: 0.5 }}>No hay partidas recientes registradas.</p>}
-          </div>
-        </section>
-
-        {/* Leaderboard */}
-        <section className="section-panel">
-          <h2 className="section-title"><Shield size={20} /> MLG Slayer Rankings</h2>
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '-1rem', marginBottom: '1rem' }}>
-            Ranked by Slayer Score 0-100 (40% KDA + 30% Efficiency + 30% Spree) • PLACEMENT = pocas partidas aún
-          </p>
-
-          {isMobile ? (
-            <div className="leaderboard-mobile">
-              {leaderboard && leaderboard.length > 0 ? leaderboard.slice(0, 10).map((player, index) => (
-                <LeaderboardCard key={player.gamertag} player={player} index={index} />
-              )) : <p style={{ opacity: 0.5, textAlign: 'center' }}>No player data available.</p>}
+      {error && <p className="error-note">{error}</p>}
+      {players.length === 0 && <EmptyState>Se necesitan jugadores registrados para comparar.</EmptyState>}
+      {data && (
+        <>
+          <div className="h2h-grid">
+            <div className="h2h-card">
+              <div className="hc-title">⚔️ Como rivales</div>
+              <div className="hc-big">{data.rivals.p1Wins} – {data.rivals.p2Wins}</div>
+              <div className="hc-sub">
+                <b>{data.p1}</b> vs <b>{data.p2}</b> · {data.rivals.total} partida{data.rivals.total !== 1 ? 's' : ''}
+                {data.rivals.draws > 0 && ` · ${data.rivals.draws} empate${data.rivals.draws !== 1 ? 's' : ''}`}
+              </div>
             </div>
+            <div className="h2h-card">
+              <div className="hc-title">🤝 Como dupla</div>
+              <div className="hc-big">{data.duo.wins}V – {data.duo.losses}D{data.duo.draws > 0 ? ` – ${data.duo.draws}E` : ''}</div>
+              <div className="hc-sub">
+                {data.duo.total} partida{data.duo.total !== 1 ? 's' : ''} juntos
+                {winrate !== null && <> · <b>{winrate}%</b> de victorias</>}
+              </div>
+            </div>
+          </div>
+          {data.shared.length === 0 ? (
+            <EmptyState>Estos jugadores aún no comparten partidas.</EmptyState>
           ) : (
-            <table className="leaderboard-table">
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>Player</th>
-                  <th>KD</th>
-                  <th>KDA</th>
-                  <th>Effic.</th>
-                  <th>Spree</th>
-                  <th>Score</th>
-                  <th>Tier</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leaderboard && leaderboard.length > 0 ? leaderboard.slice(0, 10).map((player, index) => (
-                  <tr key={player.gamertag}>
-                    <td><div className="rank-badge">{index + 1}</div></td>
-                    <td>
-                      <div className="gamertag">{player.gamertag}</div>
-                      <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{player.total_games} games</div>
-                    </td>
-                    <td style={{ fontFamily: 'Outfit', fontWeight: 600, opacity: 0.8 }}>
-                      {player.overall_kd}
-                    </td>
-                    <td style={{ fontFamily: 'Outfit', fontWeight: 600, color: player.kda >= 1.5 ? 'var(--accent-cyan)' : 'var(--text-secondary)' }}>
-                      {player.kda}
-                    </td>
-                    <td style={{ fontFamily: 'Outfit', fontWeight: 600, color: player.efficiency >= 0 ? '#00f2ff' : '#ff5c5c' }}>
-                      {player.efficiency > 0 ? `+${player.efficiency}` : player.efficiency}
-                    </td>
-                    <td style={{ fontFamily: 'Outfit' }}>{player.avg_spree}</td>
-                    <td style={{ fontFamily: 'Outfit', fontWeight: 700, color: 'var(--accent-gold)' }}>{player.slayer_score}</td>
-                    <td>
-                      <span style={{
-                        display: 'inline-block',
-                        padding: '2px 8px',
-                        borderRadius: '3px',
-                        fontSize: '0.65rem',
-                        fontWeight: 700,
-                        backgroundColor: `${player.tier_color}20`,
-                        color: player.tier_color,
-                        border: `1px solid ${player.tier_color}`
-                      }}>
-                        {player.tier === 'Pro' ? '🥇' : player.tier === 'Semi-Pro' ? '🥈' : player.tier === 'Competitive' ? '🥉' : ''} {player.tier.toUpperCase()}
-                      </span>
-                    </td>
-                  </tr>
-                )) : <tr><td colSpan="8" style={{ textAlign: 'center', opacity: 0.5 }}>No player data available.</td></tr>}
-              </tbody>
-            </table>
+            <>
+              <div className="secbar"><h2>Partidas compartidas</h2></div>
+              <div className="tablewrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Mapa</th><th>Fecha</th><th className="c">Formato</th>
+                      <th className="c">{data.p1}</th><th className="c">{data.p2}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.shared.map(m => {
+                      const { dateStr, timeStr } = formatCDMX(m.timestamp)
+                      const cell = p => (
+                        <>
+                          <span className={`res-${(p.result || 'd').toLowerCase()}`}>{p.result || '—'}</span>
+                          {' '}{p.kills}/{p.deaths}/{p.assists}
+                        </>
+                      )
+                      return (
+                        <tr key={m.game_unique_id}>
+                          <td className="player-name">{m.map_name}</td>
+                          <td>{dateStr} {timeStr}</td>
+                          <td className="c">{m.same_team ? '🤝 Dupla' : '⚔️ Rivales'}</td>
+                          <td className="c">{cell(m.p1)}</td>
+                          <td className="c">{cell(m.p2)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
-        </section>
-      </div>
-
-      <footer style={{
-        marginTop: '4rem',
-        padding: '2rem 0',
-        borderTop: '1px solid var(--border-color)',
-        textAlign: 'center',
-        opacity: 0.5,
-        fontSize: '0.75rem',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '1rem'
-      }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '1.5rem',
-          opacity: 0.8,
-          marginBottom: '0.5rem'
-        }}>
-          {DONATION_METHODS.map(method => {
-            const Component = method.external ? 'a' : 'button'
-            const props = method.external ? {
-              href: method.url,
-              target: '_blank',
-              rel: 'noopener noreferrer'
-            } : {
-              onClick: () => setIsStripeModalOpen(true)
-            }
-
-            return (
-              <Component
-                key={method.name}
-                {...props}
-                style={{
-                  color: 'var(--text-secondary)',
-                  textDecoration: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  fontSize: '0.7rem',
-                  transition: 'all 0.2s',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 0
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.color = 'var(--accent-cyan)';
-                  e.currentTarget.style.opacity = '1';
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.color = 'var(--text-secondary)';
-                  e.currentTarget.style.opacity = '0.8';
-                }}
-              >
-                {method.icon({ width: 14, height: 14 })}
-                {method.label}
-              </Component>
-            )
-          })}
-        </div>
-        <p>&copy; 2026 CARNAGE REPORTER • BUNGIE-ERA INTERFACE • HALO 3 MCC CUSTOMS</p>
-      </footer>
-
-      <StripePaymentModal
-        isOpen={isStripeModalOpen}
-        onClose={() => setIsStripeModalOpen(false)}
-      />
-    </div>
+        </>
+      )}
+    </>
   )
 }
 
-const StatCard = ({ label, value, icon, sub }) => (
-  <div className="stat-card">
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-      <div className="stat-label">{label}</div>
-      <div style={{ color: 'var(--accent-blue)' }}>{icon}</div>
-    </div>
-    <div className="stat-value">{value}</div>
-    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>{sub}</div>
-    <div className="progress-container">
-      <div className="progress-bar" style={{ width: '65%' }}></div>
-    </div>
-  </div>
-)
+const PerfilView = ({ players, selected, onSelect }) => {
+  const [query, setQuery] = useState('')
+  const [profile, setProfile] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
-const PerformerCard = ({ title, subtitle, player, stat, icon, color }) => (
-  <div style={{
-    background: 'rgba(255, 255, 255, 0.03)',
-    border: `1px solid ${color}`,
-    padding: '1rem',
-    position: 'relative'
-  }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-        {title}
+  useEffect(() => {
+    if (!selected) { setProfile(null); return }
+    let cancelled = false
+    setLoading(true); setError(null)
+    getJSON(`${API}/player/${encodeURIComponent(selected)}`)
+      .then(d => { if (!cancelled) setProfile(d) })
+      .catch(() => { if (!cancelled) setError(`No se encontró el perfil de "${selected}".`) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [selected])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return q ? players.filter(p => p.gamertag.toLowerCase().includes(q)) : players
+  }, [players, query])
+
+  // Coincidencia única en el buscador -> cargar directo
+  useEffect(() => {
+    if (query.trim() && filtered.length === 1 && filtered[0].gamertag !== selected) {
+      onSelect(filtered[0].gamertag)
+    }
+  }, [query, filtered, selected, onSelect])
+
+  return (
+    <>
+      <div className="secbar"><h2>Perfil de jugador</h2><span className="note">Busca por gamertag</span></div>
+      <div className="player-picker">
+        <input type="search" className="input-steel" placeholder="Buscar gamertag..."
+               aria-label="Buscar jugador por gamertag" autoComplete="off"
+               value={query} onChange={e => setQuery(e.target.value)} />
+        <div className="player-chips">
+          {filtered.map(p => (
+            <button key={p.gamertag} className={`pchip ${p.gamertag === selected ? 'active' : ''}`}
+                    onClick={() => onSelect(p.gamertag)}>
+              {p.gamertag}
+            </button>
+          ))}
+        </div>
       </div>
-      <div style={{ color }}>{icon}</div>
+
+      {players.length === 0 && <EmptyState />}
+      {loading && <p className="games-sub">Cargando perfil...</p>}
+      {error && <p className="error-note">{error}</p>}
+
+      {profile && !loading && (
+        <>
+          <div className="profile-head">
+            <div className="pname">{profile.gamertag}</div>
+          </div>
+          <div className="pstats">
+            <div className="pstat"><b>{profile.games}</b><span>Partidas</span></div>
+            <div className="pstat"><b>{profile.wins}</b><span>Victorias</span></div>
+            <div className="pstat"><b>{profile.losses}</b><span>Derrotas</span></div>
+            {profile.draws > 0 && <div className="pstat"><b>{profile.draws}</b><span>Empates</span></div>}
+            <div className="pstat"><b>{profile.kills}</b><span>Bajas</span></div>
+            <div className="pstat"><b>{profile.kd.toFixed(2)}</b><span>K/D</span></div>
+            <div className="pstat"><b>{profile.kda.toFixed(2)}</b><span>KDA</span></div>
+            <div className="pstat"><b>{profile.bestSpree}</b><span>Mejor racha</span></div>
+          </div>
+          <div className="secbar"><h2>Historial</h2></div>
+          <div className="tablewrap">
+            <table>
+              <thead>
+                <tr><th>Mapa</th><th>Fecha</th><th className="c">Resultado</th><th className="c">B / M / A</th><th className="c">K/D</th></tr>
+              </thead>
+              <tbody>
+                {profile.history.map(h => {
+                  const { dateStr, timeStr } = formatCDMX(h.timestamp)
+                  const resTxt = h.result === 'W' ? 'Victoria' : h.result === 'L' ? 'Derrota' : 'Empate'
+                  return (
+                    <tr key={h.game_unique_id}>
+                      <td className="player-name">{h.map_name}</td>
+                      <td>{dateStr} {timeStr}</td>
+                      <td className={`c res-${(h.result || 'd').toLowerCase()}`}>{resTxt}</td>
+                      <td className="c">{h.kills} / {h.deaths} / {h.assists}</td>
+                      <td className={`c ${h.kd >= 1 ? 'kd-pos' : 'kd-neg'}`}>{h.kd.toFixed(2)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </>
+  )
+}
+
+// ---------- App ----------
+
+const App = () => {
+  const [view, setView] = useState('rankings')
+  const [leaderboard, setLeaderboard] = useState([])
+  const [recent, setRecent] = useState([])
+  const [players, setPlayers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [selectedPlayer, setSelectedPlayer] = useState(null)
+  const [stripeOpen, setStripeOpen] = useState(false)
+
+  useEffect(() => {
+    Promise.allSettled([
+      getJSON(`${API}/leaderboard?limit=50`),
+      getJSON(`${API}/recent`),
+      getJSON(`${API}/players`)
+    ]).then(([l, r, p]) => {
+      if (l.status === 'fulfilled') setLeaderboard(l.value || [])
+      if (r.status === 'fulfilled') setRecent(r.value || [])
+      if (p.status === 'fulfilled') setPlayers(p.value || [])
+      setLoading(false)
+    })
+  }, [])
+
+  const openProfile = (gamertag) => {
+    setSelectedPlayer(gamertag)
+    setView('perfil')
+  }
+
+  if (loading) {
+    return <div className="loading">Cargando Carnage Reporter...</div>
+  }
+
+  const TABS = [
+    ['rankings', 'Rankings'],
+    ['partidas', 'Partidas'],
+    ['h2h', 'H2H'],
+    ['perfil', 'Perfil'],
+  ]
+
+  return (
+    <div className="wrap">
+      <header className="site">
+        <div className="brand">
+          <div className="kicker">Post Game Carnage Report</div>
+          <h1>Carnage Reporter</h1>
+          <div className="sub">Halo 3 MCC · Customs 2v2 · Comunidad Retas H3</div>
+        </div>
+        <div className="head-right">
+          <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer">Discord ↗</a>
+        </div>
+      </header>
+
+      <nav className="tabs" role="tablist" aria-label="Secciones">
+        {TABS.map(([id, label]) => (
+          <button key={id} className="tab" role="tab" aria-selected={view === id} onClick={() => setView(id)}>
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      <section className="view">
+        {view === 'rankings' && (
+          <RankingsView leaderboard={leaderboard} recent={recent}
+                        onOpenProfile={openProfile} onSeeAll={() => setView('partidas')} />
+        )}
+        {view === 'partidas' && <PartidasView recent={recent} />}
+        {view === 'h2h' && <H2HView players={players} />}
+        {view === 'perfil' && (
+          <PerfilView players={players} selected={selectedPlayer} onSelect={setSelectedPlayer} />
+        )}
+      </section>
+
+      <footer className="site">
+        <span>Carnage Reporter · H3 MCC</span>
+        <span>
+          <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer">Discord</a>
+          {' · '}
+          <a href="https://paypal.me/xChocko" target="_blank" rel="noopener noreferrer">PayPal</a>
+          {' · '}
+          <button onClick={() => setStripeOpen(true)}>Apoyar el proyecto</button>
+          {' · '}
+          <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
+        </span>
+      </footer>
+
+      <StripePaymentModal isOpen={stripeOpen} onClose={() => setStripeOpen(false)} />
     </div>
-    <div style={{
-      fontFamily: 'Outfit',
-      fontSize: '1.5rem',
-      fontWeight: 700,
-      color,
-      marginBottom: '0.25rem'
-    }}>
-      {stat}
-    </div>
-    <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', fontWeight: 600 }}>
-      {player.gamertag}
-    </div>
-    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-      {subtitle}
-    </div>
-  </div>
-)
+  )
+}
 
 export default App

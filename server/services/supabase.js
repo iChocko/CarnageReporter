@@ -220,6 +220,43 @@ class SupabaseService {
     }
 
     /**
+     * TODAS las partidas válidas (customs, no anuladas) con jugadores anidados,
+     * ordenadas de más reciente a más antigua. Fuente para récords, H2H y perfiles.
+     * A escala de comunidad esto son cientos de filas; se consulta por chunks.
+     */
+    async getAllValidGamesWithPlayers() {
+        if (!this.client) return [];
+
+        const { data: games, error: gError } = await this.client
+            .from('games')
+            .select('game_unique_id, map_name, game_type_name, timestamp, duration, is_teams_enabled')
+            .eq('is_voided', false)
+            .eq('is_matchmaking', false)
+            .order('timestamp', { ascending: false });
+        if (gError) throw new Error(gError.message);
+        if (!games || games.length === 0) return [];
+
+        const ids = games.map(g => g.game_unique_id);
+        const players = [];
+        for (let i = 0; i < ids.length; i += 200) {
+            const { data, error } = await this.client
+                .from('players')
+                .select('game_unique_id, gamertag, team_id, score, kills, deaths, assists, most_kills_in_a_row')
+                .in('game_unique_id', ids.slice(i, i + 200));
+            if (error) throw new Error(error.message);
+            players.push(...(data || []));
+        }
+
+        const byGame = new Map();
+        for (const p of players) {
+            if (!byGame.has(p.game_unique_id)) byGame.set(p.game_unique_id, []);
+            byGame.get(p.game_unique_id).push(p);
+        }
+
+        return games.map(g => ({ ...g, players: byGame.get(g.game_unique_id) || [] }));
+    }
+
+    /**
      * Últimas N partidas válidas (vista recent_games) con sus jugadores anidados.
      * Fuente única para /api/stats/recent y el comando !partidas de WhatsApp.
      * @param {number} limit
