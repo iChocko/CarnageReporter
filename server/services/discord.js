@@ -9,8 +9,8 @@ const path = require('path');
 const { buildCaptionParts } = require('../utils/matchSummary');
 
 class DiscordService {
-    constructor() {
-        this.webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+    constructor(webhookUrl) {
+        this.webhookUrl = webhookUrl || process.env.DISCORD_WEBHOOK_URL;
     }
 
     /**
