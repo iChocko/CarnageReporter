@@ -184,4 +184,29 @@ function aggregatePlayers(games) {
     return [...map.values()];
 }
 
-module.exports = { teamOutcomes, computeRecords, computeH2H, computePlayerProfile, aggregatePlayers };
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * Slayer Score 0-100 de un jugador agregado. Fuente única usada por el
+ * leaderboard y el armador de equipos, para que ambos midan lo mismo.
+ * @param {object} p - { total_kills, total_deaths, total_assists, total_games, best_spree }
+ */
+function computeSlayerScore(p) {
+    const kda = p.total_deaths > 0
+        ? ((p.total_kills + p.total_assists) / p.total_deaths)
+        : (p.total_kills + p.total_assists);
+    const gamesPlayed = p.total_games || 1;
+    const efficiency = (p.total_kills / gamesPlayed) - (p.total_deaths / gamesPlayed);
+    const bestSpree = p.best_spree || 0;
+
+    const kdaScore = clamp(kda, 0, 3) / 3 * 100;
+    const effScore = clamp((efficiency + 5) / 15, 0, 1) * 100;
+    const spreeScore = clamp(bestSpree, 0, 10) / 10 * 100;
+
+    return (kdaScore * 0.4) + (effScore * 0.3) + (spreeScore * 0.3);
+}
+
+module.exports = {
+    teamOutcomes, computeRecords, computeH2H, computePlayerProfile,
+    aggregatePlayers, computeSlayerScore
+};

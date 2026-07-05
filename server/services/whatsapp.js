@@ -348,8 +348,10 @@ class WhatsAppService {
     }
 
     /**
-     * Registra un comando del grupo. El handler recibe { format } según el grupo
-     * de origen ('2v2' en Retas H3, '4v4' en Torneos Halo 3) y devuelve el texto.
+     * Registra un comando del grupo. El handler recibe { format, args } según el
+     * grupo de origen ('2v2' en Retas H3, '4v4' en Torneos Halo 3): format es el
+     * formato del grupo y args es el texto que sigue al comando (ej. la lista de
+     * jugadores en "!equipos A, B, C, D"). Devuelve el texto de respuesta.
      */
     registerCommand(trigger, handler) {
         this.commands.set(trigger.toLowerCase(), handler);
@@ -364,15 +366,19 @@ class WhatsAppService {
         const format = this.chatIdToFormat[msgChat];
         if (!format) return;
 
-        const trigger = (msg.body || '').trim().toLowerCase();
-        const handler = this.commands.get(trigger);
+        // Primera palabra = comando; el resto = argumentos
+        const body = (msg.body || '').trim();
+        if (!body.startsWith('!')) return;
+        const firstWord = body.split(/\s+/)[0].toLowerCase();
+        const handler = this.commands.get(firstWord);
         if (!handler) return;
+        const args = body.slice(firstWord.length).trim();
 
-        console.log(`📨 Comando WhatsApp '${trigger}' recibido en grupo ${format}`);
-        const reply = await handler({ format });
+        console.log(`📨 Comando WhatsApp '${firstWord}' recibido en grupo ${format}`);
+        const reply = await handler({ format, args });
         if (reply) {
             await this.client.sendMessage(msgChat, reply);
-            console.log(`📤 Respuesta de ${trigger} enviada a ${format}`);
+            console.log(`📤 Respuesta de ${firstWord} enviada a ${format}`);
         }
     }
 

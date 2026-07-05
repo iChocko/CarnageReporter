@@ -21,7 +21,8 @@ const WhatsAppService = require('./services/whatsapp');
 const { evaluateMatch } = require('./services/validator');
 const { startSchedules, WEEKLY_MESSAGE } = require('./services/scheduler');
 const { buildCaptionParts, formatRecentGamesWhatsApp } = require('./utils/matchSummary');
-const { computeRecords, computeH2H, computePlayerProfile, aggregatePlayers } = require('./utils/records');
+const { computeRecords, computeH2H, computePlayerProfile, aggregatePlayers, computeSlayerScore } = require('./utils/records');
+const teams = require('./utils/teams');
 const { classifyFormat, FORMATS } = require('./utils/format');
 const { resolveMap, MAP_NAMES } = require('./utils/maps');
 
@@ -449,6 +450,21 @@ app.post('/api/admin/whatsapp/test-weekly', adminAuthMiddleware, async (req, res
 });
 
 /**
+ * Vista previa del comando !equipos SIN enviarlo al grupo.
+ * GET /api/admin/whatsapp/preview-equipos?format=2v2|4v4&players=A,B,C,D
+ */
+app.get('/api/admin/whatsapp/preview-equipos', adminAuthMiddleware, async (req, res) => {
+    try {
+        const format = FORMATS.includes(req.query.format) ? req.query.format : '2v2';
+        const reply = await buildEquiposReply(format, String(req.query.players || ''));
+        res.type('text/plain').send(reply);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+/**
  * Vista previa del texto del comando !partidas SIN enviarlo al grupo.
  * GET /api/admin/whatsapp/preview-partidas?format=2v2|4v4
  */
@@ -462,6 +478,36 @@ app.get('/api/admin/whatsapp/preview-partidas', adminAuthMiddleware, async (req,
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
+
+/**
+ * Arma la respuesta del comando !equipos: divide la lista de jugadores en dos
+ * equipos parejos según el skill del formato del grupo (con fallback al otro
+ * formato y a la media). Función compartida por el comando de WhatsApp y el
+ * endpoint admin de prueba.
+ */
+const OTHER_FORMAT = { '2v2': '4v4', '4v4': '2v2' };
+async function buildEquiposReply(format, args) {
+    const [primaryGames, secondaryGames] = await Promise.all([
+        supabase.getAllValidGamesWithPlayers(format),
+        supabase.getAllValidGamesWithPlayers(OTHER_FORMAT[format])
+    ]);
+    const primary = teams.computeSkillIndex(primaryGames);
+    const secondary = teams.computeSkillIndex(secondaryGames);
+
+    // Diccionario de gamertags conocidos (ambos formatos) para parsear la lista
+    const knownByLower = new Map();
+    for (const idx of [secondary, primary]) { // primary al final: tiene prioridad
+        for (const [lower, v] of idx.byLower) knownByLower.set(lower, v.name);
+    }
+
+    const names = teams.parsePlayerList(args, knownByLower);
+    const validation = teams.validateRoster(names);
+    if (!validation.ok) return `⚖️ ${validation.error}`;
+
+    const roster = teams.resolveRoster(validation.roster, primary, secondary);
+    const result = teams.balanceTeams(roster);
+    return teams.formatTeamsMessage(format, roster, result);
+}
 
 /**
  * Mapas sin identificar: códigos crudos vistos que aún no tienen nombre.
@@ -626,16 +672,8 @@ app.get('/api/stats/leaderboard', async (req, res) => {
             const efficiency = (player.total_kills / gamesPlayed) - (player.total_deaths / gamesPlayed);
             const bestSpree = player.best_spree || 0;
 
-            // Componentes normalizados a 0-100 (evita que una métrica domine):
-            //  - KDA con tope en 3.0 (un smurf con pocas partidas no rompe la escala)
-            //  - Efficiency en rango útil -5..+10 por partida
-            //  - Spree con tope en 10 (Killing Frenzy)
-            const kdaScore = clamp(kda, 0, 3) / 3 * 100;
-            const effScore = clamp((efficiency + 5) / 15, 0, 1) * 100;
-            const spreeScore = clamp(bestSpree, 0, 10) / 10 * 100;
-
-            // Slayer Score 0-100: 40% KDA + 30% Efficiency + 30% Spree
-            const slayerScore = (kdaScore * 0.4) + (effScore * 0.3) + (spreeScore * 0.3);
+            // Slayer Score 0-100 (misma fórmula que usa el armador de equipos)
+            const slayerScore = computeSlayerScore(player);
 
             // Tier por Slayer Score; con pocas partidas aún no compite (Placement)
             const isPlacement = (player.total_games || 0) < MIN_GAMES;
@@ -839,6 +877,9 @@ async function start() {
         const games = await supabase.getRecentGamesWithPlayers(10, format);
         return formatRecentGamesWhatsApp(games);
     });
+
+    // Comando del grupo: !equipos <lista> -> divide en dos equipos parejos por skill
+    whatsapp.registerCommand('!equipos', async ({ format, args }) => buildEquiposReply(format, args));
 
     // Tareas programadas (mensaje semanal de los lunes -> solo grupo 2v2 / Retas H3)
     startSchedules(whatsapp);
