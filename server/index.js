@@ -16,6 +16,7 @@ const SupabaseService = require('./services/supabase');
 const RendererService = require('./services/renderer');
 const WhatsAppService = require('./services/whatsapp');
 const { evaluateMatch } = require('./services/validator');
+const { buildCaptionParts } = require('./utils/matchSummary');
 
 // Initialize Stripe
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -152,8 +153,9 @@ app.post('/api/report', authMiddleware, async (req, res) => {
 
         // 4b. Enviar a WhatsApp (si está habilitado y listo; su fallo nunca tumba el request)
         if (whatsapp.isReady()) {
-            const shortId = String(gameId).slice(0, 8);
-            const waCaption = `🏆 ${gameData.mapName} - ${gameData.gameTypeName}\n📅 ${new Date(gameData.timestamp).toLocaleString()}\nID: ${shortId}`;
+            const { winnerLine, mapName, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
+            // WhatsApp usa *asterisco simple* para negritas (no ** como Discord/Markdown)
+            const waCaption = `🏆 *${winnerLine}*\n${mapName}\n📅 ${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
             const waResult = await whatsapp.sendImage(pngPath, waCaption);
             console.log(`   ${waResult ? '✅' : '❌'} Resultado WhatsApp: ${waResult ? 'Enviado' : 'Fallido'}`);
         }

@@ -6,6 +6,7 @@
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { buildCaptionParts } = require('../utils/matchSummary');
 
 class DiscordService {
     constructor() {
@@ -36,8 +37,8 @@ class DiscordService {
             return false;
         }
 
-        const shortId = String(gameData.gameUniqueId || '').slice(0, 8);
-        const caption = `🏆 **${gameData.mapName}** - ${gameData.gameTypeName}\n📅 ${new Date(gameData.timestamp).toLocaleString()}\nID: \`${shortId}\` (${gameData.gameUniqueId})`;
+        const { winnerLine, mapName, dateStr, timeStr, shortId, fullId } = buildCaptionParts(gameData, players);
+        const caption = `**🏆 ${winnerLine}**\n${mapName}\n📅 ${dateStr} ${timeStr} hrs (CDMX)\nID: \`${shortId}\` (${fullId})`;
 
         try {
             const boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW';
