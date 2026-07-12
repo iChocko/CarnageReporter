@@ -231,8 +231,77 @@ function formatRondasMessage(session) {
     return lines.join('\n');
 }
 
+/**
+ * Mensaje corto que se publica AUTOMÁTICAMENTE al terminar cada partida 2v2:
+ * cómo va la ronda en curso, o el cierre de ronda cuando alguien llega a 2.
+ * A diferencia de !rondas (el resumen completo), esto es una sola actualización
+ * puntual del enfrentamiento al que pertenece la última partida.
+ *
+ * @param {{games: array, live: boolean}|null} session - sesión que YA incluye la partida recién guardada
+ * @returns {string|null} mensaje de WhatsApp o null si no hay nada que anunciar
+ */
+function formatLiveRoundUpdate(session) {
+    if (!session || !session.games.length) return null;
+
+    const games = session.games;
+    const lastGame = games[games.length - 1];
+    const e = computeEnfrentamientos(games).find(x => x.key === lineupOf(lastGame).key);
+    if (!e) return null;
+
+    const clean = s => sanitizeCaptionText(s);
+    const nameA = sideDisplay(e.sides[0], clean);
+    const nameB = sideDisplay(e.sides[1], clean);
+
+    // ¿La última partida CERRÓ una ronda? Si el acumulador quedó vacío, la
+    // partida recién jugada es la última de la última ronda cerrada.
+    const lastRonda = e.rondas[e.rondas.length - 1];
+    const closedNow = !e.current && lastRonda &&
+        lastRonda.games[lastRonda.games.length - 1].timestamp === lastGame.timestamp;
+
+    const lines = [];
+
+    if (closedNow) {
+        const winnerName = lastRonda.winner === 0 ? nameA : nameB;
+        lines.push(`🏁 *Ronda ${e.rondas.length}* es para *${winnerName}*`);
+        if (e.wonA === e.wonB) {
+            lines.push(`📊 Rondas: *${nameA}* ${e.wonA} - ${e.wonB} *${nameB}* (empatados)`);
+            lines.push(`💰 Cuenta: a mano ($0)`);
+        } else {
+            const flip = e.wonB > e.wonA;
+            const [leadName, trailName] = flip ? [nameB, nameA] : [nameA, nameB];
+            const [w, l] = flip ? [e.wonB, e.wonA] : [e.wonA, e.wonB];
+            lines.push(`📊 Rondas: *${leadName}* ${w} - ${l} *${trailName}*`);
+            lines.push(`💰 *${trailName}* deben $${(w - l) * RONDA_MXN}`);
+        }
+        return lines.join('\n');
+    }
+
+    if (!e.current) return null; // no debería pasar, pero no anunciamos nada raro
+
+    // Ronda en curso
+    const rn = e.rondas.length + 1;
+    const { winsA, winsB } = e.current;
+    const lastWasTie = e.current.games[e.current.games.length - 1].win === null;
+
+    let estado;
+    if (winsA === winsB) {
+        estado = winsA === 0
+            ? `sin partidas que sumen todavía (0-0)`
+            : `van *${winsA}-${winsB}* — la que sigue decide la ronda`;
+    } else {
+        const flip = winsB > winsA;
+        const leadName = flip ? nameB : nameA;
+        const [w, l] = flip ? [winsB, winsA] : [winsA, winsB];
+        estado = `*${leadName}* arriba *${w}-${l}* — a una de llevarse la ronda`;
+    }
+
+    if (lastWasTie) lines.push(`🤝 Empate: esa partida no suma.`);
+    lines.push(`🕐 *Ronda ${rn}* (${nameA} 🆚 ${nameB}): ${estado}`);
+    return lines.join('\n');
+}
+
 module.exports = {
     clusterSessions, currentOrLastSession, computeEnfrentamientos,
-    lineupOf, formatRondasMessage, sessionDateLabel,
+    lineupOf, formatRondasMessage, formatLiveRoundUpdate, sessionDateLabel,
     SESSION_GAP_MINUTES, RONDA_MXN
 };

@@ -23,7 +23,8 @@ const { startSchedules, WEEKLY_MESSAGE } = require('./services/scheduler');
 const { buildCaptionParts, formatRecentGamesWhatsApp } = require('./utils/matchSummary');
 const { computeRecords, computeH2H, computePlayerProfile, aggregatePlayers, computeSlayerScore } = require('./utils/records');
 const teams = require('./utils/teams');
-const { currentOrLastSession, formatRondasMessage } = require('./utils/sessions');
+const { currentOrLastSession, formatRondasMessage, formatLiveRoundUpdate } = require('./utils/sessions');
+const { setResetTs, filterGamesAfterReset } = require('./utils/rondasReset');
 const { classifyFormat, FORMATS } = require('./utils/format');
 const { resolveMap, MAP_NAMES } = require('./utils/maps');
 
@@ -85,6 +86,15 @@ if (!API_KEY) {
 const OUTPUT_DIR = path.join(__dirname, 'output');
 if (!fs.existsSync(OUTPUT_DIR)) {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+}
+
+/**
+ * Partidas 2v2 que cuentan para el marcador de rondas: todas las válidas,
+ * menos las anteriores al último "!rondas reset" (siguen en las stats).
+ */
+async function getRondasGames() {
+    const games = await supabase.getAllValidGamesWithPlayers('2v2');
+    return filterGamesAfterReset(games, OUTPUT_DIR);
 }
 
 // Inicializar servicios
@@ -256,6 +266,25 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
         // 8. Guardar en Supabase
         await supabase.saveGame(gameData, players, saveMeta);
         console.log(`✅ Juego ${gameId} (${format}) procesado completamente`);
+
+        // 9. Anuncio automático del marcador de la ronda (Bo3) en el grupo 2v2:
+        //    cómo va la ronda en curso, o su cierre si alguien llegó a 2.
+        if (format === '2v2' && whatsapp.isReady()) {
+            const chatId = whatsapp.groupIdFor('2v2');
+            if (chatId) {
+                try {
+                    const rondasGames = await getRondasGames();
+                    const update = formatLiveRoundUpdate(currentOrLastSession(rondasGames));
+                    if (update) {
+                        const okRonda = await whatsapp.sendMessage(update, chatId);
+                        console.log(`   ${okRonda ? '✅' : '❌'} WhatsApp (marcador ronda): ${okRonda ? 'Enviado' : 'Fallido'}`);
+                    }
+                } catch (e) {
+                    // El marcador es un extra: si falla, la partida ya quedó publicada y guardada
+                    console.error(`   ⚠️  Marcador de ronda falló: ${e.message}`);
+                }
+            }
+        }
 
         res.json({ status: 'processed', gameId, format, message: 'Reporte procesado' });
 
@@ -478,7 +507,7 @@ app.get('/api/admin/whatsapp/preview-equipos', adminAuthMiddleware, async (req, 
  */
 app.get('/api/admin/whatsapp/preview-rondas', adminAuthMiddleware, async (req, res) => {
     try {
-        const games = await supabase.getAllValidGamesWithPlayers('2v2');
+        const games = await getRondasGames();
         res.type('text/plain').send(formatRondasMessage(currentOrLastSession(games)));
     } catch (error) {
         console.error(error);
@@ -905,11 +934,19 @@ async function start() {
 
     // Comando del grupo: !rondas -> marcador de la sesión en rondas ($25/ronda),
     // con la ronda en curso en vivo. EXCLUSIVO del grupo 2v2 (así se apuesta).
-    whatsapp.registerCommand('!rondas', async ({ format }) => {
+    whatsapp.registerCommand('!rondas', async ({ format, args }) => {
         if (format !== '2v2') {
             return '🎮 !rondas solo está disponible en el grupo de retas 2v2.';
         }
-        const games = await supabase.getAllValidGamesWithPlayers('2v2');
+        const arg = (args || '').trim().toLowerCase();
+        if (arg === 'reset') {
+            setResetTs(OUTPUT_DIR);
+            return '🔄 *Marcador reiniciado.* Las rondas y la cuenta arrancan de cero desde ahora.\n(Las partidas anteriores siguen guardadas para las stats; solo dejan de contar para el marcador.)';
+        }
+        if (arg) {
+            return '🎮 Usos:\n• *!rondas* — marcador de la sesión (rondas Bo3 y cuenta)\n• *!rondas reset* — borrón y cuenta nueva desde este momento';
+        }
+        const games = await getRondasGames();
         return formatRondasMessage(currentOrLastSession(games));
     });
 
