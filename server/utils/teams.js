@@ -200,7 +200,7 @@ function validateRoster(names, { exact = null, hadDuplicates = false } = {}) {
             return { ok: false, error: `Hay jugadores repetidos. Necesito ${exact} distintos; me quedaron ${roster.length}.` };
         }
         if (roster.length < exact) {
-            return { ok: false, error: `La reta 2v2 es de exactamente 4 jugadores. Diste ${roster.length}. Uso: !equipos @P1 @P2 @P3 @P4` };
+            return { ok: false, error: `La reta 2v2 es de exactamente 4 jugadores. Diste ${roster.length}. Uso: !caracola @P1 @P2 @P3 @P4` };
         }
         return { ok: false, error: `Esto es 2v2: exactamente 4 jugadores, diste ${roster.length}.` };
     }
@@ -218,16 +218,28 @@ function balanceLabel(pct) {
 }
 
 /**
+ * Cómo mostrar a un jugador en el mensaje: token de mención de WhatsApp
+ * ("@<dígitos>", se pinta como el nombre del contacto y notifica) si tenemos
+ * su JID, o el gamertag en texto plano si no (invitados escritos a mano).
+ * @param {Map<string,string>} [mentionJidByLower] - gamertagLower -> JID
+ */
+function playerDisplay(name, mentionJidByLower) {
+    const jid = mentionJidByLower?.get(String(name).toLowerCase());
+    return jid ? `@${String(jid).split('@')[0]}` : name;
+}
+
+/**
  * Mensaje de WhatsApp con el resultado del balanceo.
  */
-function formatTeamsMessage(format, roster, result) {
-    const estimated = roster.filter(p => p.estimated).map(p => p.name);
+function formatTeamsMessage(format, roster, result, mentionJidByLower) {
+    const show = n => playerDisplay(n, mentionJidByLower);
+    const estimated = roster.filter(p => p.estimated).map(p => show(p.name));
     const lines = [
         `*EQUIPOS PAREJOS* · ${format}`,
         '',
-        `🔵 ${result.teamA.join(' · ')}`,
+        `🔵 ${result.teamA.map(show).join(' · ')}`,
         `   _fuerza ${Math.round(result.strengthA)}_`,
-        `🔴 ${result.teamB.join(' · ')}`,
+        `🔴 ${result.teamB.map(show).join(' · ')}`,
         `   _fuerza ${Math.round(result.strengthB)}_`,
         '',
         `Balance: *${result.balancePct}%* — ${balanceLabel(result.balancePct)}`,
@@ -291,16 +303,19 @@ function rankPairings(roster4, duoRecords) {
 
 /**
  * Mensaje de WhatsApp para el flujo de 4 jugadores: propuesta más pareja
- * + las otras 2 opciones con su balance.
+ * + las otras 2 opciones con su balance. Si se pasa mentionJidByLower, los
+ * jugadores con JID salen como mención real (@persona) en vez de gamertag.
  * @param {Array<{name,skill,estimated}>} roster4
  * @param {Array} ranked - de rankPairings
  * @param {Map} [duoRecords] - para la línea "van X-Y juntos"
+ * @param {Map<string,string>} [mentionJidByLower] - gamertagLower -> JID
  */
-function formatPairingsMessage(roster4, ranked, duoRecords) {
+function formatPairingsMessage(roster4, ranked, duoRecords, mentionJidByLower) {
     const best = ranked[0];
+    const show = p => playerDisplay(p.name, mentionJidByLower);
     const rating = p => Math.round(p.skill);
     const teamLine = (emoji, [a, b], strength) =>
-        `${emoji} ${a.name} (${rating(a)}) + ${b.name} (${rating(b)}) — fuerza ${Math.round(strength)}`;
+        `${emoji} ${show(a)} (${rating(a)}) + ${show(b)} (${rating(b)}) — fuerza ${Math.round(strength)}`;
 
     const lines = [
         '*RETA 2v2* · propuesta más pareja',
@@ -317,16 +332,16 @@ function formatPairingsMessage(roster4, ranked, duoRecords) {
         const duo = duoRecords?.get(key);
         if (duo) {
             const sign = rounded > 0 ? '+' : '';
-            lines.push(`Dupla con historial: ${team[0].name}+${team[1].name} van ${duo.wins}-${duo.losses} juntos (${sign}${rounded})`);
+            lines.push(`Dupla con historial: ${show(team[0])}+${show(team[1])} van ${duo.wins}-${duo.losses} juntos (${sign}${rounded})`);
         }
     }
 
     lines.push('', 'Otras opciones:');
     ranked.slice(1).forEach((opt, i) => {
-        lines.push(`${i + 2}) ${opt.teamA[0].name}+${opt.teamA[1].name} vs ${opt.teamB[0].name}+${opt.teamB[1].name} — ${opt.balancePct}%`);
+        lines.push(`${i + 2}) ${show(opt.teamA[0])}+${show(opt.teamA[1])} vs ${show(opt.teamB[0])}+${show(opt.teamB[1])} — ${opt.balancePct}%`);
     });
 
-    const estimated = roster4.filter(p => p.estimated).map(p => p.name);
+    const estimated = roster4.filter(p => p.estimated).map(p => show(p));
     if (estimated.length) {
         lines.push('', `Rating provisional (pocas o cero partidas): ${estimated.join(', ')}`);
     }
@@ -336,5 +351,6 @@ function formatPairingsMessage(roster4, ranked, duoRecords) {
 module.exports = {
     balanceTeams, shrinkSkill, parsePlayerList, halfSubsetsWithZero, SHRINK_K,
     computeSkillIndex, resolveRoster, validateRoster, formatTeamsMessage,
-    rankPairings, formatPairingsMessage, duoAdjustment, stripMentionTokens
+    rankPairings, formatPairingsMessage, duoAdjustment, stripMentionTokens,
+    playerDisplay
 };

@@ -617,9 +617,9 @@ app.get('/api/admin/whatsapp/preview-partidas', adminAuthMiddleware, async (req,
  * @param {boolean} fromMentions - aplica la regla de exactamente 4 (solo 2v2)
  */
 const OTHER_FORMAT = { '2v2': '4v4', '4v4': '2v2' };
-const EQUIPOS_USAGE = 'Uso: !equipos @P1 @P2 @P3 @P4 — también acepto gamertags escritos o mezcla: !equipos @P1 @P2 Fulano, Invitado';
+const EQUIPOS_USAGE = 'Uso: !caracola @P1 @P2 @P3 @P4 — también acepto gamertags escritos o mezcla: !caracola @P1 @P2 Fulano, Invitado';
 
-async function buildEquiposReply(format, args, mentionTags = [], { fromMentions = false } = {}) {
+async function buildEquiposReply(format, args, mentionTags = [], { fromMentions = false, mentionJidByLower = null } = {}) {
     const [primaryGames, secondaryGames] = await Promise.all([
         supabase.getAllValidGamesWithPlayers(format),
         supabase.getAllValidGamesWithPlayers(OTHER_FORMAT[format])
@@ -648,11 +648,11 @@ async function buildEquiposReply(format, args, mentionTags = [], { fromMentions 
     if (format === '2v2' && roster.length === 4) {
         const duoRecords = computeDuoRecords(primaryGames);
         const ranked = teams.rankPairings(roster, duoRecords);
-        return teams.formatPairingsMessage(roster, ranked, duoRecords);
+        return teams.formatPairingsMessage(roster, ranked, duoRecords, mentionJidByLower);
     }
 
     const result = teams.balanceTeams(roster);
-    return teams.formatTeamsMessage(format, roster, result);
+    return teams.formatTeamsMessage(format, roster, result, mentionJidByLower);
 }
 
 // Las mutaciones del roster son lee-modifica-escribe sobre un archivo con
@@ -716,10 +716,15 @@ async function resolveMentionsToTags(mentionedIds, msg) {
 
     const tags = [];
     const unresolved = [];
+    const jidByTagLower = new Map(); // para que la respuesta mencione de vuelta
     for (const jid of jids) {
         const link = linkByJid.get(jid);
-        if (link) tags.push(link.gamertag);
-        else unresolved.push(jid);
+        if (link) {
+            tags.push(link.gamertag);
+            jidByTagLower.set(link.gamertag.toLowerCase(), jid);
+        } else {
+            unresolved.push(jid);
+        }
     }
 
     // Nombre visible de los no registrados (best effort; nunca tumba el comando)
@@ -742,12 +747,13 @@ async function resolveMentionsToTags(mentionedIds, msg) {
         });
     }
 
-    return { tags, unresolvedDisplays, botMentioned };
+    return { tags, unresolvedDisplays, botMentioned, jidByTagLower };
 }
 
 /**
- * Comando !equipos con soporte de menciones: los etiquetados se traducen a
- * gamertag vía el roster; lo escrito a mano sigue funcionando (invitados).
+ * Comando !caracola (alias !equipos) con soporte de menciones: los etiquetados
+ * se traducen a gamertag vía el roster y la respuesta los menciona de vuelta;
+ * lo escrito a mano sigue funcionando (invitados, sin mención).
  */
 async function handleEquiposCommand({ format, args, msg, mentionedIds }) {
     const hasMentions = (mentionedIds || []).length > 0;
@@ -763,7 +769,7 @@ async function handleEquiposCommand({ format, args, msg, mentionedIds }) {
         return 'Máximo 16 jugadores.';
     }
 
-    const { tags, unresolvedDisplays, botMentioned } = await resolveMentionsToTags(mentionedIds, msg);
+    const { tags, unresolvedDisplays, botMentioned, jidByTagLower } = await resolveMentionsToTags(mentionedIds, msg);
 
     if (botMentioned && tags.length === 0 && unresolvedDisplays.length === 0 && !teams.stripMentionTokens(args)) {
         return 'Yo no juego, yo reparto. Menciona a los 4 que van a entrar.';
@@ -776,7 +782,15 @@ async function handleEquiposCommand({ format, args, msg, mentionedIds }) {
         ].join('\n');
     }
 
-    return buildEquiposReply(format, args, tags, { fromMentions: true });
+    const text = await buildEquiposReply(format, args, tags, {
+        fromMentions: true,
+        mentionJidByLower: jidByTagLower
+    });
+
+    // Adjuntar las menciones solo si el texto realmente lleva sus tokens
+    // (los mensajes de error no los llevan).
+    const mentions = [...jidByTagLower.values()].filter(jid => text.includes(`@${String(jid).split('@')[0]}`));
+    return mentions.length ? { text, mentions } : text;
 }
 
 /**
@@ -885,7 +899,7 @@ async function handleSoyCommand({ format, args, senderId }) {
         }
         if (known) {
             const n = gamesByLower.get(canonical.toLowerCase()) || 0;
-            return `Listo: eres *${canonical}* (${n} partida${n !== 1 ? 's' : ''}). Ya te pueden mencionar en !equipos.`;
+            return `Listo: eres *${canonical}* (${n} partida${n !== 1 ? 's' : ''}). Ya te pueden mencionar en !caracola.`;
         }
         return `Registrado: *${canonical}*. Cero partidas todavía: tu rating será provisional hasta que juegues.`;
     });
@@ -1320,8 +1334,10 @@ async function start() {
         return formatRecentGamesWhatsApp(games);
     });
 
-    // Comando del grupo: !equipos -> equipos parejos por skill. Acepta menciones
-    // (@persona, resueltas vía roster), gamertags escritos, o mezcla.
+    // Comando del grupo: !caracola -> equipos parejos por skill. Acepta
+    // menciones (@persona, resueltas vía roster), gamertags escritos, o mezcla,
+    // y responde mencionando a los jugadores. !equipos queda como alias.
+    whatsapp.registerCommand('!caracola', handleEquiposCommand);
     whatsapp.registerCommand('!equipos', handleEquiposCommand);
 
     // Roster número ↔ gamertag: autoregistro, vínculo por admin y listado

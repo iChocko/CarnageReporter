@@ -462,8 +462,17 @@ class WhatsAppService {
             senderId: msg.author || msg.from,
         });
         if (reply) {
-            await this.client.sendMessage(msgChat, reply);
-            console.log(`📤 Respuesta de ${firstWord} enviada a ${format}`);
+            // El handler puede devolver un string, o { text, mentions } para
+            // que la respuesta etiquete gente (tokens "@<dígitos>" en el texto
+            // + IDs serializados en options.mentions).
+            const text = typeof reply === 'string' ? reply : reply.text;
+            const mentions = (typeof reply === 'object' && Array.isArray(reply.mentions) && reply.mentions.length)
+                ? reply.mentions.map(String)
+                : null;
+            if (text) {
+                await this.client.sendMessage(msgChat, text, mentions ? { mentions } : undefined);
+                console.log(`📤 Respuesta de ${firstWord} enviada a ${format}${mentions ? ` (${mentions.length} menciones)` : ''}`);
+            }
         }
     }
 

@@ -237,6 +237,35 @@ test('parsePlayerList tras limpiar tokens no inventa jugadores', () => {
     assert.deepStrictEqual(names, ['Fulano']);
 });
 
+console.log('\n— menciones en la respuesta (playerDisplay) —');
+
+test('playerDisplay: token @dígitos con JID, texto plano sin él', () => {
+    const map = new Map([['axtorion', '5215564168735@c.us']]);
+    assert.strictEqual(teams.playerDisplay('Axtorion', map), '@5215564168735');
+    assert.strictEqual(teams.playerDisplay('Invitado', map), 'Invitado');
+    assert.strictEqual(teams.playerDisplay('Axtorion'), 'Axtorion');
+});
+
+test('formatPairingsMessage menciona a los del roster y deja invitados en texto', () => {
+    const r4 = [
+        { name: 'Axtorion', skill: 60, estimated: false },
+        { name: 'lChocko', skill: 49, estimated: false },
+        { name: 'Rober K15 Mx', skill: 52, estimated: false },
+        { name: 'Invitado', skill: 40, estimated: true },
+    ];
+    const map = new Map([
+        ['axtorion', '5215564168735@c.us'],
+        ['lchocko', '5215535257707@c.us'],
+        ['rober k15 mx', '5215543535385@c.us'],
+    ]);
+    const msg = teams.formatPairingsMessage(r4, teams.rankPairings(r4), null, map);
+    assert.ok(msg.includes('@5215564168735'), msg);
+    assert.ok(msg.includes('@5215535257707'), msg);
+    assert.ok(msg.includes('@5215543535385'), msg);
+    assert.ok(msg.includes('Invitado'), msg);
+    assert.ok(!msg.includes('Axtorion'), msg); // el mencionado ya no sale por gamertag
+});
+
 console.log('\n— resolveRoster (jugadores nuevos) —');
 
 test('jugador sin partidas queda con la media y marcado como estimado', () => {
