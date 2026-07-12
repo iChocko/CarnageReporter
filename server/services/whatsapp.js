@@ -332,8 +332,9 @@ class WhatsAppService {
      * Envía un mensaje de texto a un chat específico.
      * @param {string} text
      * @param {string} chatId
+     * @param {object} [options] - opciones de whatsapp-web.js (ej. { mentions })
      */
-    async sendMessage(text, chatId) {
+    async sendMessage(text, chatId, options) {
         if (!this.enabled) return false;
 
         const isConnected = await this.ensureConnection();
@@ -341,7 +342,7 @@ class WhatsAppService {
         if (!chatId) return false;
 
         try {
-            await this.client.sendMessage(chatId, text);
+            await this.client.sendMessage(chatId, text, options);
             return true;
         } catch (error) {
             console.error('❌ Error enviando mensaje WhatsApp:', error.message);

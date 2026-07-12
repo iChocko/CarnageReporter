@@ -8,10 +8,31 @@ const cron = require('node-cron');
 const WEEKLY_MESSAGE = '¿Habrá revancha?';
 
 /**
- * Programa el mensaje semanal de los lunes 10:00 (hora CDMX), SOLO WhatsApp.
+ * Programa las tareas semanales de los lunes (hora CDMX), SOLO WhatsApp:
+ *  - 09:00 corte de saldos de la semana (callback provisto por index.js:
+ *    manda los saldos al grupo 2v2 y reinicia el marcador)
+ *  - 10:00 mensaje "¿Habrá revancha?"
  * @param {WhatsAppService} whatsapp
+ * @param {{ sendWeeklySaldos?: function }} [jobs]
  */
-function startSchedules(whatsapp) {
+function startSchedules(whatsapp, jobs = {}) {
+    if (typeof jobs.sendWeeklySaldos === 'function') {
+        // Cada hora de 09:00 a 23:00 del lunes: el primer intento que logre
+        // enviar hace el corte; los siguientes son no-op (guard "ya corrido
+        // hoy" en el job). Así un reinicio del servidor a las 09:00 no deja
+        // la semana sin corte.
+        cron.schedule('0 9-23 * * 1', async () => {
+            console.log('⏰ Cron semanal: corte de saldos (lunes, CDMX)...');
+            try {
+                const result = await jobs.sendWeeklySaldos();
+                console.log(`💰 Corte de saldos: ${JSON.stringify(result)}`);
+            } catch (error) {
+                console.error('❌ Corte de saldos falló:', error.message);
+            }
+        }, { timezone: 'America/Mexico_City' });
+        console.log('🗓️  Programado: corte de saldos los lunes 09:00 (CDMX, reintentos por hora hasta 23:00) -> grupo 2v2');
+    }
+
     cron.schedule('0 10 * * 1', async () => {
         console.log(`⏰ Cron semanal: enviando "${WEEKLY_MESSAGE}" a WhatsApp (Retas H3 / 2v2)...`);
         if (!whatsapp.isReady()) {
