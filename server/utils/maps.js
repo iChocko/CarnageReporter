@@ -22,7 +22,7 @@ const MAP_NAMES = {
     asq_constru: 'Construct',
     asq_guardia: 'Guardian',
     asq_cyberdy: 'The Pit',
-    asq_warehou: 'Foundry (Onslaught)',
+    asq_warehou: 'Amplified',
     asq_midship: 'Heretic',
     asq_epitaph: 'Epitaph',
     asq_high_ground: 'High Ground',
