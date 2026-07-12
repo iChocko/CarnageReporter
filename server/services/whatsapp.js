@@ -36,6 +36,7 @@ class WhatsAppService {
         this.maxRetries = 5;
         this.baseRetryDelayMs = 1000;
         this.commands = new Map(); // trigger (lowercase) -> async handler que devuelve el texto de respuesta
+        this.ownIds = new Set();   // JIDs propios del bot (wid + su LID), para detectar auto-menciones
 
         if (!this.enabled) {
             console.log('📴 WhatsApp deshabilitado (WHATSAPP_ENABLED != true)');
@@ -180,6 +181,7 @@ class WhatsAppService {
 
                 // Resolver ambos grupos (2v2 y 4v4) desde su config de env
                 await this.resolveGroups();
+                await this.resolveOwnIds();
 
                 this.startKeepAlive();
                 resolve();
@@ -348,10 +350,82 @@ class WhatsAppService {
     }
 
     /**
-     * Registra un comando del grupo. El handler recibe { format, args } según el
-     * grupo de origen ('2v2' en Retas H3, '4v4' en Torneos Halo 3): format es el
-     * formato del grupo y args es el texto que sigue al comando (ej. la lista de
-     * jugadores en "!equipos A, B, C, D"). Devuelve el texto de respuesta.
+     * IDs propios del bot (wid + su LID), para detectar auto-menciones.
+     * El LID se resuelve una sola vez tras conectar; si falla, queda solo el wid.
+     */
+    async resolveOwnIds() {
+        this.ownIds = new Set();
+        const wid = this.client?.info?.wid?._serialized;
+        if (!wid) return;
+        this.ownIds.add(wid);
+        for (const pair of await this.resolveLidPn([wid])) {
+            if (pair.lid) this.ownIds.add(pair.lid);
+            if (pair.pn) this.ownIds.add(pair.pn);
+        }
+    }
+
+    getOwnIds() {
+        return this.ownIds;
+    }
+
+    /**
+     * Puente LID ↔ teléfono de whatsapp-web.js. La misma persona puede llegar
+     * como `...@lid` o `521...@c.us`; esto trae ambas formas.
+     * Nunca lanza: devuelve [] si el cliente no está listo o el puente falla.
+     * @param {string[]} jids
+     * @returns {Promise<Array<{lid?:string, pn?:string}>>}
+     */
+    async resolveLidPn(jids) {
+        if (!this.ready || !this.client || !jids?.length) return [];
+        try {
+            const pairs = await this.client.getContactLidAndPhone(jids);
+            return (pairs || []).map(p => ({
+                lid: p.lid ? String(p.lid) : undefined,
+                pn: p.pn ? String(p.pn) : undefined,
+            }));
+        } catch (error) {
+            console.log(`⚠️  resolveLidPn falló: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * Participantes del grupo de un formato, con nombre visible y ambas formas
+     * de JID cuando el puente LID↔teléfono responde. Para el bootstrap del roster.
+     */
+    async getGroupParticipants(format) {
+        if (!this.ready || !this.client) return [];
+        const groupId = this.groupIdFor(format);
+        if (!groupId) return [];
+
+        const chat = await this.client.getChatById(groupId);
+        const participants = chat?.participants || [];
+        const out = [];
+        for (const p of participants) {
+            const jid = p.id?._serialized;
+            if (!jid) continue;
+            const entry = { jid, isAdmin: !!p.isAdmin };
+            try {
+                const contact = await this.client.getContactById(jid);
+                entry.nombre = contact?.pushname || contact?.name || null;
+                entry.numero = contact?.number || null;
+            } catch (e) { /* sin contacto: solo el JID */ }
+            const [pair] = await this.resolveLidPn([jid]);
+            if (pair) {
+                entry.jidLid = pair.lid || (jid.endsWith('@lid') ? jid : undefined);
+                entry.jidPhone = pair.pn || (jid.endsWith('@c.us') ? jid : undefined);
+            }
+            out.push(entry);
+        }
+        return out;
+    }
+
+    /**
+     * Registra un comando del grupo. El handler recibe { format, args, msg,
+     * mentionedIds, senderId } según el grupo de origen ('2v2' en Retas H3,
+     * '4v4' en Torneos Halo 3): format es el formato del grupo, args el texto
+     * que sigue al comando, mentionedIds los JIDs etiquetados y senderId el JID
+     * de quien lo mandó. Devuelve el texto de respuesta (o falsy para callar).
      */
     registerCommand(trigger, handler) {
         this.commands.set(trigger.toLowerCase(), handler);
@@ -375,7 +449,18 @@ class WhatsAppService {
         const args = body.slice(firstWord.length).trim();
 
         console.log(`📨 Comando WhatsApp '${firstWord}' recibido en grupo ${format}`);
-        const reply = await handler({ format, args });
+        // mentionedIds puede traer strings o objetos Wid según el build de
+        // WhatsApp Web (la propia librería se cuida de ambos en getMentions).
+        const mentionedIds = (msg.mentionedIds || []).map(m =>
+            typeof m === 'string' ? m : (m?._serialized || m?.id?._serialized || '')
+        ).filter(Boolean);
+        const reply = await handler({
+            format,
+            args,
+            msg,
+            mentionedIds,
+            senderId: msg.author || msg.from,
+        });
         if (reply) {
             await this.client.sendMessage(msgChat, reply);
             console.log(`📤 Respuesta de ${firstWord} enviada a ${format}`);

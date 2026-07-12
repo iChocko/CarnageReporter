@@ -86,6 +86,15 @@ function shrinkSkill(rawScore, games, populationMean) {
 }
 
 /**
+ * Quita los tokens "@<dígitos>" que WhatsApp inyecta en el texto por cada
+ * mención (el dato real viene aparte, en mentionedIds). Sin esto, los tokens
+ * se parsearían como gamertags falsos.
+ */
+function stripMentionTokens(text) {
+    return String(text || '').replace(/@\d+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Parsea la lista de jugadores del comando. Si hay comas, separa por comas
  * (soporta gamertags con espacios). Si no, separa por espacios pero intenta
  * casar gamertags de varias palabras contra los conocidos (match voraz).
@@ -119,20 +128,26 @@ function parsePlayerList(text, knownByLower) {
     return out;
 }
 
-const { aggregatePlayers, computeSlayerScore } = require('./records');
+const { aggregatePlayers, computeSlayerScore, computeRecords } = require('./records');
 
-const DEFAULT_MEAN = 40; // habilidad neutra si aún no hay datos en ese formato
+const DEFAULT_MEAN = 40;   // habilidad neutra si aún no hay datos en ese formato
+const WINRATE_WEIGHT = 0.3; // peso del win rate en el rating (el resto es Slayer Score)
 
 /**
  * Índice de habilidad por jugador desde las partidas de un formato.
+ * Rating = 70% Slayer Score + 30% win rate (prior bayesiano al 50% para
+ * que pocas partidas no disparen ni hundan a nadie).
  * @returns {{ byLower: Map<string,{name,score,games}>, mean: number }}
  */
 function computeSkillIndex(games) {
     const agg = aggregatePlayers(games);
+    const records = computeRecords(games);
     const byLower = new Map();
     let sum = 0;
     for (const p of agg) {
-        const score = computeSlayerScore(p);
+        const rec = records.get(p.gamertag) || { wins: 0, losses: 0 };
+        const winRate = (rec.wins + 2) / (rec.wins + rec.losses + 4);
+        const score = (1 - WINRATE_WEIGHT) * computeSlayerScore(p) + WINRATE_WEIGHT * (winRate * 100);
         byLower.set(p.gamertag.toLowerCase(), { name: p.gamertag, score, games: p.total_games });
         sum += score;
     }
@@ -167,9 +182,10 @@ function resolveRoster(names, primary, secondary) {
 
 /**
  * Valida el roster: cuenta par entre 4 y 16, sin duplicados.
+ * Con { exact: 4 } exige exactamente 4 (flujo de menciones en 2v2).
  * @returns {{ ok: boolean, error?: string, roster?: string[] }}
  */
-function validateRoster(names) {
+function validateRoster(names, { exact = null, hadDuplicates = false } = {}) {
     // Dedup case-insensitive conservando el primero
     const seen = new Set();
     const roster = [];
@@ -177,14 +193,25 @@ function validateRoster(names) {
         const k = n.toLowerCase();
         if (!seen.has(k)) { seen.add(k); roster.push(n); }
     }
-    if (roster.length < 4) return { ok: false, error: 'Necesito al menos 4 jugadores. Sepáralos por comas:\n!equipos Jugador 1, Jugador 2, Jugador 3, Jugador 4' };
+    const dups = hadDuplicates || roster.length < names.length;
+    if (exact) {
+        if (roster.length === exact) return { ok: true, roster };
+        if (dups && roster.length < exact) {
+            return { ok: false, error: `Hay jugadores repetidos. Necesito ${exact} distintos; me quedaron ${roster.length}.` };
+        }
+        if (roster.length < exact) {
+            return { ok: false, error: `La reta 2v2 es de exactamente 4 jugadores. Diste ${roster.length}. Uso: !equipos @P1 @P2 @P3 @P4` };
+        }
+        return { ok: false, error: `Esto es 2v2: exactamente 4 jugadores, diste ${roster.length}.` };
+    }
+    if (roster.length < 4) return { ok: false, error: 'Mínimo 4 jugadores, separados por comas:\n!equipos Jugador 1, Jugador 2, Jugador 3, Jugador 4' };
     if (roster.length > 16) return { ok: false, error: 'Máximo 16 jugadores.' };
-    if (roster.length % 2 !== 0) return { ok: false, error: `Diste ${roster.length} jugadores (impar). Deben ser pares (4, 6, 8...).` };
+    if (roster.length % 2 !== 0) return { ok: false, error: `${roster.length} jugadores — número impar. Tienen que ser pares (4, 6, 8...).` };
     return { ok: true, roster };
 }
 
 function balanceLabel(pct) {
-    if (pct >= 97) return 'muy parejo ⚖️';
+    if (pct >= 97) return 'muy parejo';
     if (pct >= 90) return 'parejo';
     if (pct >= 80) return 'aceptable';
     return 'algo disparejo';
@@ -196,7 +223,7 @@ function balanceLabel(pct) {
 function formatTeamsMessage(format, roster, result) {
     const estimated = roster.filter(p => p.estimated).map(p => p.name);
     const lines = [
-        `⚖️ *EQUIPOS PAREJOS* · ${format}`,
+        `*EQUIPOS PAREJOS* · ${format}`,
         '',
         `🔵 ${result.teamA.join(' · ')}`,
         `   _fuerza ${Math.round(result.strengthA)}_`,
@@ -206,12 +233,108 @@ function formatTeamsMessage(format, roster, result) {
         `Balance: *${result.balancePct}%* — ${balanceLabel(result.balancePct)}`,
     ];
     if (estimated.length) {
-        lines.push(`ⓘ Skill estimado (pocas/sin partidas): ${estimated.join(', ')}`);
+        lines.push(`Rating provisional (pocas o cero partidas): ${estimated.join(', ')}`);
+    }
+    return lines.join('\n');
+}
+
+const DUO_MIN_GAMES = 3;  // partidas juntos para que la dupla ajuste
+const DUO_MAX_ADJ = 5;    // ajuste máximo (± puntos de fuerza)
+
+/** Ajuste por historial de dupla: solo con historial real (≥3 juntos), ±5 máx. */
+function duoAdjustment(p1, p2, duoRecords) {
+    if (!duoRecords) return 0;
+    const key = [p1.toLowerCase(), p2.toLowerCase()].sort().join('|');
+    const duo = duoRecords.get(key);
+    if (!duo || duo.games < DUO_MIN_GAMES) return 0;
+    const rate = Math.max(-1, Math.min(1, (duo.wins - duo.losses) / duo.games));
+    return rate * DUO_MAX_ADJ * Math.min(duo.games, 10) / 10;
+}
+
+/**
+ * Enumera los 3 emparejamientos posibles de 4 jugadores y los ordena del
+ * más parejo al menos, con ajuste por duplas con historial.
+ * @param {Array<{name,skill,estimated}>} roster4 - exactamente 4 (resolveRoster)
+ * @param {Map} [duoRecords] - de computeDuoRecords
+ * @returns {Array<{teamA, teamB, strengthA, strengthB, balancePct, duoLines}>}
+ */
+function rankPairings(roster4, duoRecords) {
+    const [p0, p1, p2, p3] = roster4;
+    const splits = [
+        [[p0, p1], [p2, p3]],
+        [[p0, p2], [p1, p3]],
+        [[p0, p3], [p1, p2]],
+    ];
+
+    const scored = splits.map(([ta, tb]) => {
+        const adjA = duoAdjustment(ta[0].name, ta[1].name, duoRecords);
+        const adjB = duoAdjustment(tb[0].name, tb[1].name, duoRecords);
+        const sA = ta[0].skill + ta[1].skill + adjA;
+        const sB = tb[0].skill + tb[1].skill + adjB;
+        const maxA = Math.max(ta[0].skill, ta[1].skill);
+        const maxB = Math.max(tb[0].skill, tb[1].skill);
+        const cost = Math.abs(sA - sB) + STAR_WEIGHT * Math.abs(maxA - maxB);
+        const balancePct = (sA + sB) > 0 ? Math.round(100 * (1 - Math.abs(sA - sB) / (sA + sB))) : 100;
+        const duoLines = [];
+        if (adjA !== 0) duoLines.push({ team: ta, adj: adjA });
+        if (adjB !== 0) duoLines.push({ team: tb, adj: adjB });
+        return {
+            teamA: ta, teamB: tb,
+            strengthA: Math.round(sA * 10) / 10,
+            strengthB: Math.round(sB * 10) / 10,
+            balancePct, cost, duoLines
+        };
+    });
+
+    return scored.sort((a, b) => a.cost - b.cost);
+}
+
+/**
+ * Mensaje de WhatsApp para el flujo de 4 jugadores: propuesta más pareja
+ * + las otras 2 opciones con su balance.
+ * @param {Array<{name,skill,estimated}>} roster4
+ * @param {Array} ranked - de rankPairings
+ * @param {Map} [duoRecords] - para la línea "van X-Y juntos"
+ */
+function formatPairingsMessage(roster4, ranked, duoRecords) {
+    const best = ranked[0];
+    const rating = p => Math.round(p.skill);
+    const teamLine = (emoji, [a, b], strength) =>
+        `${emoji} ${a.name} (${rating(a)}) + ${b.name} (${rating(b)}) — fuerza ${Math.round(strength)}`;
+
+    const lines = [
+        '*RETA 2v2* · propuesta más pareja',
+        '',
+        teamLine('🔵', best.teamA, best.strengthA),
+        teamLine('🔴', best.teamB, best.strengthB),
+        `Balance: *${best.balancePct}%* — ${balanceLabel(best.balancePct)}`,
+    ];
+
+    for (const { team, adj } of best.duoLines) {
+        const rounded = Math.round(adj);
+        if (rounded === 0) continue; // ajuste insignificante: no ensuciar el mensaje
+        const key = [team[0].name.toLowerCase(), team[1].name.toLowerCase()].sort().join('|');
+        const duo = duoRecords?.get(key);
+        if (duo) {
+            const sign = rounded > 0 ? '+' : '';
+            lines.push(`Dupla con historial: ${team[0].name}+${team[1].name} van ${duo.wins}-${duo.losses} juntos (${sign}${rounded})`);
+        }
+    }
+
+    lines.push('', 'Otras opciones:');
+    ranked.slice(1).forEach((opt, i) => {
+        lines.push(`${i + 2}) ${opt.teamA[0].name}+${opt.teamA[1].name} vs ${opt.teamB[0].name}+${opt.teamB[1].name} — ${opt.balancePct}%`);
+    });
+
+    const estimated = roster4.filter(p => p.estimated).map(p => p.name);
+    if (estimated.length) {
+        lines.push('', `Rating provisional (pocas o cero partidas): ${estimated.join(', ')}`);
     }
     return lines.join('\n');
 }
 
 module.exports = {
     balanceTeams, shrinkSkill, parsePlayerList, halfSubsetsWithZero, SHRINK_K,
-    computeSkillIndex, resolveRoster, validateRoster, formatTeamsMessage
+    computeSkillIndex, resolveRoster, validateRoster, formatTeamsMessage,
+    rankPairings, formatPairingsMessage, duoAdjustment, stripMentionTokens
 };

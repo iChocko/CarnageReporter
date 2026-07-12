@@ -144,7 +144,7 @@ function sessionDateLabel(timestamp) {
  */
 function formatRondasMessage(session) {
     if (!session || !session.games.length) {
-        return '🎮 Aún no hay retas registradas. ¡Jueguen la primera!';
+        return 'Sin retas registradas todavía.';
     }
 
     const games = session.games;
@@ -154,8 +154,8 @@ function formatRondasMessage(session) {
     const clean = s => sanitizeCaptionText(s);
 
     const lines = [
-        `🎮 *RETAS · ${label}*`,
-        `${estado} · ${games.length} partida${games.length !== 1 ? 's' : ''} jugada${games.length !== 1 ? 's' : ''}`
+        `*RETAS · ${label}*`,
+        `${estado} · ${games.length} partida${games.length !== 1 ? 's' : ''}`
     ];
     const cuenta = [];
 
@@ -172,11 +172,11 @@ function formatRondasMessage(session) {
 
         lines.push('', '━━━━━━━━━━━━', `*${nameL}*  🆚  *${nameR}*`, '');
 
-        // Marcador grande + dinero, en lenguaje natural
+        // Marcador grande + dinero
         if (wonL === wonR) {
-            lines.push(`Rondas ganadas: *${wonL} - ${wonR}* (empatados)`);
+            lines.push(`Serie: *${wonL}-${wonR}* — empatada`);
         } else {
-            lines.push(`Rondas ganadas: *${wonL} - ${wonR}* → van ganando *${wonL > wonR ? nameL : nameR}*`);
+            lines.push(`Serie: *${wonL}-${wonR}* — arriba *${wonL > wonR ? nameL : nameR}*`);
             const debtor = wonL > wonR ? nameR : nameL;
             const amount = Math.abs(wonL - wonR) * RONDA_MXN;
             lines.push(`💰 *${debtor}* deben *$${amount}*`);
@@ -191,7 +191,7 @@ function formatRondasMessage(session) {
             const ganador = sideDisplay(e.sides[r.winner], clean);
             const wonByLeft = flip ? r.winner === 1 : r.winner === 0;
             if (wonByLeft) runL++; else runR++;
-            lines.push(`✅ *Ronda ${i + 1}* — la ganó ${ganador}`);
+            lines.push(`*Ronda ${i + 1}* — ${ganador}`);
             r.games.forEach(g => lines.push(`     • ${gameStr(g)}`));
             if (runL === runR) {
                 lines.push(`     💰 Cuenta: a mano ($0)`);
@@ -205,19 +205,21 @@ function formatRondasMessage(session) {
             const rn = e.rondas.length + 1;
             let head;
             if (session.live) {
-                // Sesión viva: la ronda se está jugando ahora
+                // Sesión viva: la ronda se está jugando ahora. Primera a 2:
+                // cualquier líder está en match point.
                 let estado;
-                if (curL > curR) estado = `va ganando *${nameL}* ${curL}-${curR}`;
-                else if (curR > curL) estado = `va ganando *${nameR}* ${curR}-${curL}`;
-                else estado = `van parejos ${curL}-${curR}`;
-                head = `🕐 *Ronda ${rn}* (jugándose) — ${estado}`;
+                if (curL > curR) estado = `*${nameL}* arriba ${curL}-${curR} — match point`;
+                else if (curR > curL) estado = `*${nameR}* arriba ${curR}-${curL} — match point`;
+                else if (curL === 0) estado = `0-0, nada suma todavía`;
+                else estado = `${curL}-${curR} — la que sigue define`;
+                head = `*Ronda ${rn}* — en juego · ${estado}`;
             } else {
                 // Sesión terminada con una ronda a medias: quedó sin resolver, NO cuenta
                 let estado;
-                if (curL > curR) estado = `iban ${curL}-${curR} arriba *${nameL}*`;
-                else if (curR > curL) estado = `iban ${curR}-${curL} arriba *${nameR}*`;
-                else estado = `iban parejos ${curL}-${curR}`;
-                head = `⏸️ *Ronda ${rn}* quedó sin terminar (${estado}) — no cuenta`;
+                if (curL > curR) estado = `iban ${curL}-${curR}, arriba *${nameL}*`;
+                else if (curR > curL) estado = `iban ${curR}-${curL}, arriba *${nameR}*`;
+                else estado = `iban ${curL}-${curR}`;
+                head = `*Ronda ${rn}* — quedó abierta (${estado}) · no cuenta`;
             }
             lines.push(head);
             e.current.games.forEach(g => lines.push(`     • ${gameStr(g)}`));
@@ -262,15 +264,15 @@ function formatLiveRoundUpdate(session) {
 
     if (closedNow) {
         const winnerName = lastRonda.winner === 0 ? nameA : nameB;
-        lines.push(`🏁 *Ronda ${e.rondas.length}* es para *${winnerName}*`);
+        lines.push(`*Ronda ${e.rondas.length}* para *${winnerName}*.`);
         if (e.wonA === e.wonB) {
-            lines.push(`📊 Rondas: *${nameA}* ${e.wonA} - ${e.wonB} *${nameB}* (empatados)`);
+            lines.push(`Serie: *${nameA}* ${e.wonA}-${e.wonB} *${nameB}* — empatada`);
             lines.push(`💰 Cuenta: a mano ($0)`);
         } else {
             const flip = e.wonB > e.wonA;
             const [leadName, trailName] = flip ? [nameB, nameA] : [nameA, nameB];
             const [w, l] = flip ? [e.wonB, e.wonA] : [e.wonA, e.wonB];
-            lines.push(`📊 Rondas: *${leadName}* ${w} - ${l} *${trailName}*`);
+            lines.push(`Serie: *${leadName}* ${w}-${l} *${trailName}*`);
             lines.push(`💰 *${trailName}* deben $${(w - l) * RONDA_MXN}`);
         }
         return lines.join('\n');
@@ -278,7 +280,7 @@ function formatLiveRoundUpdate(session) {
 
     if (!e.current) return null; // no debería pasar, pero no anunciamos nada raro
 
-    // Ronda en curso
+    // Ronda en curso. Primera a 2: cualquier líder está en match point.
     const rn = e.rondas.length + 1;
     const { winsA, winsB } = e.current;
     const lastWasTie = e.current.games[e.current.games.length - 1].win === null;
@@ -286,17 +288,17 @@ function formatLiveRoundUpdate(session) {
     let estado;
     if (winsA === winsB) {
         estado = winsA === 0
-            ? `sin partidas que sumen todavía (0-0)`
-            : `van *${winsA}-${winsB}* — la que sigue decide la ronda`;
+            ? `0-0 — solo empates, nada suma`
+            : `*${winsA}-${winsB}* — la que sigue define la ronda`;
     } else {
         const flip = winsB > winsA;
         const leadName = flip ? nameB : nameA;
         const [w, l] = flip ? [winsB, winsA] : [winsA, winsB];
-        estado = `*${leadName}* arriba *${w}-${l}* — a una de llevarse la ronda`;
+        estado = `*${leadName}* arriba *${w}-${l}* — match point`;
     }
 
-    if (lastWasTie) lines.push(`🤝 Empate: esa partida no suma.`);
-    lines.push(`🕐 *Ronda ${rn}* (${nameA} 🆚 ${nameB}): ${estado}`);
+    if (lastWasTie) lines.push(`Empate — esa no suma.`);
+    lines.push(`*Ronda ${rn}* (${nameA} 🆚 ${nameB}): ${estado}`);
     return lines.join('\n');
 }
 

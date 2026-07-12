@@ -184,6 +184,39 @@ function aggregatePlayers(games) {
     return [...map.values()];
 }
 
+/**
+ * Récord de duplas (mismo equipo) en una pasada.
+ * @returns {Map<"a|b", {games, wins, losses, draws}>} clave: gamertags en
+ * minúsculas ordenados alfabéticamente unidos por "|".
+ */
+function computeDuoRecords(games) {
+    const duos = new Map();
+    for (const g of games) {
+        const outcomes = teamOutcomes(g);
+        const byTeam = new Map();
+        for (const p of g.players || []) {
+            const tid = p.team_id ?? 0;
+            if (!byTeam.has(tid)) byTeam.set(tid, []);
+            byTeam.get(tid).push(p.gamertag);
+        }
+        for (const members of byTeam.values()) {
+            for (let i = 0; i < members.length; i++) {
+                for (let j = i + 1; j < members.length; j++) {
+                    const key = [norm(members[i]), norm(members[j])].sort().join('|');
+                    if (!duos.has(key)) duos.set(key, { games: 0, wins: 0, losses: 0, draws: 0 });
+                    const d = duos.get(key);
+                    d.games++;
+                    const r = outcomes.get(members[i]);
+                    if (r === 'W') d.wins++;
+                    else if (r === 'L') d.losses++;
+                    else d.draws++;
+                }
+            }
+        }
+    }
+    return duos;
+}
+
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 /**
@@ -208,5 +241,5 @@ function computeSlayerScore(p) {
 
 module.exports = {
     teamOutcomes, computeRecords, computeH2H, computePlayerProfile,
-    aggregatePlayers, computeSlayerScore
+    aggregatePlayers, computeSlayerScore, computeDuoRecords
 };

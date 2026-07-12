@@ -119,10 +119,10 @@ function buildCaptionParts(gameData, players) {
  */
 function formatRecentGamesWhatsApp(games) {
     if (!games || games.length === 0) {
-        return '🎮 Aún no hay partidas registradas. ¡Jueguen la primera custom!';
+        return 'Sin partidas registradas todavía.';
     }
 
-    const lines = [`🎮 *ÚLTIMAS ${games.length} PARTIDAS*`];
+    const lines = [`*ÚLTIMAS ${games.length} PARTIDAS*`];
 
     games.forEach((g, idx) => {
         const { dateStr, timeStr } = formatCDMXDateTime(g.timestamp);
@@ -162,14 +162,14 @@ function formatRecentGamesWhatsApp(games) {
             } else if (teams.length === 2) {
                 const isDraw = teams[0].score === teams[1].score;
                 const left = isDraw ? roster(teams[0]) : `*${roster(teams[0])}*`;
-                body = `${left} ${teams[0].score} vs ${teams[1].score} ${roster(teams[1])}${isDraw ? ' — EMPATE 🤝' : ''}`;
+                body = `${left} ${teams[0].score} vs ${teams[1].score} ${roster(teams[1])}${isDraw ? ' — EMPATE' : ''}`;
             } else {
                 // Layout genérico para >2 equipos (histórico; el bot ya solo registra 2v2)
                 const isDraw = teams.length >= 2 && teams[0].score === teams[1].score;
                 body = teams.map((t, i) => {
                     const isWinner = !isDraw && i === 0;
                     return `${isWinner ? `*${roster(t)}*` : roster(t)} [${t.score}]`;
-                }).join(' vs ') + (isDraw ? ' — EMPATE 🤝' : '');
+                }).join(' vs ') + (isDraw ? ' — EMPATE' : '');
             }
         }
 

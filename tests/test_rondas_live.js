@@ -37,23 +37,22 @@ const session = games => currentOrLastSession(games);
 
 console.log('\n— formatLiveRoundUpdate —');
 
-test('primera partida de la ronda: alguien arriba 1-0', () => {
+test('primera partida de la ronda: alguien arriba 1-0 (match point)', () => {
     const msg = formatLiveRoundUpdate(session([game('L', 0)]));
     assert.ok(msg.includes('Ronda 1'), msg);
     assert.ok(msg.includes('arriba *1-0*'), msg);
-    assert.ok(msg.includes('a una de llevarse la ronda'), msg);
+    assert.ok(msg.includes('match point'), msg);
 });
 
-test('1-1: la que sigue decide', () => {
+test('1-1: la que sigue define', () => {
     const msg = formatLiveRoundUpdate(session([game('L', 0), game('R', 10)]));
-    assert.ok(msg.includes('van *1-1*'), msg);
-    assert.ok(msg.includes('decide la ronda'), msg);
+    assert.ok(msg.includes('*1-1*'), msg);
+    assert.ok(msg.includes('define la ronda'), msg);
 });
 
 test('2-0 cierra la ronda y anuncia cuenta', () => {
     const msg = formatLiveRoundUpdate(session([game('L', 0), game('L', 10)]));
-    assert.ok(msg.includes('🏁'), msg);
-    assert.ok(msg.includes('Ronda 1'), msg);
+    assert.ok(msg.includes('*Ronda 1* para'), msg);
     assert.ok(msg.includes('Alfa + Beta'), msg);
     assert.ok(msg.includes('deben $25'), msg);
 });
@@ -63,13 +62,13 @@ test('rondas 1-1 entre equipos: cuenta a mano', () => {
         game('L', 0), game('L', 10),           // ronda 1 para L
         game('R', 20), game('R', 30),          // ronda 2 para R
     ]));
-    assert.ok(msg.includes('🏁'), msg);
+    assert.ok(msg.includes('*Ronda 2* para'), msg);
     assert.ok(msg.includes('a mano ($0)'), msg);
 });
 
 test('empate: no suma y lo dice', () => {
     const msg = formatLiveRoundUpdate(session([game('L', 0), game('T', 10)]));
-    assert.ok(msg.includes('🤝 Empate'), msg);
+    assert.ok(msg.includes('Empate — esa no suma'), msg);
     assert.ok(msg.includes('arriba *1-0*'), msg);
 });
 

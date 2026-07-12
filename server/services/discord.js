@@ -38,7 +38,7 @@ class DiscordService {
         }
 
         const { winnerLine, mapLine, dateStr, timeStr, shortId, fullId } = buildCaptionParts(gameData, players);
-        const caption = `**🏆 ${winnerLine}**\n${mapLine}\n📅 ${dateStr} ${timeStr} hrs (CDMX)\nID: \`${shortId}\` (${fullId})`;
+        const caption = `**🏆 ${winnerLine}**\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: \`${shortId}\` (${fullId})`;
 
         try {
             const boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW';

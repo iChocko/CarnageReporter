@@ -10,6 +10,7 @@
     "test:stats": "node tests/test_stats_envios.js",
     "test:maps": "node tests/test_maps.js",
     "test:rondas": "node tests/test_rondas_live.js",
+    "test:equipos": "node tests/test_equipos_menciones.js",
     "build": "pkg client/carnage_client.js --targets node18-win-x64 --output dist/CarnageReporter.exe"
   },
   "keywords": [

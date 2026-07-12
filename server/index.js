@@ -20,9 +20,10 @@ const RendererService = require('./services/renderer');
 const WhatsAppService = require('./services/whatsapp');
 const { evaluateMatch } = require('./services/validator');
 const { startSchedules, WEEKLY_MESSAGE } = require('./services/scheduler');
-const { buildCaptionParts, formatRecentGamesWhatsApp } = require('./utils/matchSummary');
-const { computeRecords, computeH2H, computePlayerProfile, aggregatePlayers, computeSlayerScore } = require('./utils/records');
+const { buildCaptionParts, formatRecentGamesWhatsApp, sanitizeCaptionText } = require('./utils/matchSummary');
+const { computeRecords, computeH2H, computePlayerProfile, aggregatePlayers, computeSlayerScore, computeDuoRecords } = require('./utils/records');
 const teams = require('./utils/teams');
+const rosterStore = require('./utils/roster');
 const { currentOrLastSession, formatRondasMessage, formatLiveRoundUpdate } = require('./utils/sessions');
 const { setResetTs, filterGamesAfterReset } = require('./utils/rondasReset');
 const { classifyFormat, FORMATS } = require('./utils/format');
@@ -255,7 +256,7 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
             const chatId = whatsapp.groupIdFor(format);
             if (chatId) {
                 const { winnerLine, mapLine, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
-                const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n📅 ${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
+                const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
                 const waResult = await whatsapp.sendImage(pngPath, waCaption, chatId);
                 console.log(`   ${waResult ? '✅' : '❌'} WhatsApp (${format}): ${waResult ? 'Enviado' : 'Fallido'}`);
             } else {
@@ -489,12 +490,86 @@ app.post('/api/admin/whatsapp/test-weekly', adminAuthMiddleware, async (req, res
 /**
  * Vista previa del comando !equipos SIN enviarlo al grupo.
  * GET /api/admin/whatsapp/preview-equipos?format=2v2|4v4&players=A,B,C,D
+ * Con &mentions=A,B,C,D simula jugadores ya resueltos desde menciones
+ * (ejercita la regla de exactamente 4 y la respuesta de emparejamientos).
  */
 app.get('/api/admin/whatsapp/preview-equipos', adminAuthMiddleware, async (req, res) => {
     try {
         const format = FORMATS.includes(req.query.format) ? req.query.format : '2v2';
-        const reply = await buildEquiposReply(format, String(req.query.players || ''));
+        const mentionTags = String(req.query.mentions || '').split(',').map(s => s.trim()).filter(Boolean);
+        const reply = await buildEquiposReply(format, String(req.query.players || ''), mentionTags, {
+            fromMentions: mentionTags.length > 0
+        });
         res.type('text/plain').send(reply);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+/**
+ * Participantes del grupo de WhatsApp de un formato, con nombre visible y
+ * ambas formas de JID (número y LID). Para el bootstrap del roster.
+ * GET /api/admin/whatsapp/participants?format=2v2|4v4
+ */
+app.get('/api/admin/whatsapp/participants', adminAuthMiddleware, async (req, res) => {
+    try {
+        if (!whatsapp.isReady()) return res.status(503).json({ error: 'WhatsApp no está listo' });
+        const format = FORMATS.includes(req.query.format) ? req.query.format : '2v2';
+        res.json(await whatsapp.getGroupParticipants(format));
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+/**
+ * Roster número ↔ gamertag persistido.
+ * GET  /api/admin/whatsapp/roster            -> estado actual
+ * POST /api/admin/whatsapp/roster            -> siembra/actualiza vínculos
+ *      Body: { links: [{ jids: ["521...@c.us", ...], gamertag, known? }], replace? }
+ *      Con replace=true sustituye el roster completo; si no, hace merge.
+ */
+app.get('/api/admin/whatsapp/roster', adminAuthMiddleware, (req, res) => {
+    res.json(rosterStore.loadRoster(OUTPUT_DIR));
+});
+
+const JID_SHAPE = /^\d{5,20}@(c\.us|lid)$/;
+
+app.post('/api/admin/whatsapp/roster', adminAuthMiddleware, async (req, res) => {
+    try {
+        const links = Array.isArray(req.body?.links) ? req.body.links : null;
+        if (!links) return res.status(400).json({ error: 'Body esperado: { links: [{ jids, gamertag }] }' });
+        if (links.length > 100) return res.status(400).json({ error: 'Máximo 100 vínculos por llamada' });
+
+        const payload = await withRosterLock(async () => {
+            const data = req.body.replace === true
+                ? { version: 1, links: [] }
+                : rosterStore.loadRoster(OUTPUT_DIR);
+
+            const results = [];
+            for (const raw of links) {
+                const jids = (Array.isArray(raw?.jids) ? raw.jids : [raw?.jid])
+                    .filter(Boolean).map(String).filter(j => JID_SHAPE.test(j));
+                const gamertag = sanitizeCaptionText(String(raw?.gamertag || '')).trim();
+                if (!jids.length || !gamertag || gamertag.length > MAX_TAG_LEN) {
+                    results.push({ gamertag: gamertag || null, ok: false, error: 'jids con forma inválida y/o gamertag inválido' });
+                    continue;
+                }
+                const result = rosterStore.linkJid(data, jids[0], gamertag, {
+                    known: raw?.known !== false,
+                    by: 'admin-api'
+                });
+                if (result.ok) {
+                    for (const alias of jids.slice(1)) rosterStore.addAlias(result.link, alias);
+                }
+                results.push({ gamertag, ok: result.ok, conflict: result.conflict?.gamertag });
+            }
+
+            rosterStore.saveRoster(OUTPUT_DIR, data);
+            return { status: 'ok', total: data.links.length, results };
+        });
+        res.json(payload);
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Error interno del servidor' });
@@ -535,9 +610,16 @@ app.get('/api/admin/whatsapp/preview-partidas', adminAuthMiddleware, async (req,
  * equipos parejos según el skill del formato del grupo (con fallback al otro
  * formato y a la media). Función compartida por el comando de WhatsApp y el
  * endpoint admin de prueba.
+ *
+ * En 2v2 con exactamente 4 jugadores evalúa los 3 emparejamientos posibles
+ * (con ajuste por duplas con historial) y responde el más parejo + alternativas.
+ * @param {string[]} mentionTags - gamertags ya resueltos desde menciones
+ * @param {boolean} fromMentions - aplica la regla de exactamente 4 (solo 2v2)
  */
 const OTHER_FORMAT = { '2v2': '4v4', '4v4': '2v2' };
-async function buildEquiposReply(format, args) {
+const EQUIPOS_USAGE = 'Uso: !equipos @P1 @P2 @P3 @P4 — también acepto gamertags escritos o mezcla: !equipos @P1 @P2 Fulano, Invitado';
+
+async function buildEquiposReply(format, args, mentionTags = [], { fromMentions = false } = {}) {
     const [primaryGames, secondaryGames] = await Promise.all([
         supabase.getAllValidGamesWithPlayers(format),
         supabase.getAllValidGamesWithPlayers(OTHER_FORMAT[format])
@@ -551,13 +633,322 @@ async function buildEquiposReply(format, args) {
         for (const [lower, v] of idx.byLower) knownByLower.set(lower, v.name);
     }
 
-    const names = teams.parsePlayerList(args, knownByLower);
-    const validation = teams.validateRoster(names);
-    if (!validation.ok) return `⚖️ ${validation.error}`;
+    const typedNames = teams.parsePlayerList(teams.stripMentionTokens(args), knownByLower);
+    // Sanitizar TODO lo que se va a eco en la respuesta (texto del usuario y
+    // tags canónicos que pudieran venir contaminados desde la BD)
+    const names = [...mentionTags, ...typedNames].map(n => sanitizeCaptionText(n)).filter(Boolean);
+
+    const exactRule = fromMentions && format === '2v2' ? { exact: 4 } : {};
+    const validation = teams.validateRoster(names, exactRule);
+    if (!validation.ok) return validation.error;
 
     const roster = teams.resolveRoster(validation.roster, primary, secondary);
+
+    // 2v2 con 4 jugadores: los 3 emparejamientos posibles, del más parejo al menos
+    if (format === '2v2' && roster.length === 4) {
+        const duoRecords = computeDuoRecords(primaryGames);
+        const ranked = teams.rankPairings(roster, duoRecords);
+        return teams.formatPairingsMessage(roster, ranked, duoRecords);
+    }
+
     const result = teams.balanceTeams(roster);
     return teams.formatTeamsMessage(format, roster, result);
+}
+
+// Las mutaciones del roster son lee-modifica-escribe sobre un archivo con
+// awaits en medio; este candado en proceso las serializa para que dos comandos
+// casi simultáneos (ej. dos !soy) no se pisen los vínculos.
+let rosterQueue = Promise.resolve();
+function withRosterLock(fn) {
+    const run = rosterQueue.then(fn, fn);
+    rosterQueue = run.then(() => undefined, () => undefined);
+    return run;
+}
+
+const MAX_TAG_LEN = 32;         // los gamertags de Xbox no pasan de ~16; techo holgado
+const MAX_MENTION_TARGETS = 20; // techo duro de menciones; validateRoster ya limita a 16
+
+/** Últimos 4 dígitos de un JID con forma válida, o '' si no la tiene. */
+function jidDigits(jid) {
+    return ((String(jid).match(/^(\d{4,})@/) || [])[1] || '').slice(-4);
+}
+
+/**
+ * Resuelve los JIDs mencionados a gamertags vía el roster persistente.
+ * Aprende la forma alterna de JID (LID/teléfono) cuando el puente responde,
+ * con UNA sola llamada al puente para todos los faltantes.
+ * @returns {{tags: string[], unresolvedDisplays: string[], botMentioned: boolean}}
+ */
+async function resolveMentionsToTags(mentionedIds, msg) {
+    const own = whatsapp.getOwnIds();
+    const seen = new Set();
+    const jids = [];
+    let botMentioned = false;
+    for (const jid of mentionedIds || []) {
+        if (own.has(jid)) { botMentioned = true; continue; }
+        if (!seen.has(jid)) { seen.add(jid); jids.push(jid); }
+    }
+
+    const linkByJid = await withRosterLock(async () => {
+        const data = rosterStore.loadRoster(OUTPUT_DIR);
+        const found = new Map();
+        const misses = [];
+        for (const jid of jids) {
+            const link = rosterStore.findByJid(data, jid);
+            if (link) found.set(jid, link);
+            else misses.push(jid);
+        }
+        if (misses.length) {
+            // La persona puede estar registrada con la otra forma de JID
+            const pairs = await whatsapp.resolveLidPn(misses);
+            let learned = false;
+            misses.forEach((jid, i) => {
+                const pair = pairs[i] || {};
+                for (const alt of [pair.lid, pair.pn].filter(Boolean)) {
+                    const link = rosterStore.findByJid(data, alt);
+                    if (link) { rosterStore.addAlias(link, jid); found.set(jid, link); learned = true; break; }
+                }
+            });
+            if (learned) rosterStore.saveRoster(OUTPUT_DIR, data);
+        }
+        return found;
+    });
+
+    const tags = [];
+    const unresolved = [];
+    for (const jid of jids) {
+        const link = linkByJid.get(jid);
+        if (link) tags.push(link.gamertag);
+        else unresolved.push(jid);
+    }
+
+    // Nombre visible de los no registrados (best effort; nunca tumba el comando)
+    let unresolvedDisplays = [];
+    if (unresolved.length) {
+        let contacts = [];
+        try { contacts = (await msg?.getMentions()) || []; } catch (e) { contacts = []; }
+        const contactByJid = new Map();
+        for (const c of contacts) {
+            const key = c?.id?._serialized;
+            if (key) contactByJid.set(key, c);
+        }
+        unresolvedDisplays = unresolved.map(jid => {
+            const c = contactByJid.get(jid);
+            const digits = jidDigits(jid);
+            const nombre = sanitizeCaptionText(c?.pushname || c?.name || '');
+            if (nombre && digits) return `${nombre} (…${digits})`;
+            if (nombre) return nombre;
+            return digits ? `…${digits}` : 'un contacto';
+        });
+    }
+
+    return { tags, unresolvedDisplays, botMentioned };
+}
+
+/**
+ * Comando !equipos con soporte de menciones: los etiquetados se traducen a
+ * gamertag vía el roster; lo escrito a mano sigue funcionando (invitados).
+ */
+async function handleEquiposCommand({ format, args, msg, mentionedIds }) {
+    const hasMentions = (mentionedIds || []).length > 0;
+
+    if (!hasMentions) {
+        if (!(args || '').trim()) return EQUIPOS_USAGE;
+        return buildEquiposReply(format, args);
+    }
+
+    // Techo ANTES de resolver: cada mención desconocida cuesta una ida al
+    // puente LID↔teléfono; no dejar que un mensaje con 50 tags las pague.
+    if (new Set(mentionedIds).size > MAX_MENTION_TARGETS) {
+        return 'Máximo 16 jugadores.';
+    }
+
+    const { tags, unresolvedDisplays, botMentioned } = await resolveMentionsToTags(mentionedIds, msg);
+
+    if (botMentioned && tags.length === 0 && unresolvedDisplays.length === 0 && !teams.stripMentionTokens(args)) {
+        return 'Yo no juego, yo reparto. Menciona a los 4 que van a entrar.';
+    }
+
+    if (unresolvedDisplays.length) {
+        return [
+            `Sin registrar: ${unresolvedDisplays.join(', ')}.`,
+            'Que manden *!soy <gamertag>* o los vincula un admin con *!vincula @persona <gamertag>*.'
+        ].join('\n');
+    }
+
+    return buildEquiposReply(format, args, tags, { fromMentions: true });
+}
+
+/**
+ * Índice de gamertags conocidos en TODAS las partidas (ambos formatos), para
+ * validar registros del roster: lower -> canónico, y partidas por tag.
+ */
+async function getKnownTagIndex() {
+    const [g2, g4] = await Promise.all([
+        supabase.getAllValidGamesWithPlayers('2v2'),
+        supabase.getAllValidGamesWithPlayers('4v4')
+    ]);
+    const knownByLower = new Map();
+    const gamesByLower = new Map();
+    for (const games of [g4, g2]) { // 2v2 al final: tiene prioridad en el nombre canónico
+        for (const p of aggregatePlayers(games)) {
+            const lower = p.gamertag.toLowerCase();
+            knownByLower.set(lower, p.gamertag);
+            gamesByLower.set(lower, (gamesByLower.get(lower) || 0) + p.total_games);
+        }
+    }
+    return { knownByLower, gamesByLower };
+}
+
+/** ¿El remitente es admin del bot? (el propio teléfono o WHATSAPP_ADMIN_JIDS). */
+const ADMIN_JIDS = (process.env.WHATSAPP_ADMIN_JIDS || '').split(',').map(s => s.trim()).filter(Boolean);
+async function isAdminSender(senderId, msg) {
+    if (msg?.fromMe) return true;
+    if (!senderId) return false;
+    if (ADMIN_JIDS.includes(senderId)) return true;
+    if (!ADMIN_JIDS.length) return false;
+    const [pair] = await whatsapp.resolveLidPn([senderId]);
+    return [pair?.lid, pair?.pn].filter(Boolean).some(j => ADMIN_JIDS.includes(j));
+}
+
+/**
+ * Vincula un JID a un gamertag guardando sus dos formas (LID y teléfono).
+ * Resuelve las formas ANTES de vincular: si la persona ya está registrada con
+ * su otra forma de JID, se cura el alias en lugar de declarar un conflicto
+ * falso ("ya está registrado con otro número") o crear un vínculo duplicado.
+ * Llamar siempre dentro de withRosterLock.
+ */
+async function linkWithAliases(data, jid, gamertag, opts) {
+    const [pair] = await whatsapp.resolveLidPn([jid]);
+    const forms = [...new Set([jid, pair?.lid, pair?.pn].filter(Boolean))];
+    for (const form of forms) {
+        const existing = rosterStore.findByJid(data, form);
+        if (existing) { forms.forEach(f => rosterStore.addAlias(existing, f)); break; }
+    }
+    const result = rosterStore.linkJid(data, jid, gamertag, opts);
+    if (result.ok) {
+        forms.forEach(f => rosterStore.addAlias(result.link, f));
+        rosterStore.saveRoster(OUTPUT_DIR, data);
+    }
+    return result;
+}
+
+/** Comando !soy <gamertag>: autoregistro número ↔ gamertag. */
+async function handleSoyCommand({ format, args, senderId }) {
+    const input = sanitizeCaptionText(args || '').trim();
+
+    if (!input) {
+        const data = rosterStore.loadRoster(OUTPUT_DIR);
+        let link = rosterStore.findByJid(data, senderId);
+        if (!link) {
+            const [pair] = await whatsapp.resolveLidPn([senderId]);
+            for (const alt of [pair?.lid, pair?.pn].filter(Boolean)) {
+                link = rosterStore.findByJid(data, alt);
+                if (link) break;
+            }
+        }
+        if (link) return `Estás registrado como *${link.gamertag}*. Para cambiar: !soy <gamertag>`;
+        return 'No estás registrado. Uso: !soy <tu gamertag>';
+    }
+
+    let force = false;
+    let tagInput = input;
+    if (/\sconfirmar$/i.test(tagInput)) {
+        force = true;
+        tagInput = tagInput.replace(/\sconfirmar$/i, '').trim();
+    }
+    if (!tagInput) return 'No estás registrado. Uso: !soy <tu gamertag>';
+    if (tagInput.length > MAX_TAG_LEN) return 'Ese gamertag no parece válido (muy largo).';
+
+    const { knownByLower, gamesByLower } = await getKnownTagIndex();
+    const match = rosterStore.matchGamertag(tagInput, knownByLower);
+
+    if (match.suggestion && !force) {
+        const sugerencia = sanitizeCaptionText(match.suggestion);
+        return `No encuentro *${tagInput}*. ¿Quisiste decir *${sugerencia}*? Manda: !soy ${sugerencia}\nSi de verdad es un tag nuevo: !soy ${tagInput} confirmar`;
+    }
+
+    const canonical = sanitizeCaptionText(match.exact || tagInput);
+    const known = Boolean(match.exact);
+
+    return withRosterLock(async () => {
+        const data = rosterStore.loadRoster(OUTPUT_DIR);
+        const result = await linkWithAliases(data, senderId, canonical, { known, by: 'self' });
+
+        if (!result.ok && result.conflict) {
+            return `*${canonical}* ya está registrado con otro número. Si es un error, que un admin corra: !roster unlink ${canonical}`;
+        }
+        if (!result.ok) return 'No pude registrarte. Uso: !soy <tu gamertag>';
+
+        if (result.previous) {
+            return `Actualizado: ahora eres *${canonical}* (antes ${sanitizeCaptionText(result.previous)}).`;
+        }
+        if (known) {
+            const n = gamesByLower.get(canonical.toLowerCase()) || 0;
+            return `Listo: eres *${canonical}* (${n} partida${n !== 1 ? 's' : ''}). Ya te pueden mencionar en !equipos.`;
+        }
+        return `Registrado: *${canonical}*. Cero partidas todavía: tu rating será provisional hasta que juegues.`;
+    });
+}
+
+/** Comando !vincula @persona <gamertag>: registro hecho por un admin. */
+async function handleVinculaCommand({ args, msg, mentionedIds, senderId }) {
+    if (!(await isAdminSender(senderId, msg))) return 'Solo un admin puede hacer eso.';
+
+    const own = whatsapp.getOwnIds();
+    const targets = [...new Set(mentionedIds || [])].filter(j => !own.has(j));
+    const tagInput = sanitizeCaptionText(teams.stripMentionTokens(args));
+    if (targets.length !== 1 || !tagInput) return 'Uso: !vincula @persona <gamertag>';
+    if (tagInput.length > MAX_TAG_LEN) return 'Ese gamertag no parece válido (muy largo).';
+
+    const { knownByLower } = await getKnownTagIndex();
+    const match = rosterStore.matchGamertag(tagInput, knownByLower);
+    const canonical = sanitizeCaptionText(match.exact || tagInput);
+    const known = Boolean(match.exact);
+
+    return withRosterLock(async () => {
+        const data = rosterStore.loadRoster(OUTPUT_DIR);
+        const result = await linkWithAliases(data, targets[0], canonical, { known, by: 'admin' });
+
+        if (!result.ok && result.conflict) {
+            return `*${canonical}* ya está registrado con otro número. Primero: !roster unlink ${canonical}`;
+        }
+        if (!result.ok) return 'Uso: !vincula @persona <gamertag>';
+
+        const digits = jidDigits(targets[0]) || '????';
+        const extra = known ? '' : ' (sin partidas todavía: rating provisional)';
+        const sugerencia = (!known && match.suggestion) ? `\n¿O era *${sanitizeCaptionText(match.suggestion)}*?` : '';
+        return `Listo: …${digits} es *${canonical}*${extra}.${sugerencia}`;
+    });
+}
+
+/** Comando !roster: lista los vínculos; "unlink <tag>" (admin) desvincula. */
+async function handleRosterCommand({ args, msg, senderId }) {
+    const arg = (args || '').trim();
+
+    if (/^unlink(\s|$)/i.test(arg)) {
+        if (!(await isAdminSender(senderId, msg))) return 'Solo un admin puede desvincular.';
+        const tag = sanitizeCaptionText(arg.replace(/^unlink\s*/i, '')).trim();
+        if (!tag) return 'Uso: !roster unlink <gamertag>';
+        return withRosterLock(async () => {
+            const data = rosterStore.loadRoster(OUTPUT_DIR);
+            if (!rosterStore.unlinkGamertag(data, tag)) return `*${tag}* no está en el roster.`;
+            rosterStore.saveRoster(OUTPUT_DIR, data);
+            return `*${tag}* fuera del roster.`;
+        });
+    }
+
+    const data = rosterStore.loadRoster(OUTPUT_DIR);
+    if (!data.links.length) return 'Roster vacío. Cada quien: !soy <gamertag>';
+
+    const lines = [`*ROSTER* (${data.links.length} registrado${data.links.length !== 1 ? 's' : ''})`];
+    for (const link of [...data.links].sort((a, b) => a.gamertag.localeCompare(b.gamertag))) {
+        const phone = link.jids.find(j => j.endsWith('@c.us')) || link.jids[0] || '';
+        const digits = jidDigits(phone) || '????';
+        lines.push(`• ${link.gamertag} — …${digits}`);
+    }
+    lines.push('', 'Para registrarte: !soy <gamertag>');
+    return lines.join('\n');
 }
 
 /**
@@ -929,22 +1320,30 @@ async function start() {
         return formatRecentGamesWhatsApp(games);
     });
 
-    // Comando del grupo: !equipos <lista> -> divide en dos equipos parejos por skill
-    whatsapp.registerCommand('!equipos', async ({ format, args }) => buildEquiposReply(format, args));
+    // Comando del grupo: !equipos -> equipos parejos por skill. Acepta menciones
+    // (@persona, resueltas vía roster), gamertags escritos, o mezcla.
+    whatsapp.registerCommand('!equipos', handleEquiposCommand);
+
+    // Roster número ↔ gamertag: autoregistro, vínculo por admin y listado
+    whatsapp.registerCommand('!soy', handleSoyCommand);
+    whatsapp.registerCommand('!vincula', handleVinculaCommand);
+    whatsapp.registerCommand('!roster', handleRosterCommand);
 
     // Comando del grupo: !rondas -> marcador de la sesión en rondas ($25/ronda),
     // con la ronda en curso en vivo. EXCLUSIVO del grupo 2v2 (así se apuesta).
     whatsapp.registerCommand('!rondas', async ({ format, args }) => {
         if (format !== '2v2') {
-            return '🎮 !rondas solo está disponible en el grupo de retas 2v2.';
+            // OJO: la respuesta no puede EMPEZAR con "!rondas" — el bot procesa
+            // sus propios mensajes (message_create) y se dispararía en bucle.
+            return 'El comando !rondas solo funciona en el grupo de retas 2v2.';
         }
         const arg = (args || '').trim().toLowerCase();
         if (arg === 'reset') {
             setResetTs(OUTPUT_DIR);
-            return '🔄 *Marcador reiniciado.* Las rondas y la cuenta arrancan de cero desde ahora.\n(Las partidas anteriores siguen guardadas para las stats; solo dejan de contar para el marcador.)';
+            return '*Marcador en ceros.* Rondas y cuenta arrancan desde ahora.\nLas partidas anteriores siguen en las stats; solo salen del marcador.';
         }
         if (arg) {
-            return '🎮 Usos:\n• *!rondas* — marcador de la sesión (rondas Bo3 y cuenta)\n• *!rondas reset* — borrón y cuenta nueva desde este momento';
+            return 'Usos:\n• *!rondas* — marcador de la sesión (rondas Bo3 y cuenta)\n• *!rondas reset* — reinicia marcador y cuenta desde este momento';
         }
         const games = await getRondasGames();
         return formatRondasMessage(currentOrLastSession(games));
