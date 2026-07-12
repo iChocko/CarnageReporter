@@ -92,9 +92,18 @@ function buildCaptionParts(gameData, players) {
         : sanitizeCaptionText(winnerText);
     const { dateStr, timeStr } = formatCDMXDateTime(gameData.timestamp);
 
+    // Línea de mapa: incluir el gametype cuando aporta (distinto del mapa y
+    // sin tokens de localización sin resolver tipo "$MP_...").
+    const safeMap = sanitizeCaptionText(gameData.mapName);
+    const gt = sanitizeCaptionText((gameData.gameTypeName || '').trim());
+    const mapLine = (gt && !gt.startsWith('$') && gt !== safeMap)
+        ? `${safeMap} · ${gt}`
+        : safeMap;
+
     return {
         winnerLine,
-        mapName: sanitizeCaptionText(gameData.mapName),
+        mapName: safeMap,
+        mapLine,
         dateStr,
         timeStr,
         shortId: String(gameData.gameUniqueId || '').slice(0, 8),

@@ -13,6 +13,9 @@
 // código crudo aparte para identificarlo después).
 const MAP_PLACEHOLDER = 'Mapa por confirmar';
 
+// Cuando no llega ningún dato de mapa (ni código ni nombre del cliente).
+const MAP_UNKNOWN = 'Mapa desconocido';
+
 // código (tal como aparece en el nombre de archivo) -> nombre para mostrar
 const MAP_NAMES = {
     asq_chill: 'Narrows',
@@ -68,10 +71,9 @@ function isKnownMap(code) {
  * @param {string} [p.filename]  Nombre del archivo XML (todos los clientes lo mandan);
  *                               de aquí se extrae el código si no vino mapCode.
  * @param {string} [p.mapName]   Nombre ya resuelto por el cliente (compat clientes viejos)
- * @param {string} [p.gameTypeName] Tipo de juego (respaldo cuando no hay mapa: matchmaking)
  * @returns {{ mapName: string, mapCode: string|null }}
  */
-function resolveMap({ mapCode, filename, mapName, gameTypeName }) {
+function resolveMap({ mapCode, filename, mapName }) {
     // El código puede venir explícito (v1.4.0) o extraerse del nombre de archivo
     // (funciona con clientes viejos: "asq_standoff-18-15.xml" -> "asq_standoff").
     const code = normalizeCode(mapCode) || normalizeCode(filename);
@@ -86,20 +88,15 @@ function resolveMap({ mapCode, filename, mapName, gameTypeName }) {
         return { mapName: MAP_PLACEHOLDER, mapCode: code };
     }
 
-    // 3. Sin código (matchmaking): no hay mapa. Usar el tipo de juego que sí trae el XML.
-    const gt = (gameTypeName || '').trim();
-    if (gt && !gt.startsWith('$')) {
-        return { mapName: gt, mapCode: null };
-    }
-
-    // 4. Cliente viejo que mandó un mapName ya resuelto (no genérico) -> respetarlo
+    // 3. Cliente que mandó un mapName ya resuelto (no genérico) -> respetarlo
     const mn = (mapName || '').trim();
     if (mn && mn !== 'Halo 3 Match' && mn !== 'Halo 3 Map' && !mn.startsWith('$')) {
         return { mapName: mn, mapCode: null };
     }
 
-    // 5. Último recurso
-    return { mapName: 'Matchmaking', mapCode: null };
+    // 4. Sin dato real de mapa. NO disfrazar el tipo de juego de mapa: los
+    //    captions muestran el gametype por separado (ver buildCaptionParts).
+    return { mapName: MAP_UNKNOWN, mapCode: null };
 }
 
-module.exports = { resolveMap, isKnownMap, normalizeCode, MAP_NAMES, MAP_PLACEHOLDER };
+module.exports = { resolveMap, isKnownMap, normalizeCode, MAP_NAMES, MAP_PLACEHOLDER, MAP_UNKNOWN };

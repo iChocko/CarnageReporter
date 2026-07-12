@@ -187,13 +187,13 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
             });
         }
 
-        // 2. Resolver el mapa del lado servidor (el cliente v1.4.0 manda mapCode).
+        // 2. Resolver el mapa del lado servidor (el cliente v1.5.0 manda mapCode
+        //    sacado del film de autosave; el XML solo no trae el mapa).
         //    Códigos desconocidos -> placeholder + se guarda el código para mapearlo.
         const mapResolved = resolveMap({
             mapCode: gameData.mapCode,
             filename,
-            mapName: gameData.mapName,
-            gameTypeName: gameData.gameTypeName
+            mapName: gameData.mapName
         });
         gameData.mapName = mapResolved.mapName;
         const mapCode = mapResolved.mapCode;
@@ -243,8 +243,8 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
         if (whatsapp.isReady()) {
             const chatId = whatsapp.groupIdFor(format);
             if (chatId) {
-                const { winnerLine, mapName, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
-                const waCaption = `🏆 *${winnerLine}*\n${mapName}\n📅 ${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
+                const { winnerLine, mapLine, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
+                const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n📅 ${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
                 const waResult = await whatsapp.sendImage(pngPath, waCaption, chatId);
                 console.log(`   ${waResult ? '✅' : '❌'} WhatsApp (${format}): ${waResult ? 'Enviado' : 'Fallido'}`);
             } else {

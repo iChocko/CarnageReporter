@@ -10,7 +10,7 @@ const { spawn } = require('child_process');
 
 // ============== CONFIGURACIÓN (Lanzamiento Oficial) ==============
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const GITHUB_REPO = 'iChocko/CarnageReporter';
 const EXE_NAME = 'CarnageReporter.exe';
 const DISCORD_URL = 'https://discord.gg/yD6nGZ3KQX';
@@ -117,6 +117,36 @@ function getMapName(filename, gameData = {}) {
     return 'Halo 3 Map';
 }
 
+// El XML de carnage report NO trae el mapa (ni en su contenido ni en el nombre
+// de archivo: llega como "mpcarnagereport*.xml"). La única fuente por partida
+// es el film que MCC autoguarda durante el juego en Halo3/autosave/, cuyo
+// nombre SÍ lleva el código del mapa: "asq_warehou_2B3D71C8_6A5319E9.film".
+// Los sufijos son grupos de 8 hex (hash/id) que hay que quitar.
+const FILM_MAX_AGE_MS = 30 * 60 * 1000; // un film más viejo no es de esta partida
+
+function extractMapCodeFromFilmName(name) {
+    const base = name.toLowerCase()
+        .replace(/\.(film|temp)$/, '')
+        .replace(/(_[0-9a-f]{8})+$/, '');
+    return /^asq_[a-z0-9_]+$/.test(base) ? base : null;
+}
+
+function findMapCodeFromFilms(xmlDir) {
+    try {
+        const autosaveDir = path.join(xmlDir, 'Halo3', 'autosave');
+        const candidates = fs.readdirSync(autosaveDir)
+            .filter(f => /^asq_.*\.(film|temp)$/i.test(f))
+            .map(f => ({ name: f, mtime: fs.statSync(path.join(autosaveDir, f)).mtimeMs }))
+            .sort((a, b) => b.mtime - a.mtime);
+
+        if (candidates.length === 0) return null;
+        if (Date.now() - candidates[0].mtime > FILM_MAX_AGE_MS) return null;
+        return extractMapCodeFromFilmName(candidates[0].name);
+    } catch (e) {
+        return null;
+    }
+}
+
 function getMCCTempPath() {
     const windowsPath = path.join(os.homedir(), 'AppData', 'LocalLow', 'MCC', 'Temporary');
     const localPath = path.join(process.cwd(), 'Maps_to_Rename');
@@ -192,11 +222,16 @@ function parseXML(filePath) {
         gameData.mapName = mapFromName;
     }
 
-    // v1.4.0: mandar el CÓDIGO crudo del mapa (del nombre de archivo, ej. "asq_guardia").
-    // El servidor lo traduce a nombre bonito y recopila los códigos desconocidos.
-    // En matchmaking no hay código -> null (el servidor usará el tipo de juego).
+    // v1.5.0: mandar el CÓDIGO crudo del mapa. El nombre del XML nunca lo trae
+    // (siempre es "mpcarnagereport*"), así que la fuente real es el film de
+    // autosave más reciente. El servidor lo traduce a nombre bonito y recopila
+    // los códigos desconocidos. Sin film reciente -> null.
     const codeMatch = path.basename(filePath).toLowerCase().match(/asq_[a-z0-9_]+/);
-    gameData.mapCode = codeMatch ? codeMatch[0] : null;
+    gameData.mapCode = (codeMatch ? codeMatch[0] : null)
+        || findMapCodeFromFilms(path.dirname(filePath));
+    if (gameData.mapCode && CONFIG.maps[gameData.mapCode]) {
+        gameData.mapName = CONFIG.maps[gameData.mapCode];
+    }
 
     const playersNode = root.Players?.Player;
     const players = (Array.isArray(playersNode) ? playersNode : [playersNode]).filter(Boolean).map(p => {
@@ -514,5 +549,5 @@ async function main() {
 if (require.main === module) {
     main().catch(console.error);
 } else {
-    module.exports = { parseXML, resolveConfig, CONFIG, VERSION };
+    module.exports = { parseXML, resolveConfig, CONFIG, VERSION, extractMapCodeFromFilmName, findMapCodeFromFilms };
 }
