@@ -24,8 +24,9 @@ const { buildCaptionParts, formatRecentGamesWhatsApp, sanitizeCaptionText } = re
 const { computeRecords, computeH2H, computePlayerProfile, aggregatePlayers, computeSlayerScore, computeDuoRecords } = require('./utils/records');
 const teams = require('./utils/teams');
 const rosterStore = require('./utils/roster');
-const { currentOrLastSession, formatRondasMessage, formatLiveRoundUpdate } = require('./utils/sessions');
+const { currentOrLastSession, formatRondasMessage, formatLiveRoundUpdate, lineupOf } = require('./utils/sessions');
 const { setResetTs, filterGamesAfterReset } = require('./utils/rondasReset');
+const forfeits = require('./utils/forfeits');
 const { classifyFormat, FORMATS } = require('./utils/format');
 const { resolveMap, MAP_NAMES } = require('./utils/maps');
 
@@ -90,12 +91,15 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 }
 
 /**
- * Partidas 2v2 que cuentan para el marcador de rondas: todas las válidas,
+ * Partidas 2v2 que cuentan para el marcador de rondas: todas las válidas
+ * más los W.O. (partidas dadas por perdida, virtuales — no tocan stats),
  * menos las anteriores al último "!rondas reset" (siguen en las stats).
  */
 async function getRondasGames() {
     const games = await supabase.getAllValidGamesWithPlayers('2v2');
-    return filterGamesAfterReset(games, OUTPUT_DIR);
+    const merged = [...games, ...forfeits.loadForfeitGames(OUTPUT_DIR)]
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    return filterGamesAfterReset(merged, OUTPUT_DIR);
 }
 
 // Inicializar servicios
@@ -534,6 +538,14 @@ app.get('/api/admin/whatsapp/roster', adminAuthMiddleware, (req, res) => {
     res.json(rosterStore.loadRoster(OUTPUT_DIR));
 });
 
+/**
+ * W.O. declarados con !perdida (partidas virtuales del marcador de rondas).
+ * GET /api/admin/whatsapp/forfeits
+ */
+app.get('/api/admin/whatsapp/forfeits', adminAuthMiddleware, (req, res) => {
+    res.json(forfeits.loadForfeits(OUTPUT_DIR));
+});
+
 const JID_SHAPE = /^\d{5,20}@(c\.us|lid)$/;
 
 app.post('/api/admin/whatsapp/roster', adminAuthMiddleware, async (req, res) => {
@@ -552,7 +564,7 @@ app.post('/api/admin/whatsapp/roster', adminAuthMiddleware, async (req, res) => 
                 const jids = (Array.isArray(raw?.jids) ? raw.jids : [raw?.jid])
                     .filter(Boolean).map(String).filter(j => JID_SHAPE.test(j));
                 const gamertag = sanitizeCaptionText(String(raw?.gamertag || '')).trim();
-                if (!jids.length || !gamertag || gamertag.length > MAX_TAG_LEN) {
+                if (!jids.length || !gamertag || gamertag.length > MAX_TAG_LEN || gamertag.startsWith('!')) {
                     results.push({ gamertag: gamertag || null, ok: false, error: 'jids con forma inválida y/o gamertag inválido' });
                     continue;
                 }
@@ -655,15 +667,19 @@ async function buildEquiposReply(format, args, mentionTags = [], { fromMentions 
     return teams.formatTeamsMessage(format, roster, result, mentionJidByLower);
 }
 
-// Las mutaciones del roster son lee-modifica-escribe sobre un archivo con
-// awaits en medio; este candado en proceso las serializa para que dos comandos
-// casi simultáneos (ej. dos !soy) no se pisen los vínculos.
-let rosterQueue = Promise.resolve();
-function withRosterLock(fn) {
-    const run = rosterQueue.then(fn, fn);
-    rosterQueue = run.then(() => undefined, () => undefined);
-    return run;
+// Las mutaciones de archivos compartidos (roster, W.O.) son lee-modifica-
+// escribe con awaits en medio; estos candados en proceso las serializan para
+// que dos comandos casi simultáneos no se pisen los datos.
+function makeLock() {
+    let queue = Promise.resolve();
+    return function withLock(fn) {
+        const run = queue.then(fn, fn);
+        queue = run.then(() => undefined, () => undefined);
+        return run;
+    };
 }
+const withRosterLock = makeLock();
+const withForfeitLock = makeLock();
 
 const MAX_TAG_LEN = 32;         // los gamertags de Xbox no pasan de ~16; techo holgado
 const MAX_MENTION_TARGETS = 20; // techo duro de menciones; validateRoster ya limita a 16
@@ -846,21 +862,28 @@ async function linkWithAliases(data, jid, gamertag, opts) {
     return result;
 }
 
+/** Gamertag del remitente según el roster (probando ambas formas de JID). */
+async function resolveSenderTag(senderId) {
+    if (!senderId) return null;
+    const data = rosterStore.loadRoster(OUTPUT_DIR);
+    let link = rosterStore.findByJid(data, senderId);
+    if (!link) {
+        const [pair] = await whatsapp.resolveLidPn([senderId]);
+        for (const alt of [pair?.lid, pair?.pn].filter(Boolean)) {
+            link = rosterStore.findByJid(data, alt);
+            if (link) break;
+        }
+    }
+    return link ? link.gamertag : null;
+}
+
 /** Comando !soy <gamertag>: autoregistro número ↔ gamertag. */
 async function handleSoyCommand({ format, args, senderId }) {
     const input = sanitizeCaptionText(args || '').trim();
 
     if (!input) {
-        const data = rosterStore.loadRoster(OUTPUT_DIR);
-        let link = rosterStore.findByJid(data, senderId);
-        if (!link) {
-            const [pair] = await whatsapp.resolveLidPn([senderId]);
-            for (const alt of [pair?.lid, pair?.pn].filter(Boolean)) {
-                link = rosterStore.findByJid(data, alt);
-                if (link) break;
-            }
-        }
-        if (link) return `Estás registrado como *${link.gamertag}*. Para cambiar: !soy <gamertag>`;
+        const tag = await resolveSenderTag(senderId);
+        if (tag) return `Estás registrado como *${tag}*. Para cambiar: !soy <gamertag>`;
         return 'No estás registrado. Uso: !soy <tu gamertag>';
     }
 
@@ -872,6 +895,8 @@ async function handleSoyCommand({ format, args, senderId }) {
     }
     if (!tagInput) return 'No estás registrado. Uso: !soy <tu gamertag>';
     if (tagInput.length > MAX_TAG_LEN) return 'Ese gamertag no parece válido (muy largo).';
+    // Un tag que empieza con "!" podría disparar comandos al ser eco en respuestas
+    if (tagInput.startsWith('!')) return 'Ese gamertag no parece válido.';
 
     const { knownByLower, gamesByLower } = await getKnownTagIndex();
     const match = rosterStore.matchGamertag(tagInput, knownByLower);
@@ -913,6 +938,7 @@ async function handleVinculaCommand({ args, msg, mentionedIds, senderId }) {
     const tagInput = sanitizeCaptionText(teams.stripMentionTokens(args));
     if (targets.length !== 1 || !tagInput) return 'Uso: !vincula @persona <gamertag>';
     if (tagInput.length > MAX_TAG_LEN) return 'Ese gamertag no parece válido (muy largo).';
+    if (tagInput.startsWith('!')) return 'Ese gamertag no parece válido.';
 
     const { knownByLower } = await getKnownTagIndex();
     const match = rosterStore.matchGamertag(tagInput, knownByLower);
@@ -962,6 +988,102 @@ async function handleRosterCommand({ args, msg, senderId }) {
     }
     lines.push('', 'Para registrarte: !soy <gamertag>');
     return lines.join('\n');
+}
+
+/**
+ * Comando !perdida: da por perdida la partida en curso (walkover / W.O.).
+ * El equipo del declarante (o del mencionado) pierde; se registra una partida
+ * virtual que cuenta para el marcador de rondas y la cuenta ($), nunca para
+ * las stats individuales. Cualquiera de los 4 de la reta en curso puede
+ * declararla; deshacer es solo de admin.
+ */
+const PERDIDA_USAGE = 'Usos:\n• *!perdida* — tu equipo da por perdida la partida en curso\n• *!perdida @persona* — el equipo de esa persona la da por perdida\n• *!perdida deshacer* — borra el último W.O. (solo admin)';
+
+const FORFEIT_COOLDOWN_MS = 5 * 60 * 1000; // dos W.O. de la misma reta en <5 min = doble declaración
+
+async function handlePerdidaCommand({ format, args, msg, mentionedIds, senderId }) {
+    if (format !== '2v2') {
+        return 'El comando !perdida solo funciona en el grupo de retas 2v2.';
+    }
+
+    const own = whatsapp.getOwnIds();
+    const allMentions = [...new Set(mentionedIds || [])];
+    const humanMentions = allMentions.filter(j => !own.has(j));
+    const arg = teams.stripMentionTokens(args).toLowerCase();
+
+    if (arg === 'deshacer') {
+        if (!(await isAdminSender(senderId, msg))) return 'Solo un admin puede deshacer un W.O.';
+        return withForfeitLock(async () => {
+            const data = forfeits.loadForfeits(OUTPUT_DIR);
+            if (!data.forfeits.length) return 'No hay W.O. que borrar.';
+            const removed = data.forfeits.pop();
+            forfeits.saveForfeits(OUTPUT_DIR, data);
+            const who = [...removed.sides[removed.loserSide]].sort().map(sanitizeCaptionText).join(' + ');
+            const update = formatLiveRoundUpdate(currentOrLastSession(await getRondasGames()));
+            return [`W.O. de ${who} borrado.`, update].filter(Boolean).join('\n');
+        });
+    }
+    if (humanMentions.length > 1) return 'Menciona solo a una persona: !perdida @persona';
+    // Mencionar solo al bot, o texto que no es "deshacer": mostrar el uso
+    if (!humanMentions.length && (arg || allMentions.length)) return PERDIDA_USAGE;
+
+    // ¿Quién la da por perdida? El mencionado, o el que manda el comando.
+    // En ambos casos el DECLARANTE debe ser de la reta en curso (o admin).
+    const senderTag = await resolveSenderTag(senderId);
+    let target;
+    if (humanMentions.length === 1) {
+        const { tags, unresolvedDisplays } = await resolveMentionsToTags(humanMentions);
+        if (unresolvedDisplays.length) {
+            return `Sin registrar: ${unresolvedDisplays.join(', ')}. Que mande *!soy <gamertag>* primero.`;
+        }
+        target = tags[0];
+    } else {
+        target = senderTag;
+        if (!target) return 'No sé quién eres. Manda *!soy <gamertag>* o usa: !perdida @persona';
+    }
+
+    // Validar y registrar DENTRO del candado: un "deshacer" u otro W.O.
+    // concurrente puede cambiar la sesión entre la validación y la escritura.
+    return withForfeitLock(async () => {
+        const games = await getRondasGames();
+        const session = currentOrLastSession(games);
+        if (!session || !session.live || !session.games.length) {
+            return 'No hay reta en curso que dar por perdida.';
+        }
+        const { sides } = lineupOf(session.games[session.games.length - 1]);
+        if (sides.length !== 2) return 'No hay reta en curso que dar por perdida.';
+
+        const sideName = side => [...side].sort((a, b) => a.localeCompare(b)).map(sanitizeCaptionText).join(' + ');
+
+        const senderInReta = senderTag && forfeits.sideIndexOf(sides, senderTag) !== -1;
+        if (!senderInReta && !(await isAdminSender(senderId, msg))) {
+            return `Solo los 4 de la reta en curso pueden declarar un W.O. (${sideName(sides[0])} 🆚 ${sideName(sides[1])}).`;
+        }
+
+        const loserSide = forfeits.sideIndexOf(sides, target);
+        if (loserSide === -1) {
+            return `*${sanitizeCaptionText(target)}* no está en la reta en curso (${sideName(sides[0])} 🆚 ${sideName(sides[1])}).`;
+        }
+
+        // Anti doble-declaración: si ya hay un W.O. de esta misma reta hace
+        // menos de 5 min (dos personas reaccionando al mismo crash), no se apila.
+        const data = forfeits.loadForfeits(OUTPUT_DIR);
+        const last = data.forfeits[data.forfeits.length - 1];
+        if (last && Date.now() - Date.parse(last.timestamp) < FORFEIT_COOLDOWN_MS
+            && forfeits.lineupKeyOf(last.sides) === forfeits.lineupKeyOf(sides)) {
+            return 'Ese W.O. ya quedó registrado hace un momento. Si perdieron OTRA partida más, repite el comando en unos minutos.';
+        }
+
+        data.forfeits.push({
+            timestamp: new Date().toISOString(),
+            sides,
+            loserSide,
+            declaredBy: senderId || null,
+        });
+        forfeits.saveForfeits(OUTPUT_DIR, data);
+        const update = formatLiveRoundUpdate(currentOrLastSession(await getRondasGames()));
+        return [`W.O. de ${sideName(sides[loserSide])}.`, update].filter(Boolean).join('\n');
+    });
 }
 
 /**
@@ -1343,6 +1465,10 @@ async function start() {
     whatsapp.registerCommand('!soy', handleSoyCommand);
     whatsapp.registerCommand('!vincula', handleVinculaCommand);
     whatsapp.registerCommand('!roster', handleRosterCommand);
+
+    // Comando del grupo: !perdida -> walkover de la partida en curso.
+    // Cuenta para rondas y cuenta ($), nunca para stats. Solo 2v2.
+    whatsapp.registerCommand('!perdida', handlePerdidaCommand);
 
     // Comando del grupo: !rondas -> marcador de la sesión en rondas ($25/ronda),
     // con la ronda en curso en vivo. EXCLUSIVO del grupo 2v2 (así se apuesta).
