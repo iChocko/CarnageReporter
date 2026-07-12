@@ -163,7 +163,7 @@ test('rankPairings devuelve las 3 opciones ordenadas de más pareja a menos', ()
     assert.strictEqual(ranked[0].balancePct, 100);
 });
 
-test('formatPairingsMessage: propuesta + 2 alternativas + provisional', () => {
+test('formatPairingsMessage: solo la mejor propuesta, sin números ni alternativas', () => {
     const r4 = [
         { name: 'Crack', skill: 90, estimated: false },
         { name: 'Bueno', skill: 70, estimated: false },
@@ -173,30 +173,16 @@ test('formatPairingsMessage: propuesta + 2 alternativas + provisional', () => {
     const ranked = teams.rankPairings(r4);
     const msg = teams.formatPairingsMessage(r4, ranked);
     assert.ok(msg.includes('*RETA 2v2*'), msg);
-    assert.ok(msg.includes('Otras opciones:'), msg);
-    assert.ok(msg.includes('2)'), msg);
-    assert.ok(msg.includes('3)'), msg);
-    assert.ok(msg.includes('Rating provisional'), msg);
-    assert.ok(msg.includes('Nuevo'), msg);
-    assert.ok(!msg.includes('Dupla con historial'), msg); // sin duoRecords no hay línea de dupla
-});
-
-test('formatPairingsMessage incluye la dupla cuando hay historial', () => {
-    const r4 = [
-        { name: 'A', skill: 60, estimated: false },
-        { name: 'B', skill: 60, estimated: false },
-        { name: 'C', skill: 60, estimated: false },
-        { name: 'D', skill: 60, estimated: false },
-    ];
-    const duos = new Map([['a|b', { games: 5, wins: 5, losses: 0, draws: 0 }]]);
-    const ranked = teams.rankPairings(r4, duos);
-    // Con todos parejos, la mejor opción separa a la dupla A+B (su ajuste desbalancea).
-    // La línea de dupla solo aparece si el emparejamiento ganador la junta:
-    const together = ranked.find(r =>
-        [r.teamA, r.teamB].some(t => new Set(t.map(p => p.name)).has('A') && new Set(t.map(p => p.name)).has('B'))
-    );
-    const msg = teams.formatPairingsMessage(r4, [together, ...ranked.filter(r => r !== together)], duos);
-    assert.ok(msg.includes('Dupla con historial: A+B van 5-0 juntos'), msg);
+    // La más pareja: Crack+Nuevo (130) vs Bueno+Medio (130)
+    assert.ok(msg.includes('Crack') && msg.includes('Nuevo'), msg);
+    assert.ok(msg.includes('Bueno') && msg.includes('Medio'), msg);
+    // Sin números, porcentajes ni alternativas — solo el corte
+    assert.ok(!msg.includes('%'), msg);
+    assert.ok(!msg.includes('fuerza'), msg);
+    assert.ok(!/\(\d/.test(msg), msg); // sin "(90)" ni similares
+    assert.ok(!msg.includes('Otras opciones'), msg);
+    assert.ok(!msg.includes('Rating provisional'), msg);
+    assert.ok(!msg.includes('Dupla con historial'), msg);
 });
 
 console.log('\n— validateRoster / stripMentionTokens —');
@@ -258,7 +244,7 @@ test('formatPairingsMessage menciona a los del roster y deja invitados en texto'
         ['lchocko', '5215535257707@c.us'],
         ['rober k15 mx', '5215543535385@c.us'],
     ]);
-    const msg = teams.formatPairingsMessage(r4, teams.rankPairings(r4), null, map);
+    const msg = teams.formatPairingsMessage(r4, teams.rankPairings(r4), map);
     assert.ok(msg.includes('@5215564168735'), msg);
     assert.ok(msg.includes('@5215535257707'), msg);
     assert.ok(msg.includes('@5215543535385'), msg);

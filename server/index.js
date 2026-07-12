@@ -648,7 +648,7 @@ async function buildEquiposReply(format, args, mentionTags = [], { fromMentions 
     if (format === '2v2' && roster.length === 4) {
         const duoRecords = computeDuoRecords(primaryGames);
         const ranked = teams.rankPairings(roster, duoRecords);
-        return teams.formatPairingsMessage(roster, ranked, duoRecords, mentionJidByLower);
+        return teams.formatPairingsMessage(roster, ranked, mentionJidByLower);
     }
 
     const result = teams.balanceTeams(roster);

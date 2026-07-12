@@ -302,50 +302,24 @@ function rankPairings(roster4, duoRecords) {
 }
 
 /**
- * Mensaje de WhatsApp para el flujo de 4 jugadores: propuesta más pareja
- * + las otras 2 opciones con su balance. Si se pasa mentionJidByLower, los
- * jugadores con JID salen como mención real (@persona) en vez de gamertag.
+ * Mensaje de WhatsApp para el flujo de 4 jugadores: solo la propuesta más
+ * pareja, sin números ni alternativas — el balance ya se resolvió puertas
+ * adentro (rankPairings). Si se pasa mentionJidByLower, los jugadores con
+ * JID salen como mención real (@persona) en vez de gamertag.
  * @param {Array<{name,skill,estimated}>} roster4
- * @param {Array} ranked - de rankPairings
- * @param {Map} [duoRecords] - para la línea "van X-Y juntos"
+ * @param {Array} ranked - de rankPairings (se usa solo la mejor opción)
  * @param {Map<string,string>} [mentionJidByLower] - gamertagLower -> JID
  */
-function formatPairingsMessage(roster4, ranked, duoRecords, mentionJidByLower) {
+function formatPairingsMessage(roster4, ranked, mentionJidByLower) {
     const best = ranked[0];
     const show = p => playerDisplay(p.name, mentionJidByLower);
-    const rating = p => Math.round(p.skill);
-    const teamLine = (emoji, [a, b], strength) =>
-        `${emoji} ${show(a)} (${rating(a)}) + ${show(b)} (${rating(b)}) — fuerza ${Math.round(strength)}`;
+    const teamLine = (emoji, [a, b]) => `${emoji} ${show(a)} + ${show(b)}`;
 
-    const lines = [
-        '*RETA 2v2* · propuesta más pareja',
-        '',
-        teamLine('🔵', best.teamA, best.strengthA),
-        teamLine('🔴', best.teamB, best.strengthB),
-        `Balance: *${best.balancePct}%* — ${balanceLabel(best.balancePct)}`,
-    ];
-
-    for (const { team, adj } of best.duoLines) {
-        const rounded = Math.round(adj);
-        if (rounded === 0) continue; // ajuste insignificante: no ensuciar el mensaje
-        const key = [team[0].name.toLowerCase(), team[1].name.toLowerCase()].sort().join('|');
-        const duo = duoRecords?.get(key);
-        if (duo) {
-            const sign = rounded > 0 ? '+' : '';
-            lines.push(`Dupla con historial: ${show(team[0])}+${show(team[1])} van ${duo.wins}-${duo.losses} juntos (${sign}${rounded})`);
-        }
-    }
-
-    lines.push('', 'Otras opciones:');
-    ranked.slice(1).forEach((opt, i) => {
-        lines.push(`${i + 2}) ${show(opt.teamA[0])}+${show(opt.teamA[1])} vs ${show(opt.teamB[0])}+${show(opt.teamB[1])} — ${opt.balancePct}%`);
-    });
-
-    const estimated = roster4.filter(p => p.estimated).map(p => show(p));
-    if (estimated.length) {
-        lines.push('', `Rating provisional (pocas o cero partidas): ${estimated.join(', ')}`);
-    }
-    return lines.join('\n');
+    return [
+        '*RETA 2v2*',
+        teamLine('🔵', best.teamA),
+        teamLine('🔴', best.teamB),
+    ].join('\n');
 }
 
 module.exports = {
