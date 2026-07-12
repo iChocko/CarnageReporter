@@ -679,7 +679,7 @@ function jidDigits(jid) {
  * con UNA sola llamada al puente para todos los faltantes.
  * @returns {{tags: string[], unresolvedDisplays: string[], botMentioned: boolean}}
  */
-async function resolveMentionsToTags(mentionedIds, msg) {
+async function resolveMentionsToTags(mentionedIds) {
     const own = whatsapp.getOwnIds();
     const seen = new Set();
     const jids = [];
@@ -689,7 +689,7 @@ async function resolveMentionsToTags(mentionedIds, msg) {
         if (!seen.has(jid)) { seen.add(jid); jids.push(jid); }
     }
 
-    const linkByJid = await withRosterLock(async () => {
+    const { linkByJid, pairByJid } = await withRosterLock(async () => {
         const data = rosterStore.loadRoster(OUTPUT_DIR);
         const found = new Map();
         const misses = [];
@@ -698,12 +698,14 @@ async function resolveMentionsToTags(mentionedIds, msg) {
             if (link) found.set(jid, link);
             else misses.push(jid);
         }
+        const pairs = new Map();
         if (misses.length) {
             // La persona puede estar registrada con la otra forma de JID
-            const pairs = await whatsapp.resolveLidPn(misses);
+            const resolved = await whatsapp.resolveLidPn(misses);
             let learned = false;
             misses.forEach((jid, i) => {
-                const pair = pairs[i] || {};
+                const pair = resolved[i] || {};
+                pairs.set(jid, pair);
                 for (const alt of [pair.lid, pair.pn].filter(Boolean)) {
                     const link = rosterStore.findByJid(data, alt);
                     if (link) { rosterStore.addAlias(link, jid); found.set(jid, link); learned = true; break; }
@@ -711,7 +713,7 @@ async function resolveMentionsToTags(mentionedIds, msg) {
             });
             if (learned) rosterStore.saveRoster(OUTPUT_DIR, data);
         }
-        return found;
+        return { linkByJid: found, pairByJid: pairs };
     });
 
     const tags = [];
@@ -727,24 +729,21 @@ async function resolveMentionsToTags(mentionedIds, msg) {
         }
     }
 
-    // Nombre visible de los no registrados (best effort; nunca tumba el comando)
+    // Nombre visible de los no registrados (best effort; nunca tumba el comando).
+    // OJO: si la mención llegó como @lid, WhatsApp Web no siempre trae el
+    // pushname para esa forma — se prefiere la forma @c.us (del puente
+    // LID↔teléfono ya resuelto arriba), que sí lo trae de forma confiable.
     let unresolvedDisplays = [];
     if (unresolved.length) {
-        let contacts = [];
-        try { contacts = (await msg?.getMentions()) || []; } catch (e) { contacts = []; }
-        const contactByJid = new Map();
-        for (const c of contacts) {
-            const key = c?.id?._serialized;
-            if (key) contactByJid.set(key, c);
-        }
-        unresolvedDisplays = unresolved.map(jid => {
-            const c = contactByJid.get(jid);
-            const digits = jidDigits(jid);
-            const nombre = sanitizeCaptionText(c?.pushname || c?.name || '');
+        unresolvedDisplays = await Promise.all(unresolved.map(async jid => {
+            const phoneForm = pairByJid.get(jid)?.pn || (jid.endsWith('@c.us') ? jid : null);
+            const info = await whatsapp.getContactInfo(phoneForm || jid);
+            const digits = jidDigits(phoneForm || jid);
+            const nombre = sanitizeCaptionText(info.pushname || info.name || '');
             if (nombre && digits) return `${nombre} (…${digits})`;
             if (nombre) return nombre;
             return digits ? `…${digits}` : 'un contacto';
-        });
+        }));
     }
 
     return { tags, unresolvedDisplays, botMentioned, jidByTagLower };
@@ -755,7 +754,7 @@ async function resolveMentionsToTags(mentionedIds, msg) {
  * se traducen a gamertag vía el roster y la respuesta los menciona de vuelta;
  * lo escrito a mano sigue funcionando (invitados, sin mención).
  */
-async function handleEquiposCommand({ format, args, msg, mentionedIds }) {
+async function handleEquiposCommand({ format, args, mentionedIds }) {
     const hasMentions = (mentionedIds || []).length > 0;
 
     if (!hasMentions) {
@@ -769,7 +768,7 @@ async function handleEquiposCommand({ format, args, msg, mentionedIds }) {
         return 'Máximo 16 jugadores.';
     }
 
-    const { tags, unresolvedDisplays, botMentioned, jidByTagLower } = await resolveMentionsToTags(mentionedIds, msg);
+    const { tags, unresolvedDisplays, botMentioned, jidByTagLower } = await resolveMentionsToTags(mentionedIds);
 
     if (botMentioned && tags.length === 0 && unresolvedDisplays.length === 0 && !teams.stripMentionTokens(args)) {
         return 'Yo no juego, yo reparto. Menciona a los 4 que van a entrar.';

@@ -390,6 +390,26 @@ class WhatsAppService {
     }
 
     /**
+     * Nombre visible y número de un JID (best effort; nunca lanza).
+     * OJO: WhatsApp Web no siempre trae pushname para un contacto pedido por
+     * su forma @lid — para eso resolveLidPn ya da la forma @c.us, que sí lo trae.
+     * @returns {Promise<{pushname:?string, name:?string, number:?string}>}
+     */
+    async getContactInfo(jid) {
+        if (!this.ready || !this.client || !jid) return {};
+        try {
+            const contact = await this.client.getContactById(jid);
+            return {
+                pushname: contact?.pushname || null,
+                name: contact?.name || null,
+                number: contact?.number || null,
+            };
+        } catch (error) {
+            return {};
+        }
+    }
+
+    /**
      * Participantes del grupo de un formato, con nombre visible y ambas formas
      * de JID cuando el puente LID↔teléfono responde. Para el bootstrap del roster.
      */
