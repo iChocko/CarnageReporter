@@ -572,13 +572,16 @@ async function buildSaldosPayload() {
  * las 23:00 por si el servidor estaba reiniciando a las 09:00; el marcador
  * de corte diario evita repetirlo una vez hecho. Si WhatsApp está caído las
  * deudas no se pierden (sin reset); POST .../send-saldos lo corre a mano.
- * @param {{force?: boolean}} [opts] - force salta el guard de "ya corrido hoy"
+ * @param {{force?: boolean, skipReset?: boolean}} [opts] - force salta el
+ *   guard de "ya corrido hoy"; skipReset manda el mensaje real pero NO
+ *   toca el marcador de rondas ni el de corte diario (para probar en vivo
+ *   sin adelantar el corte de la semana).
  */
 const withSaldosLock = makeLock();
-async function sendWeeklySaldos({ force = false } = {}) {
+async function sendWeeklySaldos({ force = false, skipReset = false } = {}) {
     return withSaldosLock(async () => {
         const last = getLastCorteTs(OUTPUT_DIR);
-        if (!force && last && isSameCdmxDay(last, Date.now())) {
+        if (!force && !skipReset && last && isSameCdmxDay(last, Date.now())) {
             return { sent: false, reason: 'corte_ya_hecho_hoy' };
         }
 
@@ -588,7 +591,7 @@ async function sendWeeklySaldos({ force = false } = {}) {
         const cutTs = Date.now();
         const { payload, gamesCount } = await buildSaldosPayload();
         if (!payload) {
-            setLastCorteTs(OUTPUT_DIR, cutTs); // semana sin retas: corte trivial
+            if (!skipReset) setLastCorteTs(OUTPUT_DIR, cutTs); // semana sin retas: corte trivial
             return { sent: false, reason: 'sin_retas_pendientes', gamesCount };
         }
 
@@ -601,6 +604,7 @@ async function sendWeeklySaldos({ force = false } = {}) {
         const options = { waitUntilMsgSent: true };
         if (payload.mentions.length) options.mentions = payload.mentions;
         const ok = await whatsapp.sendMessage(payload.text, chatId, options);
+        if (ok && skipReset) return { sent: true, reset: false, skipped: true, gamesCount };
         if (ok) {
             setResetTs(OUTPUT_DIR, cutTs);
             setLastCorteTs(OUTPUT_DIR, cutTs);
@@ -624,13 +628,18 @@ app.get('/api/admin/whatsapp/preview-saldos', adminAuthMiddleware, async (req, r
 });
 
 /**
- * Dispara AHORA el corte semanal (envío real al grupo + reset del marcador).
- * Para correrlo a mano si el cron del lunes se perdió por un reinicio.
+ * Dispara AHORA el corte semanal: envío real al grupo + reset del marcador.
+ * Para correrlo a mano si el cron del lunes se perdió por un reinicio, o
+ * para probar el envío real sin adelantar el corte (Body: { skipReset: true }
+ * — manda el mensaje real pero deja el marcador de rondas intacto).
  * POST /api/admin/whatsapp/send-saldos
  */
 app.post('/api/admin/whatsapp/send-saldos', adminAuthMiddleware, async (req, res) => {
     try {
-        res.json(await sendWeeklySaldos({ force: req.body?.force === true }));
+        res.json(await sendWeeklySaldos({
+            force: req.body?.force === true,
+            skipReset: req.body?.skipReset === true
+        }));
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Error interno del servidor' });
