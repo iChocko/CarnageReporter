@@ -43,8 +43,11 @@ function formatDuration(seconds) {
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// K/D como diferencial (abatidos - muertes) con signo explícito: se ve de
+// inmediato si el jugador quedó positivo (+5), parejo (0) o negativo (-3).
 function fmtKD(kills, deaths) {
-    return deaths > 0 ? (kills / deaths).toFixed(2) : kills.toFixed(2);
+    const diff = (kills || 0) - (deaths || 0);
+    return diff > 0 ? `+${diff}` : `${diff}`;
 }
 
 class RendererService {
