@@ -25,7 +25,7 @@ const { computeRecords, computeH2H, computePlayerProfile, aggregatePlayers, comp
 const teams = require('./utils/teams');
 const rosterStore = require('./utils/roster');
 const { currentOrLastSession, formatRondasMessage, formatLiveRoundUpdate, lineupOf } = require('./utils/sessions');
-const { setResetTs, filterGamesAfterReset } = require('./utils/rondasReset');
+const { getResetTs, setResetTs, filterGamesAfterReset } = require('./utils/rondasReset');
 const forfeits = require('./utils/forfeits');
 const { computeSaldos, formatSaldosMessage, getLastCorteTs, setLastCorteTs, isSameCdmxDay } = require('./utils/saldos');
 const { classifyFormat, FORMATS } = require('./utils/format');
@@ -101,6 +101,22 @@ async function getRondasGames() {
     const merged = [...games, ...forfeits.loadForfeitGames(OUTPUT_DIR)]
         .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     return filterGamesAfterReset(merged, OUTPUT_DIR);
+}
+
+/**
+ * Partidas que cuentan para el CORTE SEMANAL. A diferencia del marcador,
+ * la ventana arranca en el último corte, NO en el último "!rondas reset":
+ * el reset (abierto a todo el grupo) limpia el marcador visible, pero las
+ * deudas de la semana persisten hasta que el corte del lunes las cobra.
+ * Si nunca ha habido corte (estreno de la función) se cae al último reset.
+ */
+async function getSaldosGames() {
+    const games = await supabase.getAllValidGamesWithPlayers('2v2');
+    const merged = [...games, ...forfeits.loadForfeitGames(OUTPUT_DIR)]
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    const sinceTs = getLastCorteTs(OUTPUT_DIR) ?? getResetTs(OUTPUT_DIR);
+    if (!sinceTs) return merged;
+    return merged.filter(g => new Date(g.timestamp).getTime() > sinceTs);
 }
 
 // Inicializar servicios
@@ -553,7 +569,7 @@ app.get('/api/admin/whatsapp/forfeits', adminAuthMiddleware, (req, res) => {
  * @returns {{payload: {text, mentions}|null, gamesCount: number}}
  */
 async function buildSaldosPayload() {
-    const games = await getRondasGames();
+    const games = await getSaldosGames();
     const saldos = computeSaldos(games);
 
     const data = rosterStore.loadRoster(OUTPUT_DIR);
@@ -1581,7 +1597,7 @@ async function start() {
         const arg = (args || '').trim().toLowerCase();
         if (arg === 'reset') {
             setResetTs(OUTPUT_DIR);
-            return '*Marcador en ceros.* Rondas y cuenta arrancan desde ahora.\nLas partidas anteriores siguen en las stats; solo salen del marcador.';
+            return '*Marcador en ceros.* Rondas y cuenta arrancan desde ahora.\nLas partidas anteriores siguen en las stats, y las deudas de la semana siguen vivas: el corte del lunes las cobra igual.';
         }
         if (arg) {
             return 'Usos:\n• *!rondas* — marcador de la sesión (rondas Bo3 y cuenta)\n• *!rondas reset* — reinicia marcador y cuenta desde este momento';

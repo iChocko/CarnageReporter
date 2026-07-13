@@ -11,13 +11,14 @@
  * es cuántas rondas netas ganó cada alineación. Se reporta eso y ellos se
  * reparten como hayan acordado.
  *
- * El neteo cruza TODAS las sesiones pendientes desde el último reset: si la
+ * El neteo cruza TODAS las sesiones pendientes desde el último corte: si la
  * misma alineación jugó martes y viernes, sus rondas se suman en una sola
  * línea. Alineaciones distintas (aunque repitan personas) van por separado
  * — el bot no puede netear entre pareos que no conoce. Un "!rondas reset"
- * manual a media semana significa "cuentas ya saldadas": el corte del lunes
- * solo cubre lo pendiente desde entonces. Las rondas a medias no cuentan
- * (regla de siempre).
+ * manual a media semana solo limpia el marcador visible: las deudas de la
+ * semana persisten y el corte del lunes las cobra igual (ventana corte a
+ * corte, no reset a corte). Las rondas a medias no cuentan (regla de
+ * siempre).
  */
 
 const fs = require('fs');
