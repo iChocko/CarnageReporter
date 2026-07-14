@@ -19,6 +19,10 @@ package-lock.json
 client/config.gen.js
 config.json
 
+# Artefactos de runtime del cliente v1.6+ (modo automático)
+client/settings.json
+client/carnage_autostart.vbs
+
 # Build Artifacts
 dist/
 build/

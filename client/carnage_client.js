@@ -6,11 +6,12 @@ const https = require('https');
 const { XMLParser } = require('fast-xml-parser');
 const chokidar = require('chokidar');
 const axios = require('axios');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+const readline = require('readline');
 
 // ============== CONFIGURACIÓN (Lanzamiento Oficial) ==============
 
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 const GITHUB_REPO = 'iChocko/CarnageReporter';
 const EXE_NAME = 'CarnageReporter.exe';
 const DISCORD_URL = 'https://discord.gg/yD6nGZ3KQX';
@@ -53,6 +54,158 @@ const CONFIG = {
         'asq_descent': 'Assembly',
     }
 };
+
+// ============== RUTAS BASE Y MODO (v1.6.0) ==============
+// Empaquetado con pkg, TODO lo que el programa escribe (settings, log,
+// updates) vive JUNTO AL EXE, nunca en el cwd: cuando Windows nos arranca
+// solo (clave Run), el cwd es System32 y ahí no se puede escribir.
+
+const IS_PKG = typeof process.pkg !== 'undefined';
+const BASE_DIR = IS_PKG ? path.dirname(process.execPath) : __dirname;
+const IS_BACKGROUND = process.argv.includes('--background');
+
+const SETTINGS_FILE = path.join(BASE_DIR, 'settings.json');
+const LOG_FILE = path.join(BASE_DIR, 'carnage_client.log');
+const VBS_FILE = path.join(BASE_DIR, 'carnage_autostart.vbs');
+const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+const RUN_VALUE = 'CarnageReporter';
+const STATUS_PORT = 47613; // candado de instancia única + estado local
+
+// ============== PREFERENCIAS (settings.json junto al exe) ==============
+
+function loadSettings(file = SETTINGS_FILE) {
+    try {
+        return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch (e) {
+        return {};
+    }
+}
+
+function saveSettings(patch, file = SETTINGS_FILE) {
+    const merged = { ...loadSettings(file), ...patch };
+    try {
+        fs.writeFileSync(file, JSON.stringify(merged, null, 2));
+    } catch (e) { }
+    return merged;
+}
+
+// ============== LOG A ARCHIVO (modo segundo plano) ==============
+// Invisible no significa mudo: todo lo que normalmente iría a la consola
+// queda en carnage_client.log junto al exe, con rotación simple a 1 MB.
+
+const LOG_MAX_BYTES = 1024 * 1024;
+
+function setupFileLogging() {
+    const emit = (prefix, args) => {
+        const text = args
+            .map(a => (a instanceof Error ? (a.stack || a.message) : (typeof a === 'string' ? a : JSON.stringify(a))))
+            .join(' ');
+        try {
+            if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > LOG_MAX_BYTES) {
+                const old = path.join(BASE_DIR, 'carnage_client.old.log');
+                try { fs.unlinkSync(old); } catch (e) { }
+                fs.renameSync(LOG_FILE, old);
+            }
+            fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}]${prefix} ${text}\n`);
+        } catch (e) { }
+    };
+    console.log = (...args) => emit('', args);
+    console.error = (...args) => emit(' [ERROR]', args);
+    console.clear = () => { };
+}
+
+// ============== INSTANCIA ÚNICA Y ESTADO LOCAL ==============
+// Un mini-servidor HTTP SOLO en 127.0.0.1 hace doble trabajo: si el puerto
+// está ocupado ya hay otra instancia (evita partidas reportadas doble), y
+// además le da a la apertura manual una forma de consultar el estado de la
+// instancia de fondo o pedirle que se apague.
+
+const STATS = { startedAt: Date.now(), reportsSent: 0, lastReportAt: null };
+
+function startStatusServer(mode) {
+    return new Promise((resolve) => {
+        const server = http.createServer((req, res) => {
+            if (req.method === 'POST' && req.url === '/shutdown') {
+                res.end('bye');
+                console.log('🛑 Apagado solicitado desde otra instancia local.');
+                setTimeout(() => process.exit(0), 200);
+                return;
+            }
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+                app: 'CarnageReporter', version: VERSION, mode,
+                startedAt: STATS.startedAt, reportsSent: STATS.reportsSent, lastReportAt: STATS.lastReportAt
+            }));
+        });
+        server.on('error', () => resolve(null)); // puerto ocupado: ya hay otra instancia
+        server.listen(STATUS_PORT, '127.0.0.1', () => resolve(server));
+    });
+}
+
+function queryRunningInstance() {
+    return new Promise((resolve) => {
+        const req = http.get({ host: '127.0.0.1', port: STATUS_PORT, path: '/', timeout: 1500 }, (res) => {
+            let data = '';
+            res.on('data', c => data += c);
+            res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { resolve(null); } });
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+    });
+}
+
+function shutdownRunningInstance() {
+    return new Promise((resolve) => {
+        const req = http.request(
+            { host: '127.0.0.1', port: STATUS_PORT, path: '/shutdown', method: 'POST', timeout: 1500 },
+            (res) => { res.on('data', () => { }); res.on('end', () => resolve(true)); }
+        );
+        req.on('error', () => resolve(false));
+        req.on('timeout', () => { req.destroy(); resolve(false); });
+        req.end();
+    });
+}
+
+// ============== ARRANQUE AUTOMÁTICO CON WINDOWS ==============
+// La clave Run de HKCU (no pide admin) apunta a wscript + un .vbs de una
+// línea que lanza el exe SIN ventana. Apuntar la clave directo al exe
+// mostraría un consolazo negro en cada arranque de Windows.
+
+function buildVbsContent(exePath, scriptPath = null) {
+    // En desarrollo el "exe" es node y hay que pasarle el script; empaquetado
+    // con pkg el exe se basta solo. Las comillas dobles ("") escapan en VBS.
+    const cmd = scriptPath
+        ? `""${exePath}"" ""${scriptPath}"" --background`
+        : `""${exePath}"" --background`;
+    return `CreateObject("WScript.Shell").Run "${cmd}", 0, False\r\n`;
+}
+
+function enableAutostart() {
+    if (process.platform !== 'win32') return false;
+    try {
+        fs.writeFileSync(VBS_FILE, buildVbsContent(process.execPath, IS_PKG ? null : __filename));
+    } catch (e) {
+        return false;
+    }
+    const r = spawnSync('reg', [
+        'add', RUN_KEY, '/v', RUN_VALUE, '/t', 'REG_SZ',
+        '/d', `wscript.exe "${VBS_FILE}"`, '/f'
+    ], { windowsHide: true });
+    return r.status === 0;
+}
+
+function disableAutostart() {
+    if (process.platform !== 'win32') return false;
+    const r = spawnSync('reg', ['delete', RUN_KEY, '/v', RUN_VALUE, '/f'], { windowsHide: true });
+    try { fs.unlinkSync(VBS_FILE); } catch (e) { }
+    return r.status === 0;
+}
+
+function launchBackgroundInstance() {
+    // Con pkg, execPath ES el exe; en desarrollo es node y hay que pasar el script
+    const args = IS_PKG ? ['--background'] : [__filename, '--background'];
+    spawn(process.execPath, args, { detached: true, stdio: 'ignore', windowsHide: true, cwd: BASE_DIR }).unref();
+}
 
 // ============== RESOLUCIÓN DE CONFIGURACIÓN ==============
 // Prioridad (de menor a mayor): config.gen.js (build) < config.json (junto al exe) < variables de entorno
@@ -149,7 +302,8 @@ function findMapCodeFromFilms(xmlDir) {
 
 function getMCCTempPath() {
     const windowsPath = path.join(os.homedir(), 'AppData', 'LocalLow', 'MCC', 'Temporary');
-    const localPath = path.join(process.cwd(), 'Maps_to_Rename');
+    // Junto al exe cuando está empaquetado: arrancados por Windows el cwd es System32
+    const localPath = path.join(IS_PKG ? BASE_DIR : process.cwd(), 'Maps_to_Rename');
 
     if (fs.existsSync(localPath)) {
         return localPath;
@@ -352,6 +506,8 @@ async function processXMLFile(filePath) {
         const response = await sendToServer(gameData, players, filename);
 
         if (response.status === 'processed') {
+            STATS.reportsSent++;
+            STATS.lastReportAt = Date.now();
             console.log(`   ✅ Datos guardados correctamente.`);
         } else if (response.status === 'duplicate') {
             console.log(`   ⏭️  Esta partida ya estaba en el sistema.`);
@@ -433,15 +589,23 @@ async function checkForUpdates() {
                 }
             });
 
-            const tempExe = path.join(process.cwd(), 'update_temp.exe');
+            // Siempre junto al exe: en modo automático el cwd es System32
+            const tempExe = path.join(BASE_DIR, 'update_temp.exe');
             fs.writeFileSync(tempExe, downloadRes.data);
 
             console.log('✅ Descarga completa. Reiniciando para aplicar cambios...');
 
             // Crear script de reemplazo (.bat para Windows)
             const currentExe = process.execPath;
-            const exeName = path.basename(currentExe);
-            const batPath = path.join(process.cwd(), 'updater.bat');
+            const batPath = path.join(BASE_DIR, 'updater.bat');
+
+            // En segundo plano el relanzamiento debe ser invisible (via el
+            // .vbs de autoarranque); en manual se reabre la consola normal.
+            let relaunch = `start "" "${currentExe}"`;
+            if (IS_BACKGROUND) {
+                try { fs.writeFileSync(VBS_FILE, buildVbsContent(currentExe)); } catch (e) { }
+                relaunch = `start "" wscript.exe "${VBS_FILE}"`;
+            }
 
             // Usar rutas absolutas y escapar correctamente
             const batContent = `@echo off
@@ -453,7 +617,7 @@ if exist "${currentExe}" (
     del /f /q "${currentExe}"
 )
 move /y "${tempExe}" "${currentExe}"
-start "" "${currentExe}"
+${relaunch}
 del /f /q "%~f0"
 `;
 
@@ -463,7 +627,8 @@ del /f /q "%~f0"
             spawn('cmd.exe', ['/c', batPath], {
                 detached: true,
                 stdio: 'ignore',
-                cwd: process.cwd()
+                windowsHide: IS_BACKGROUND,
+                cwd: BASE_DIR
             }).unref();
 
             process.exit(0);
@@ -480,27 +645,10 @@ del /f /q "%~f0"
     }
 }
 
-// ============== MAIN ==============
+// ============== PIEZAS COMPARTIDAS DE ARRANQUE ==============
 
-async function main() {
-    console.clear();
-    console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║               CARNAGE REPORTER - HALO 3                  ║');
-    console.log(`║                 Registro de Estadísticas v${VERSION}        ║`);
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
-
-    // Resolver configuración (API key y servidor)
-    if (!resolveConfig()) {
-        console.log('\nPresiona Ctrl+C para salir.');
-        return;
-    }
-
-    // Revisar actualizaciones al iniciar
-    await checkForUpdates();
-
+async function verifyServerConnection() {
     console.log(`\nServidor: ${CONFIG.serverUrl.replace(/^https?:\/\//, '')}`);
-
-    // Verificar conexión
     try {
         const url = new URL(`${CONFIG.serverUrl}/api/health`);
         const isHttps = url.protocol === 'https:';
@@ -518,12 +666,10 @@ async function main() {
     } catch (error) {
         console.log('⚠️  Servidor fuera de línea. Se intentará reconectar al jugar.');
     }
+}
 
+function startWatcher() {
     const watchDir = getMCCTempPath();
-    console.log('\n📡 REGISTRO ACTIVO');
-    console.log('   No cierres esta ventana mientras juegas para guardar tus stats.');
-    console.log(`\n🎮 Discord: ${DISCORD_URL}`);
-
     const watcher = chokidar.watch(path.join(watchDir, '*.xml'), {
         persistent: true,
         ignoreInitial: true,
@@ -544,10 +690,210 @@ async function main() {
         watcher.close();
         process.exit(0);
     });
+    return watcher;
+}
+
+// ============== MODO SEGUNDO PLANO (--background) ==============
+// Sin ventana, sin prompts: Windows nos arranca vía la clave Run + el .vbs.
+// Todo va a la bitácora, y el estado se consulta abriendo el exe a mano.
+
+async function runBackground() {
+    setupFileLogging();
+    console.log(`🚀 CarnageReporter v${VERSION} arrancando en segundo plano (${BASE_DIR})`);
+    // Invisible no puede tronar en silencio Y morir: se registra y se sigue
+    process.on('uncaughtException', (e) => console.error('Error no capturado:', e));
+    process.on('unhandledRejection', (e) => console.error('Promesa rechazada:', e));
+
+    if (!resolveConfig()) {
+        console.error('Sin API key configurada; no puedo registrar partidas. Saliendo.');
+        process.exit(1);
+    }
+
+    const server = await startStatusServer('background');
+    if (!server) {
+        console.log('Ya hay otra instancia corriendo; me retiro para no duplicar reportes.');
+        process.exit(0);
+    }
+
+    // Nadie va a volver a abrir el exe a mano: las actualizaciones llegan
+    // solas — al arrancar la compu y luego una revisión diaria silenciosa.
+    await checkForUpdates();
+    setInterval(() => checkForUpdates().catch(() => { }), 24 * 60 * 60 * 1000);
+
+    await verifyServerConnection();
+    startWatcher();
+    console.log('📡 Registro activo (modo automático). Vigilando la carpeta de MCC.');
+}
+
+// ============== MODO INTERACTIVO (doble clic de siempre) ==============
+
+function ask(question) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    return new Promise(resolve => rl.question(question, answer => { rl.close(); resolve(answer.trim()); }));
+}
+
+async function askYesNo(question) {
+    for (; ;) {
+        const a = (await ask(question)).toLowerCase();
+        if (['s', 'si', 'sí', 'y'].includes(a)) return true;
+        if (['n', 'no'].includes(a)) return false;
+        console.log('   Responde S o N, porfa.');
+    }
+}
+
+function fmtAgo(ts) {
+    if (!ts) return 'ninguna todavía';
+    const min = Math.round((Date.now() - ts) / 60000);
+    if (min < 1) return 'hace un momento';
+    if (min < 60) return `hace ${min} min`;
+    const h = Math.round(min / 60);
+    return h < 24 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`;
+}
+
+/**
+ * Activa el modo automático: registra el arranque con Windows, lanza la
+ * instancia invisible y programa el cierre de esta ventana. beforeLaunch
+ * permite soltar recursos (watcher/puerto) antes de lanzar el fondo.
+ */
+async function activateAutomaticMode(beforeLaunch = null) {
+    if (!enableAutostart()) {
+        console.log('\n⚠️  No pude registrar el arranque automático en Windows. Seguimos en modo manual.');
+        return false;
+    }
+    saveSettings({ autostart: 'on' });
+    if (beforeLaunch) await beforeLaunch();
+    launchBackgroundInstance();
+    console.log('\n✅ ¡Listo! El modo automático quedó activado.');
+    console.log('   Desde ahora me prendo solo cuando prendas tu compu y tus retas');
+    console.log('   se suben solitas. Esta ventana se cierra en 15 segundos.');
+    setTimeout(() => process.exit(0), 15000);
+    return true;
+}
+
+async function promptActivation() {
+    console.log('╔══════════════════════════════════════════════════╗');
+    console.log('║              ¡NUEVO! MODO AUTOMÁTICO             ║');
+    console.log('╚══════════════════════════════════════════════════╝\n');
+    console.log('¿Quieres que el registro de partidas se encienda');
+    console.log('solo cada vez que prendas tu compu?\n');
+    console.log('Así ya no tienes que abrir nada: tus retas se');
+    console.log('suben solitas al bot.\n');
+    return askYesNo('Escribe S para activar, N para seguir como antes: ');
+}
+
+async function interactiveMenu(inst) {
+    console.log(`✅ El modo automático está ACTIVO en segundo plano (v${inst.version}).`);
+    console.log(`   Corriendo desde: ${new Date(inst.startedAt).toLocaleString()}`);
+    console.log(`   Partidas enviadas: ${inst.reportsSent} · Última: ${fmtAgo(inst.lastReportAt)}`);
+    console.log(`   Bitácora: ${LOG_FILE}\n`);
+
+    for (; ;) {
+        console.log('¿Qué quieres hacer?');
+        console.log('  [1] Actualizar estado');
+        console.log('  [2] Desactivar el modo automático');
+        console.log('  [3] Salir');
+        const opt = await ask('Opción: ');
+
+        if (opt === '1') {
+            const fresh = await queryRunningInstance();
+            if (!fresh) {
+                console.log('\n⚠️  La instancia de fondo ya no responde.\n');
+                continue;
+            }
+            console.log(`\n   v${fresh.version} · corriendo desde ${new Date(fresh.startedAt).toLocaleString()}`);
+            console.log(`   Partidas enviadas: ${fresh.reportsSent} · Última: ${fmtAgo(fresh.lastReportAt)}\n`);
+        } else if (opt === '2') {
+            const sure = await askYesNo('\n¿Seguro? Ya no me prenderé solo y tendrás que abrirme a mano para registrar tus partidas (S/N): ');
+            if (!sure) { console.log(''); continue; }
+            disableAutostart();
+            saveSettings({ autostart: 'no' });
+            await shutdownRunningInstance();
+            console.log('\n👋 Listo: modo automático desactivado y registro de fondo detenido.');
+            const manual = await askYesNo('¿Dejo esta ventana registrando en modo manual mientras tanto? (S/N): ');
+            if (manual) return runManualWatch(loadSettings());
+            console.log('\nHasta la próxima. Puedes cerrar esta ventana.');
+            return;
+        } else if (opt === '3') {
+            console.log('\nTodo sigue corriendo en el fondo. Puedes cerrar esta ventana.');
+            return;
+        } else {
+            console.log('   Opción no válida.\n');
+        }
+    }
+}
+
+async function runManualWatch(settings) {
+    await verifyServerConnection();
+
+    const statusServer = await startStatusServer('manual');
+    const watcher = startWatcher();
+
+    console.log('\n📡 REGISTRO ACTIVO');
+    console.log('   No cierres esta ventana mientras juegas para guardar tus stats.');
+    if (settings.autostart === 'no') {
+        console.log('\n💡 ¿Cansado de abrirme a mano? Escribe A y Enter para activar el modo automático.');
+        const rl = readline.createInterface({ input: process.stdin });
+        rl.on('line', async (line) => {
+            if (line.trim().toLowerCase() !== 'a') return;
+            console.log('\n⚙️  Activando el modo automático...');
+            await activateAutomaticMode(async () => {
+                rl.close();
+                await watcher.close();
+                if (statusServer) statusServer.close();
+            });
+        });
+    }
+    console.log(`\n🎮 Discord: ${DISCORD_URL}`);
+}
+
+async function runInteractive() {
+    console.clear();
+    console.log('╔══════════════════════════════════════════════════════════╗');
+    console.log('║               CARNAGE REPORTER - HALO 3                  ║');
+    console.log(`║                 Registro de Estadísticas v${VERSION}        ║`);
+    console.log('╚══════════════════════════════════════════════════════════╝\n');
+
+    // Resolver configuración (API key y servidor)
+    if (!resolveConfig()) {
+        console.log('\nPresiona Ctrl+C para salir.');
+        return;
+    }
+
+    // Con una instancia de fondo corriendo NO se busca update desde aquí:
+    // el exe está bloqueado por ella y el reemplazo fallaría; ella misma se
+    // actualiza sola (al arrancar y cada 24 h).
+    let running = await queryRunningInstance();
+    if (!running) await checkForUpdates();
+
+    const settings = loadSettings();
+
+    if (!running && settings.autostart === 'on') {
+        console.log('♻️  El modo automático está activado pero no estaba corriendo. Lo arranco...');
+        launchBackgroundInstance();
+        await new Promise(r => setTimeout(r, 1500));
+        running = await queryRunningInstance();
+    }
+
+    if (running) return interactiveMenu(running);
+
+    if (settings.autostart === undefined && process.platform === 'win32') {
+        if (await promptActivation()) {
+            if (await activateAutomaticMode()) return;
+        } else {
+            saveSettings({ autostart: 'no' });
+            console.log('\n👍 Va, seguimos como antes.');
+        }
+    }
+
+    await runManualWatch(loadSettings());
 }
 
 if (require.main === module) {
-    main().catch(console.error);
+    (IS_BACKGROUND ? runBackground() : runInteractive()).catch(console.error);
 } else {
-    module.exports = { parseXML, resolveConfig, CONFIG, VERSION, extractMapCodeFromFilmName, findMapCodeFromFilms };
+    module.exports = {
+        parseXML, resolveConfig, CONFIG, VERSION,
+        extractMapCodeFromFilmName, findMapCodeFromFilms,
+        buildVbsContent, isNewerVersion, loadSettings, saveSettings
+    };
 }
