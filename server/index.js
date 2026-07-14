@@ -662,6 +662,30 @@ app.post('/api/admin/whatsapp/send-saldos', adminAuthMiddleware, async (req, res
     }
 });
 
+/**
+ * Anuncio operativo al grupo (avisos de nuevas versiones del cliente, etc.).
+ * POST /api/admin/whatsapp/announce  Body: { text, format? ('2v2'|'4v4') }
+ */
+app.post('/api/admin/whatsapp/announce', adminAuthMiddleware, async (req, res) => {
+    try {
+        const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+        if (!text) return res.status(400).json({ error: 'Falta text' });
+        if (text.length > 4000) return res.status(400).json({ error: 'Texto demasiado largo' });
+        // El bot procesa sus propios mensajes (message_create): un anuncio que
+        // empiece con "!" dispararía un comando en bucle.
+        if (text.startsWith('!')) return res.status(400).json({ error: 'El anuncio no puede empezar con "!"' });
+        if (!whatsapp.isReady()) return res.status(503).json({ error: 'WhatsApp no está listo' });
+        const format = req.body?.format === '4v4' ? '4v4' : '2v2';
+        const chatId = whatsapp.groupIdFor(format);
+        if (!chatId) return res.status(503).json({ error: `Sin grupo ${format} configurado` });
+        const ok = await whatsapp.sendMessage(text, chatId, { waitUntilMsgSent: true });
+        res.json({ sent: ok, format });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 const JID_SHAPE = /^\d{5,20}@(c\.us|lid)$/;
 
 app.post('/api/admin/whatsapp/roster', adminAuthMiddleware, async (req, res) => {
