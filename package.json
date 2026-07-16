@@ -12,6 +12,7 @@
     "test:rondas": "node tests/test_rondas_live.js",
     "test:equipos": "node tests/test_equipos_menciones.js",
     "test:perdida": "node tests/test_perdida.js",
+    "test:anular": "node tests/test_anular.js",
     "test:saldos": "node tests/test_saldos.js",
     "test:client": "node tests/test_client_autostart.js",
     "build": "pkg client/carnage_client.js --targets node18-win-x64 --output dist/CarnageReporter.exe"
