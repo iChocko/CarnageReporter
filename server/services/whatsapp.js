@@ -551,6 +551,19 @@ class WhatsAppService {
         this.resolvedGroups = {};
         this.chatIdToFormat = {};
 
+        // Siembra desde los IDs configurados en env: los comandos entrantes
+        // (chatIdToFormat) y los envíos funcionan aunque getChats() falle —
+        // en prod falla a veces justo tras conectar y no hay reintento, lo
+        // que dejaba al bot sordo a todos los comandos. getChats() abajo
+        // solo verifica pertenencia y refina el nombre visible del grupo.
+        for (const format of ['2v2', '4v4']) {
+            const cfg = this.groupConfig[format];
+            if (cfg?.id) {
+                this.resolvedGroups[format] = { id: cfg.id, name: cfg.name || null };
+                this.chatIdToFormat[cfg.id] = format;
+            }
+        }
+
         if (!this.ready || !this.client) return;
 
         let groups = [];
@@ -558,7 +571,7 @@ class WhatsAppService {
             const chats = await this.client.getChats();
             groups = chats.filter(chat => chat.isGroup);
         } catch (error) {
-            console.error('❌ Error obteniendo chats:', error.message);
+            console.error('❌ Error obteniendo chats (los grupos quedan con el ID configurado):', error.message);
             return;
         }
 
