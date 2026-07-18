@@ -196,6 +196,13 @@ app.get('/api/status', (req, res) => {
  * POST /api/report
  * Body: { gameData, players, filename }
  */
+
+// Varios jugadores de la misma partida corren el cliente, así que el mismo
+// gameUniqueId llega 2+ veces con segundos de diferencia. El chequeo contra la
+// BD no cubre ese caso (la partida se guarda hasta el final, tras render y
+// envíos): el primer reporte toma el candado y los simultáneos rebotan aquí.
+const inFlightReports = new Set();
+
 app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
     const { gameData, players, filename } = req.body;
     const schemaVersion = parseInt(req.body.schemaVersion || 1, 10);
@@ -208,6 +215,26 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
 
     const gameId = gameData.gameUniqueId;
     console.log(`\n📥 Recibido reporte: ${gameId} (${gameData.mapName}) [v${schemaVersion}${clientVersion ? `, cliente ${clientVersion}` : ''}, ${players.length} jugadores]`);
+
+    if (inFlightReports.has(gameId)) {
+        console.log(`⏭️  Juego ${gameId} ya está en proceso (reporte simultáneo de otro cliente), saltando`);
+        return res.json({
+            status: 'duplicate',
+            gameId,
+            message: 'Este juego ya está siendo procesado'
+        });
+    }
+    inFlightReports.add(gameId);
+
+    // El timestamp viene del reloj de la máquina de cada cliente y no es
+    // confiable (una llegó 6h adelantada y rompió el agrupado de sesiones).
+    // El reporte llega segundos después de terminar la partida: cualquier
+    // timestamp en el futuro se reemplaza por la hora del servidor.
+    const tsMs = new Date(gameData.timestamp).getTime();
+    if (!Number.isFinite(tsMs) || tsMs > Date.now() + 10 * 60 * 1000) {
+        console.log(`⚠️  Timestamp inválido o futuro en ${gameId} (${gameData.timestamp}) — se usa la hora del servidor`);
+        gameData.timestamp = new Date().toISOString();
+    }
 
     try {
         // 1. Verificar duplicados en Supabase
@@ -318,6 +345,8 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
             gameId,
             error: 'Error interno procesando el reporte'
         });
+    } finally {
+        inFlightReports.delete(gameId);
     }
 });
 
