@@ -35,6 +35,7 @@ class WhatsAppService {
         this.initTimeoutMs = 180000; // 180s (VPS lentos)
         this.maxRetries = 5;
         this.baseRetryDelayMs = 1000;
+        this.initRetryCount = 0; // fallos consecutivos de initialize(); se resetea al llegar a 'ready'
         this.commands = new Map(); // trigger (lowercase) -> async handler que devuelve el texto de respuesta
         this.ownIds = new Set();   // JIDs propios del bot (wid + su LID), para detectar auto-menciones
 
@@ -96,6 +97,21 @@ class WhatsAppService {
     getRetryDelay(attempt) {
         // Backoff exponencial: 1s, 2s, 4s, 8s, 16s (cap 30s)
         return Math.min(this.baseRetryDelayMs * Math.pow(2, attempt - 1), 30000);
+    }
+
+    /**
+     * Reintento de conexión con backoff (cap 30s), indefinido hasta que
+     * 'ready' resetee initRetryCount. Libera isRestarting primero: si no,
+     * un fallo de initialize() deja la bandera pegada en true para siempre
+     * y bloquea cualquier restart() futuro (keep-alive, 'disconnected', etc).
+     */
+    scheduleReconnect() {
+        if (!this.enabled) return;
+        this.isRestarting = false;
+        this.initRetryCount++;
+        const delay = this.getRetryDelay(this.initRetryCount);
+        console.log(`🔁 Reintentando conexión de WhatsApp en ${delay / 1000}s (intento ${this.initRetryCount})...`);
+        setTimeout(() => this.restart(), delay);
     }
 
     async ensureConnection() {
@@ -177,6 +193,7 @@ class WhatsAppService {
                 this.status = 'ready';
                 this.currentQR = null;
                 this.isRestarting = false;
+                this.initRetryCount = 0;
                 console.log('📱 WhatsApp listo.');
 
                 // Resolver ambos grupos (2v2 y 4v4) desde su config de env
@@ -216,6 +233,7 @@ class WhatsAppService {
             this.client.initialize().catch((error) => {
                 console.error('❌ Error inicializando WhatsApp:', error.message);
                 this.status = 'disconnected';
+                this.scheduleReconnect();
                 resolve();
             });
 
@@ -223,6 +241,7 @@ class WhatsAppService {
             setTimeout(() => {
                 if (!this.ready && !this.isRestarting) {
                     console.log(`⚠️  WhatsApp timeout (${this.initTimeoutMs / 1000}s) - el servidor sigue sin WhatsApp`);
+                    this.scheduleReconnect();
                     resolve();
                 }
             }, this.initTimeoutMs);
