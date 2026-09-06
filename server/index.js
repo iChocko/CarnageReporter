@@ -311,6 +311,10 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
             } else {
                 console.log(`   ⚠️  Sin grupo de WhatsApp configurado para ${format}`);
             }
+        } else if (process.env.WHATSAPP_ENABLED === 'true') {
+            // Que la omisión quede en el log: una sesión caída (waiting_qr)
+            // pasaba días sin ninguna traza en los reportes.
+            console.log(`   ⚠️  WhatsApp (${format}): omitido, servicio en estado '${whatsapp.getStatus().status}'`);
         }
 
         // 8. Guardar en Supabase
@@ -1673,6 +1677,10 @@ async function start() {
         console.log(`   GET  /api/status - Estado del servidor`);
         console.log('\n👀 Esperando reportes de clientes...\n');
     });
+
+    // Avisos operativos de WhatsApp (sesión caída / recuperada) al Discord 2v2,
+    // que es el canal que sí sigue vivo cuando WhatsApp se cae.
+    whatsapp.setAlertHandler(text => discord.sendMessage(text));
 
     // Inicializar WhatsApp en segundo plano (no bloquea el arranque de Express)
     whatsapp.initialize().catch(err => {

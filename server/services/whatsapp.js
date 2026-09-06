@@ -38,6 +38,10 @@ class WhatsAppService {
         this.initRetryCount = 0; // fallos consecutivos de initialize(); se resetea al llegar a 'ready'
         this.commands = new Map(); // trigger (lowercase) -> async handler que devuelve el texto de respuesta
         this.ownIds = new Set();   // JIDs propios del bot (wid + su LID), para detectar auto-menciones
+        // Aviso fuera de WhatsApp (Discord) cuando la sesión se cae y pide QR:
+        // sin esto la caída es silenciosa (los reportes solo omiten WhatsApp).
+        this.alertHandler = null;
+        this.sessionLostAlerted = false; // un aviso por episodio, no por cada QR (se regenera cada ~30s)
 
         if (!this.enabled) {
             console.log('📴 WhatsApp deshabilitado (WHATSAPP_ENABLED != true)');
@@ -92,6 +96,22 @@ class WhatsAppService {
         };
 
         cleanDirectory(this.authPath);
+    }
+
+    /**
+     * Canal de avisos operativos ajeno a WhatsApp (ej. webhook de Discord).
+     * @param {(text: string) => Promise<boolean>|boolean} fn
+     */
+    setAlertHandler(fn) {
+        this.alertHandler = typeof fn === 'function' ? fn : null;
+    }
+
+    /** Best effort: nunca lanza ni bloquea el flujo de conexión. */
+    notifyAlert(text) {
+        if (!this.alertHandler) return;
+        Promise.resolve()
+            .then(() => this.alertHandler(text))
+            .catch(err => console.error('⚠️  No se pudo enviar el aviso de WhatsApp:', err.message));
     }
 
     getRetryDelay(attempt) {
@@ -181,6 +201,12 @@ class WhatsAppService {
                 console.log('╚════════════════════════════════════════════╝');
                 console.log('También disponible en: GET /api/admin/whatsapp/qr\n');
                 qrcodeTerminal.generate(qr, { small: true });
+                if (!this.sessionLostAlerted) {
+                    this.sessionLostAlerted = true;
+                    this.notifyAlert('🔴 **WhatsApp del bot sin sesión**: pide escanear el QR de nuevo. ' +
+                        'Mientras tanto NO se envían reportes, rondas ni comandos al grupo. ' +
+                        'QR en GET /api/admin/whatsapp/qr (o `docker logs -f carnage-dashboard`).');
+                }
             });
 
             this.client.on('authenticated', () => {
@@ -195,6 +221,10 @@ class WhatsAppService {
                 this.isRestarting = false;
                 this.initRetryCount = 0;
                 console.log('📱 WhatsApp listo.');
+                if (this.sessionLostAlerted) {
+                    this.sessionLostAlerted = false;
+                    this.notifyAlert('🟢 WhatsApp del bot vinculado de nuevo: los envíos al grupo se reanudan.');
+                }
 
                 // Resolver ambos grupos (2v2 y 4v4) desde su config de env
                 await this.resolveGroups();
