@@ -106,6 +106,12 @@ class ShadowPort extends MessagingPort {
     }
 
     getPairing() { return this.inner.getPairing(); }
+    /** Shim legacy (GET /api/admin/whatsapp/qr): el QR pendiente o null. */
+    getQR() {
+        if (typeof this.inner.getQR === 'function') return this.inner.getQR();
+        const pairing = this.inner.getPairing && this.inner.getPairing();
+        return (pairing && pairing.qr) || null;
+    }
     async requestPairingCode(phone) { return this.inner.requestPairingCode(phone); }
     groupIdFor(format) { return this.inner.groupIdFor(format); }
     formatForChat(chatId) { return this.inner.formatForChat(chatId); }

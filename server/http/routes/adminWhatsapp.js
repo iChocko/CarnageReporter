@@ -62,7 +62,10 @@ function createAdminWhatsappRouter(ctx) {
     router.get('/api/admin/whatsapp/qr', adminAuth, asyncHandler(async (req, res) => {
         const port = resolveTransportPort(ctx, req, res);
         if (!port) return;
-        const qr = port.getQR();
+        // getQR() es el shim legacy; los puertos del contrato exponen getPairing().
+        const qr = typeof port.getQR === 'function'
+            ? port.getQR()
+            : ((port.getPairing && port.getPairing()) || {}).qr || null;
         if (!qr) {
             return res.status(204).end();
         }

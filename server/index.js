@@ -100,6 +100,14 @@ async function start() {
         log.error({ err }, '❌ WhatsApp no pudo inicializar');
     });
 
+    // Fase A5 — transporte sombra (solo lectura), si WHATSAPP_SHADOW_TRANSPORT
+    // está configurado: arranca en paralelo al primario con su propia sesión.
+    if (whatsapp.shadow) {
+        whatsapp.shadow.start().catch(err => {
+            log.error({ err }, '❌ WhatsApp (sombra) no pudo inicializar');
+        });
+    }
+
     // Outbox worker (Fase A4), solo si OUTBOX_ENABLED=true. Arranca aparte de
     // WhatsApp: recoverStuck()/el polling no dependen de que la sesión esté
     // lista (SendError('not_ready') se maneja sin contar intento).
