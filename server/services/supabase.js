@@ -48,10 +48,18 @@ class SupabaseService {
     }
 
     /**
-     * Guarda un juego y sus jugadores en Supabase
+     * Guarda un juego y sus jugadores en Supabase.
+     *
+     * Fase A0: cualquier error de Supabase (juego o jugadores) TRUENA
+     * (throw) en vez de tragarse el error y devolver false. Antes, un fallo
+     * a medio guardar dejaba una partida que /api/report contestaba como
+     * "processed" sin haber quedado realmente persistida; ahora el error
+     * sube hasta el try/catch del endpoint, que responde 500.
+     *
      * @param {object} gameData - Datos del juego
      * @param {array} players - Lista de jugadores
      * @param {object} [meta] - { isVoided, voidReason, schemaVersion, clientVersion }
+     * @throws {Error} si el upsert del juego o el de jugadores falla
      */
     async saveGame(gameData, players, meta = {}) {
         if (!this.client) {
@@ -62,105 +70,103 @@ class SupabaseService {
         const { isVoided = false, voidReason = null, schemaVersion = 1, clientVersion = null,
                 mapCode = null, format = null } = meta;
 
-        try {
-            // 1. Insertar el juego (upsert para evitar duplicados)
-            const { error: gameError } = await this.client
-                .from('games')
-                .upsert({
-                    game_unique_id: gameData.gameUniqueId,
-                    game_enum: gameData.gameEnum,
-                    is_matchmaking: gameData.isMatchmaking,
-                    is_teams_enabled: gameData.isTeamsEnabled,
-                    hopper_name: gameData.hopperName,
-                    game_type_name: gameData.gameTypeName,
-                    map_name: gameData.mapName,
-                    timestamp: new Date(gameData.timestamp).toISOString(),
-                    // Guardar el tiempo local de CDMX desplazando el UTC para que se vea la hora nominal correcta en la DB
-                    timestamp_cdmx: new Date(new Date(gameData.timestamp).getTime() - (6 * 60 * 60 * 1000)).toISOString(),
-                    duration: gameData.duration || 0,
-                    playlist_name: gameData.playlistName || null,
-                    last_match_incomplete: gameData.lastMatchIncomplete === true,
-                    party_size: gameData.partySize ?? null,
-                    is_voided: isVoided,
-                    void_reason: voidReason,
-                    schema_version: schemaVersion,
-                    client_version: clientVersion,
-                    map_code: mapCode,
-                    format: format
-                }, { onConflict: 'game_unique_id' });
+        // 1. Insertar el juego (upsert para evitar duplicados)
+        const { error: gameError } = await this.client
+            .from('games')
+            .upsert({
+                game_unique_id: gameData.gameUniqueId,
+                game_enum: gameData.gameEnum,
+                is_matchmaking: gameData.isMatchmaking,
+                is_teams_enabled: gameData.isTeamsEnabled,
+                hopper_name: gameData.hopperName,
+                game_type_name: gameData.gameTypeName,
+                map_name: gameData.mapName,
+                timestamp: new Date(gameData.timestamp).toISOString(),
+                // Guardar el tiempo local de CDMX desplazando el UTC para que se vea la hora nominal correcta en la DB
+                timestamp_cdmx: new Date(new Date(gameData.timestamp).getTime() - (6 * 60 * 60 * 1000)).toISOString(),
+                duration: gameData.duration || 0,
+                playlist_name: gameData.playlistName || null,
+                last_match_incomplete: gameData.lastMatchIncomplete === true,
+                party_size: gameData.partySize ?? null,
+                is_voided: isVoided,
+                void_reason: voidReason,
+                schema_version: schemaVersion,
+                client_version: clientVersion,
+                map_code: mapCode,
+                format: format
+            }, { onConflict: 'game_unique_id' });
 
-            if (gameError) {
-                throw new Error(`Error guardando juego: ${gameError.message}`);
-            }
+        if (gameError) {
+            throw new Error(`Error guardando juego: ${gameError.message}`);
+        }
 
-            // 2. Insertar jugadores con índices y cálculos.
-            // Agrupar por CUALQUIER teamId presente (no solo 0/1): en FFA o
-            // partidas multi-equipo antes se perdían los jugadores de otros equipos.
-            const teams = new Map();
-            for (const p of players) {
-                const teamId = p.teamId ?? 0;
-                if (!teams.has(teamId)) teams.set(teamId, []);
-                teams.get(teamId).push(p);
-            }
+        // 2. Insertar jugadores con índices y cálculos, en UN SOLO upsert en
+        // lote (antes era un upsert por jugador). Agrupar por CUALQUIER
+        // teamId presente (no solo 0/1): en FFA o partidas multi-equipo
+        // antes se perdían los jugadores de otros equipos.
+        const teams = new Map();
+        for (const p of players) {
+            const teamId = p.teamId ?? 0;
+            if (!teams.has(teamId)) teams.set(teamId, []);
+            teams.get(teamId).push(p);
+        }
 
-            const playersWithIndex = [];
-            for (const teamPlayers of teams.values()) {
-                teamPlayers
-                    .sort((a, b) => b.score - a.score)
-                    .forEach((p, idx) => playersWithIndex.push({ ...p, playerIndex: idx }));
-            }
+        const playersWithIndex = [];
+        for (const teamPlayers of teams.values()) {
+            teamPlayers
+                .sort((a, b) => b.score - a.score)
+                .forEach((p, idx) => playersWithIndex.push({ ...p, playerIndex: idx }));
+        }
 
-            for (const p of playersWithIndex) {
+        if (playersWithIndex.length > 0) {
+            const rows = playersWithIndex.map(p => {
                 // Calcular K/D ratio
                 const kdRatio = p.deaths > 0 ? (p.kills / p.deaths) : p.kills;
+                return {
+                    game_unique_id: gameData.gameUniqueId,
+                    xbox_user_id: p.xboxUserId,
+                    gamertag: p.gamertag,
+                    clan_tag: p.clanTag,
+                    service_id: p.serviceId,
+                    team_id: p.teamId,
+                    score: p.score,
+                    standing: p.standing,
+                    kills: p.kills,
+                    deaths: p.deaths,
+                    assists: p.assists,
+                    betrayals: p.betrayals,
+                    suicides: p.suicides,
+                    most_kills_in_a_row: p.killingSpree || p.mostKillsInARow || 0,
+                    seconds_played: p.secondsPlayed || 0,
+                    seconds_alive: p.secondsAlive || 0,
+                    completed_game: (p.completedGame === 0 || p.completedGame === 1) ? p.completedGame : null,
+                    kills_weapon: p.killsWeapon || 0,
+                    kills_grenade: p.killsGrenade || 0,
+                    kills_melee: p.killsMelee || 0,
+                    kills_other: p.killsOther || 0,
+                    is_guest: p.isGuest === true,
+                    medals: Array.isArray(p.medals) && p.medals.length > 0 ? p.medals : null,
+                    // Campos calculados
+                    player_index: p.playerIndex,
+                    kd_ratio: Math.round(kdRatio * 100) / 100 // Redondear a 2 decimales
+                };
+            });
 
-                const { error: playerError } = await this.client
-                    .from('players')
-                    .upsert({
-                        game_unique_id: gameData.gameUniqueId,
-                        xbox_user_id: p.xboxUserId,
-                        gamertag: p.gamertag,
-                        clan_tag: p.clanTag,
-                        service_id: p.serviceId,
-                        team_id: p.teamId,
-                        score: p.score,
-                        standing: p.standing,
-                        kills: p.kills,
-                        deaths: p.deaths,
-                        assists: p.assists,
-                        betrayals: p.betrayals,
-                        suicides: p.suicides,
-                        most_kills_in_a_row: p.killingSpree || p.mostKillsInARow || 0,
-                        seconds_played: p.secondsPlayed || 0,
-                        seconds_alive: p.secondsAlive || 0,
-                        completed_game: (p.completedGame === 0 || p.completedGame === 1) ? p.completedGame : null,
-                        kills_weapon: p.killsWeapon || 0,
-                        kills_grenade: p.killsGrenade || 0,
-                        kills_melee: p.killsMelee || 0,
-                        kills_other: p.killsOther || 0,
-                        is_guest: p.isGuest === true,
-                        medals: Array.isArray(p.medals) && p.medals.length > 0 ? p.medals : null,
-                        // Campos calculados
-                        player_index: p.playerIndex,
-                        kd_ratio: Math.round(kdRatio * 100) / 100 // Redondear a 2 decimales
-                    }, {
-                        onConflict: 'game_unique_id,xbox_user_id',
-                        ignoreDuplicates: true
-                    });
+            const { error: playersError } = await this.client
+                .from('players')
+                .upsert(rows, {
+                    onConflict: 'game_unique_id,xbox_user_id',
+                    ignoreDuplicates: true
+                });
 
-                if (playerError && !playerError.message.includes('duplicate')) {
-                    console.error(`⚠️  Error inserting player ${p.gamertag}:`, playerError.message);
-                }
+            if (playersError) {
+                throw new Error(`Error guardando jugadores: ${playersError.message}`);
             }
-
-            this.processedCount++;
-            console.log(`✅ Juego ${gameData.gameUniqueId} guardado en Supabase${isVoided ? ` (ANULADO: ${voidReason})` : ''}`);
-            return true;
-
-        } catch (error) {
-            console.error('❌ Error guardando en Supabase:', error.message);
-            return false;
         }
+
+        this.processedCount++;
+        console.log(`✅ Juego ${gameData.gameUniqueId} guardado en Supabase${isVoided ? ` (ANULADO: ${voidReason})` : ''}`);
+        return true;
     }
 
     /**
