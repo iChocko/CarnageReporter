@@ -12,25 +12,38 @@ const SUCCESS_STATUSES = ['processed', 'duplicate', 'voided', 'skipped'];
  *  - 'done'         : 200 con un status de éxito conocido.
  *  - 'retry'        : sin conexión, timeout, 429, 5xx, o 200 con status "error".
  *  - 'reject'       : 400, o 200 con un cuerpo que no reconocemos.
- *  - 'unauthorized' : 401/403 (API key inválida o revocada).
+ *  - 'unauthorized' : 401/403 (API key inválida).
+ *  - 'revoked'      : 403 con body.status === 'revoked' (esta instalación puntual).
+ *  - 'upgrade'      : 426 con body.status === 'upgrade_required'.
+ *
+ * `config` puede traer `installId` y `gamertag` (identidad de la
+ * instalación, Fase B3): se mandan como X-Install-Id/X-Gamertag-Hint además
+ * del campo installId en el cuerpo.
  */
 async function sendReport(config, gameData, players, filename, version, timeoutMs = 30000) {
     const payload = JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
         clientVersion: version,
+        installId: config.installId || null,
+        clientSentAt: new Date().toISOString(),
         gameData,
         players,
         filename
     });
 
+    const headers = {
+        'Content-Type': 'application/json',
+        'X-API-Key': config.apiKey,
+        'X-Install-Id': config.installId || '',
+        'User-Agent': `CarnageReporter/${version}`
+    };
+    if (config.gamertag) headers['X-Gamertag-Hint'] = config.gamertag;
+
     let res;
     try {
         res = await fetch(`${config.serverUrl}/api/report`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-API-Key': config.apiKey
-            },
+            headers,
             body: payload,
             signal: AbortSignal.timeout(timeoutMs)
         });
@@ -47,10 +60,24 @@ async function sendReport(config, gameData, players, filename, version, timeoutM
         body = null;
     }
 
+    if (res.status === 403 && body && body.status === 'revoked') {
+        return { kind: 'revoked', status: res.status, body };
+    }
     if (res.status === 401 || res.status === 403) {
         return { kind: 'unauthorized', status: res.status, body };
     }
-    if (res.status === 429 || res.status >= 500) {
+    if (res.status === 426 && body && body.status === 'upgrade_required') {
+        return { kind: 'upgrade', status: res.status, body };
+    }
+    if (res.status === 429) {
+        const retryAfterHeader = res.headers.get('retry-after');
+        const parsed = retryAfterHeader ? parseInt(retryAfterHeader, 10) : null;
+        return {
+            kind: 'retry', status: res.status, body,
+            retryAfterSeconds: Number.isFinite(parsed) ? parsed : null
+        };
+    }
+    if (res.status >= 500) {
         return { kind: 'retry', status: res.status, body };
     }
     if (res.status === 400) {
@@ -76,8 +103,10 @@ async function verifyServerConnection(config) {
     try {
         await fetch(`${config.serverUrl}/api/health`, { signal: AbortSignal.timeout(5000) });
         console.log('✅ Conexión con el servidor establecida.');
+        return true;
     } catch {
         console.log('⚠️  Servidor fuera de línea. Se intentará reconectar al jugar.');
+        return false;
     }
 }
 

@@ -1,7 +1,8 @@
 /**
- * Tests de client/src/sender.js: header X-API-Key y cuerpo JSON del reporte,
- * y la clasificación kind ('done'/'retry'/'reject'/'unauthorized') según el
- * status HTTP y el cuerpo de la respuesta.
+ * Tests de client/src/sender.js: headers (X-API-Key, X-Install-Id,
+ * User-Agent, X-Gamertag-Hint) y cuerpo JSON del reporte (schemaVersion 3,
+ * Fase B3), y la clasificación kind ('done'/'retry'/'reject'/'unauthorized'/
+ * 'revoked'/'upgrade') según el status HTTP y el cuerpo de la respuesta.
  */
 
 const { test } = require('node:test');
@@ -31,7 +32,7 @@ const players = [{ gamertag: 'A' }];
 
 console.log('\n— sendReport: header y cuerpo del request —');
 
-test('manda X-API-Key y el JSON esperado', async () => {
+test('manda X-API-Key y el JSON esperado (schemaVersion 3)', async () => {
     let received = null;
     const { url, close } = await withServer((req, res) => {
         let raw = '';
@@ -43,15 +44,62 @@ test('manda X-API-Key y el JSON esperado', async () => {
         });
     });
 
+    const before = Date.now();
     const result = await sendReport({ serverUrl: url, apiKey: 'secret-key-123' }, gameData, players, 'file.xml', '1.6.0');
 
     assert.strictEqual(received.headers['x-api-key'], 'secret-key-123');
-    assert.strictEqual(received.body.schemaVersion, 2);
+    assert.strictEqual(received.body.schemaVersion, 3);
     assert.strictEqual(received.body.clientVersion, '1.6.0');
     assert.strictEqual(received.body.filename, 'file.xml');
     assert.deepStrictEqual(received.body.gameData, gameData);
     assert.deepStrictEqual(received.body.players, players);
+    assert.strictEqual(received.body.installId, null); // config sin installId -> null, no undefined
+    assert.strictEqual(typeof received.body.clientSentAt, 'string');
+    assert.ok(new Date(received.body.clientSentAt).getTime() >= before);
     assert.strictEqual(result.kind, 'done');
+
+    await close();
+});
+
+console.log('\n— sendReport: identidad de instalación (Fase B3) —');
+
+test('manda X-Install-Id, User-Agent y (si hay gamertag) X-Gamertag-Hint', async () => {
+    let received = null;
+    const { url, close } = await withServer((req, res) => {
+        let raw = '';
+        req.on('data', c => raw += c);
+        req.on('end', () => {
+            received = { headers: req.headers, body: JSON.parse(raw) };
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'processed' }));
+        });
+    });
+
+    const config = { serverUrl: url, apiKey: 'k', installId: 'install-abc-123', gamertag: 'ElAlfa' };
+    await sendReport(config, gameData, players, 'file.xml', '1.7.0');
+
+    assert.strictEqual(received.headers['x-install-id'], 'install-abc-123');
+    assert.strictEqual(received.headers['x-gamertag-hint'], 'ElAlfa');
+    assert.strictEqual(received.headers['user-agent'], 'CarnageReporter/1.7.0');
+    assert.strictEqual(received.body.installId, 'install-abc-123');
+
+    await close();
+});
+
+test('sin gamertag configurado, no manda X-Gamertag-Hint', async () => {
+    let received = null;
+    const { url, close } = await withServer((req, res) => {
+        req.on('data', () => { });
+        req.on('end', () => {
+            received = { headers: req.headers };
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'processed' }));
+        });
+    });
+
+    await sendReport({ serverUrl: url, apiKey: 'k' }, gameData, players, 'file.xml', '1.7.0');
+
+    assert.strictEqual(received.headers['x-gamertag-hint'], undefined);
 
     await close();
 });
@@ -100,14 +148,50 @@ test('401 -> unauthorized', async () => {
     assert.strictEqual(r.kind, 'unauthorized');
 });
 
-test('403 -> unauthorized', async () => {
+test('403 sin status revoked -> unauthorized', async () => {
     const r = await classify(403, {});
     assert.strictEqual(r.kind, 'unauthorized');
+});
+
+test('403 con status revoked -> revoked (instalación puntual revocada)', async () => {
+    const r = await classify(403, { status: 'revoked', error: 'Instalación revocada' });
+    assert.strictEqual(r.kind, 'revoked');
+    assert.strictEqual(r.status, 403);
+});
+
+test('426 con status upgrade_required -> upgrade', async () => {
+    const r = await classify(426, { status: 'upgrade_required', minVersion: '2.0.0' });
+    assert.strictEqual(r.kind, 'upgrade');
+    assert.strictEqual(r.body.minVersion, '2.0.0');
+});
+
+test('426 sin status upgrade_required -> reject (no confundir con cualquier 426)', async () => {
+    const r = await classify(426, { status: 'error' });
+    assert.strictEqual(r.kind, 'reject');
 });
 
 test('429 -> retry', async () => {
     const r = await classify(429, {});
     assert.strictEqual(r.kind, 'retry');
+});
+
+test('429 con header Retry-After -> retryAfterSeconds', async () => {
+    const { url, close } = await withServer((req, res) => {
+        req.on('data', () => { });
+        req.on('end', () => {
+            res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '120' });
+            res.end(JSON.stringify({}));
+        });
+    });
+    const result = await sendReport({ serverUrl: url, apiKey: 'k' }, gameData, players, 'f.xml', '1.6.0');
+    await close();
+    assert.strictEqual(result.kind, 'retry');
+    assert.strictEqual(result.retryAfterSeconds, 120);
+});
+
+test('429 sin header Retry-After -> retryAfterSeconds null', async () => {
+    const r = await classify(429, {});
+    assert.strictEqual(r.retryAfterSeconds, null);
 });
 
 test('500 -> retry', async () => {

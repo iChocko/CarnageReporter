@@ -2,13 +2,16 @@
 
 const fs = require('fs');
 const path = require('path');
+const { loadSettings } = require('./settings');
 
 // ============== RESOLUCIÓN DE CONFIGURACIÓN ==============
-// Prioridad (de menor a mayor): config.gen.js (build) < config.json (junto al exe) < variables de entorno
+// Prioridad (de menor a mayor):
+//   config.gen.js (build) < config.json (junto al exe) < settings.json
+//   (serverUrl, editable desde el menú/archivo en DATA_DIR) < variables de entorno
 
 const DEFAULT_SERVER_URL = 'https://h3mccstats.cloud';
 
-function resolveConfig(env = process.env, execPath = process.execPath, cwd = process.cwd()) {
+function resolveConfig(env = process.env, execPath = process.execPath, cwd = process.cwd(), settings = null) {
     const config = { serverUrl: DEFAULT_SERVER_URL, apiKey: null };
 
     // 1. config.gen.js: generado por el CI al compilar el .exe (no existe en el repo)
@@ -38,7 +41,12 @@ function resolveConfig(env = process.env, execPath = process.execPath, cwd = pro
         }
     }
 
-    // 3. Variables de entorno (útil para pruebas locales)
+    // 3. settings.json (DATA_DIR): override de servidor guardado por el
+    //    usuario (menú interactivo o edición manual del archivo).
+    const userSettings = settings || loadSettings();
+    if (userSettings && userSettings.serverUrl) config.serverUrl = userSettings.serverUrl;
+
+    // 4. Variables de entorno (útil para pruebas locales)
     if (env.CARNAGE_API_KEY) config.apiKey = env.CARNAGE_API_KEY;
     if (env.CARNAGE_SERVER_URL) config.serverUrl = env.CARNAGE_SERVER_URL;
 

@@ -73,6 +73,29 @@ function parseTimestampFromFilename(filename) {
     return new Date();
 }
 
+// v3 (Fase B3): el servidor recibía el timestamp como Date (serializado a
+// UTC por JSON.stringify), lo que perdía la hora "de pared" del jugador
+// cuando su reloj de sistema no estaba en la zona horaria asumida por el
+// servidor. Mandar el offset local explícito (ISO 8601 con +/-HH:MM) le
+// permite al servidor calcular el desfase real en vez de adivinar.
+function pad(n, len = 2) {
+    return String(Math.abs(n)).padStart(len, '0');
+}
+
+function toIsoWithOffset(date) {
+    const offsetMin = -date.getTimezoneOffset(); // getTimezoneOffset: UTC - local (invertido)
+    const sign = offsetMin >= 0 ? '+' : '-';
+    const offH = pad(Math.floor(Math.abs(offsetMin) / 60));
+    const offM = pad(Math.abs(offsetMin) % 60);
+    const y = date.getFullYear();
+    const mo = pad(date.getMonth() + 1);
+    const d = pad(date.getDate());
+    const h = pad(date.getHours());
+    const mi = pad(date.getMinutes());
+    const s = pad(date.getSeconds());
+    return `${y}-${mo}-${d}T${h}:${mi}:${s}${sign}${offH}:${offM}`;
+}
+
 function parseXML(filePath) {
     const xmlContent = fs.readFileSync(filePath, 'utf-8');
     const parser = new XMLParser({
@@ -85,6 +108,10 @@ function parseXML(filePath) {
     const hopperName = root.HopperName?.HopperName || 'Unknown';
     const mapNameFromXML = root.MapName?.MapName || root.MapName;
 
+    const filenameBase = path.basename(filePath);
+    const localTimestamp = parseTimestampFromFilename(filenameBase);
+    const rawTimestampMatch = filenameBase.match(/(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})/);
+
     const gameData = {
         gameUniqueId: root.GameUniqueId?.GameUniqueId || 'unknown',
         gameEnum: parseInt(root.GameEnum?.mGameEnum || 0),
@@ -92,7 +119,10 @@ function parseXML(filePath) {
         isTeamsEnabled: toBool(root.IsTeamsEnabled?.IsTeamsEnabled),
         hopperName: hopperName,
         gameTypeName: root.GameTypeName?.GameTypeName || 'Slayer',
-        timestamp: parseTimestampFromFilename(path.basename(filePath)),
+        // v3: ISO 8601 CON el offset local (ver toIsoWithOffset); timestampLocal
+        // conserva el string crudo del nombre de archivo para depuración.
+        timestamp: toIsoWithOffset(localTimestamp),
+        timestampLocal: rawTimestampMatch ? rawTimestampMatch[1] : null,
         // v2: flags de completitud de la partida
         lastMatchIncomplete: toBool(root.mLastMatchIncomplete?.mLastMatchIncomplete),
         partySize: parseInt(root.mPartySize?.mPartySize || 0),
@@ -167,6 +197,7 @@ module.exports = {
     extractMapCodeFromFilmName,
     findMapCodeFromFilms,
     parseTimestampFromFilename,
+    toIsoWithOffset,
     toBool,
     FILM_MAX_AGE_MS
 };

@@ -11,7 +11,8 @@ const os = require('os');
 const path = require('path');
 
 const {
-    parseXML, parseTimestampFromFilename, extractMapCodeFromFilmName, findMapCodeFromFilms, toBool
+    parseXML, parseTimestampFromFilename, extractMapCodeFromFilmName, findMapCodeFromFilms, toBool,
+    toIsoWithOffset
 } = require('../src/parser');
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
@@ -211,4 +212,63 @@ test('toBool acepta booleano real, string y numérico, en ambos sentidos', () =>
     assert.strictEqual(toBool('0'), false);
     assert.strictEqual(toBool(undefined), false);
     assert.strictEqual(toBool(null), false);
+});
+
+console.log('\n— toIsoWithOffset (Fase B3: timestamp con zona horaria) —');
+
+function expectedOffsetSuffix(date) {
+    const offsetMin = -date.getTimezoneOffset();
+    const sign = offsetMin >= 0 ? '+' : '-';
+    const pad = n => String(Math.abs(n)).padStart(2, '0');
+    return `${sign}${pad(Math.floor(Math.abs(offsetMin) / 60))}:${pad(Math.abs(offsetMin) % 60)}`;
+}
+
+test('tiene la forma YYYY-MM-DDTHH:mm:ss±HH:MM', () => {
+    const d = new Date(2026, 8, 6, 21, 15, 0); // 6 de septiembre de 2026, 21:15:00 local
+    const iso = toIsoWithOffset(d);
+    assert.match(iso, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+    assert.ok(iso.startsWith('2026-09-06T21:15:00'));
+});
+
+test('el offset coincide con el de la máquina que corre la prueba', () => {
+    const d = new Date(2026, 0, 15, 8, 30, 0);
+    const iso = toIsoWithOffset(d);
+    assert.ok(iso.endsWith(expectedOffsetSuffix(d)), `esperaba que ${iso} terminara en ${expectedOffsetSuffix(d)}`);
+});
+
+test('round-trip: parsear el ISO con offset da el mismo instante UTC que el Date original', () => {
+    const d = new Date(2026, 5, 1, 3, 7, 42);
+    const iso = toIsoWithOffset(d);
+    assert.strictEqual(new Date(iso).getTime(), d.getTime());
+});
+
+test('rellena con ceros minutos/segundos/horas de un solo dígito', () => {
+    const d = new Date(2026, 0, 5, 1, 2, 3);
+    const iso = toIsoWithOffset(d);
+    assert.ok(iso.startsWith('2026-01-05T01:02:03'));
+});
+
+console.log('\n— parseXML: timestamp v3 (ISO con offset + timestampLocal) —');
+
+test('gameData.timestamp es un string ISO con offset, no un Date; timestampLocal conserva el string crudo', () => {
+    const filePath = loadFixture('mpcarnagereport_2v2.xml', { withFilm: true });
+    // Este fixture no trae fecha en el nombre de archivo (usa un nombre fijo
+    // de prueba), así que se renombra a uno con timestamp real para probar.
+    const dir = path.dirname(filePath);
+    const renamed = path.join(dir, 'mpcarnagereport-2026-03-10-19-05-30.xml');
+    fs.renameSync(filePath, renamed);
+
+    const { gameData } = parseXML(renamed);
+
+    assert.strictEqual(typeof gameData.timestamp, 'string');
+    assert.match(gameData.timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+    assert.ok(gameData.timestamp.startsWith('2026-03-10T19:05:30'));
+    assert.strictEqual(gameData.timestampLocal, '2026-03-10-19-05-30');
+});
+
+test('sin patrón de fecha en el nombre -> timestampLocal es null, timestamp sigue siendo ISO con offset', () => {
+    const filePath = loadFixture('mpcarnagereport_single_player.xml');
+    const { gameData } = parseXML(filePath);
+    assert.strictEqual(gameData.timestampLocal, null);
+    assert.match(gameData.timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
 });
