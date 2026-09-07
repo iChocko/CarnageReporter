@@ -11,7 +11,14 @@ const crypto = require('crypto');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const pinoHttp = require('pino-http');
 const Stripe = require('stripe');
+
+// Observabilidad / errores (Fase A1)
+const { logger } = require('./logger');
+const alerts = require('./alerts');
+const { notFound, errorHandler, asyncHandler } = require('./http/errors');
+const { createHealthCheck } = require('./health');
 
 // Servicios
 const DiscordService = require('./services/discord');
@@ -34,6 +41,11 @@ const { classifyFormat, FORMATS } = require('./utils/format');
 const { resolveMap, MAP_NAMES } = require('./utils/maps');
 const { runBackup } = require('./jobs/backup');
 const { runCleanup } = require('./jobs/cleanup');
+const { version: SERVER_VERSION } = require('./package.json');
+
+const log = logger.child({ mod: 'http' });
+const reportLog = logger.child({ mod: 'report' });
+const wappLog = logger.child({ mod: 'whatsapp' }); // comandos de WhatsApp manejados aquí (!anular, !marcador)
 
 // Initialize Stripe
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -53,7 +65,24 @@ app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false 
 
 // Un reporte 2v2 es pequeño; 256kb es más que suficiente y acota abuso.
 app.use(express.json({ limit: '256kb' }));
-app.use(cors());
+
+// El dashboard se sirve desde el MISMO origen (estático, más abajo), así que
+// no necesita CORS. CORS_ORIGIN queda como escape hatch para un frontend en
+// otro dominio (ver .env.example); sin configurar, `false` desactiva los
+// headers de CORS por completo (antes era cors() abierto a cualquier origen).
+app.use(cors({ origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : false }));
+
+// Logs estructurados de cada request /api/* (Fase A1). Montado en /api para
+// no ensuciar los logs con las peticiones de archivos estáticos del
+// dashboard (JS/CSS/imágenes) ni el catch-all del SPA. /api/health se
+// excluye del auto-log: el healthcheck de Docker le pega cada 30s y no
+// aporta nada ver esa línea una y otra vez.
+app.use('/api', pinoHttp({
+    logger: log,
+    autoLogging: {
+        ignore: (req) => req.originalUrl === '/api/health',
+    },
+}));
 
 // ---------- Rate limiting ----------
 const reportLimiter = rateLimit({
@@ -66,6 +95,10 @@ const adminLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 20, // 20 intentos admin por IP cada 15 min (freno a fuerza bruta)
     standardHeaders: true, legacyHeaders: false,
+    // Solo cuenta intentos FALLIDOS: necesario para la futura página web de
+    // admin, donde una sesión legítima hace muchas llamadas exitosas
+    // seguidas y no debe toparse con el límite pensado para fuerza bruta.
+    skipSuccessfulRequests: true,
     message: { error: 'Demasiados intentos.' }
 });
 const publicLimiter = rateLimit({
@@ -78,14 +111,14 @@ const publicLimiter = rateLimit({
 const DASHBOARD_DIST = path.join(__dirname, '../dashboard/dist');
 if (fs.existsSync(DASHBOARD_DIST)) {
     app.use(express.static(DASHBOARD_DIST));
-    console.log(`🌐 Dashboard frontend listo en: ${DASHBOARD_DIST}`);
+    log.info(`🌐 Dashboard frontend listo en: ${DASHBOARD_DIST}`);
 }
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY;
 
 if (!API_KEY) {
-    console.error('❌ Falta la variable de entorno API_KEY. Configúrala en el .env antes de iniciar.');
+    log.error('❌ Falta la variable de entorno API_KEY. Configúrala en el .env antes de iniciar.');
     process.exit(1);
 }
 
@@ -130,6 +163,10 @@ const supabase = new SupabaseService();
 const renderer = new RendererService();
 const whatsapp = new WhatsAppService();
 
+// Referencia a las tareas cron (server/services/scheduler.js), asignada en
+// start(): para reportarlas en /api/health y detenerlas en el apagado limpio.
+let schedulerHandle = null;
+
 /**
  * Comparación de secretos en tiempo constante (evita distinguir claves por
  * timing). Ambos lados se hashean a longitud fija antes de comparar para no
@@ -173,15 +210,22 @@ function validateReportPayload(gameData, players) {
 // ============== ENDPOINTS ==============
 
 /**
- * Health check
+ * Health check (Fase A1). Lógica extraída a server/health.js para poder
+ * probarla con dobles falsos (ver server/test/health.test.js); aquí solo se
+ * inyectan las instancias reales. Cacheado 10s (default) por health.js;
+ * 503 únicamente cuando Supabase falla, para no reiniciar el contenedor por
+ * un estado normal de WhatsApp (waiting_qr/disconnected).
  */
-app.get('/api/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        version: '1.0.0'
-    });
+const health = createHealthCheck({
+    supabase,
+    whatsapp,
+    renderer,
+    getSchedulerJobs: () => (schedulerHandle?.tasks || []).map(({ name, task }) => ({ name, status: task.getStatus() })),
+    outputDir: OUTPUT_DIR,
+    version: SERVER_VERSION,
+    alertFn: alerts.alert,
 });
+app.get('/api/health', asyncHandler(health.handler));
 
 /**
  * Estado del servidor
@@ -206,7 +250,7 @@ app.get('/api/status', (req, res) => {
 // envíos): el primer reporte toma el candado y los simultáneos rebotan aquí.
 const inFlightReports = new Set();
 
-app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
+app.post('/api/report', reportLimiter, authMiddleware, asyncHandler(async (req, res, next) => {
     const { gameData, players, filename } = req.body;
     const schemaVersion = parseInt(req.body.schemaVersion || 1, 10);
     const clientVersion = req.body.clientVersion || null;
@@ -217,10 +261,10 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
     }
 
     const gameId = gameData.gameUniqueId;
-    console.log(`\n📥 Recibido reporte: ${gameId} (${gameData.mapName}) [v${schemaVersion}${clientVersion ? `, cliente ${clientVersion}` : ''}, ${players.length} jugadores]`);
+    reportLog.info(`\n📥 Recibido reporte: ${gameId} (${gameData.mapName}) [v${schemaVersion}${clientVersion ? `, cliente ${clientVersion}` : ''}, ${players.length} jugadores]`);
 
     if (inFlightReports.has(gameId)) {
-        console.log(`⏭️  Juego ${gameId} ya está en proceso (reporte simultáneo de otro cliente), saltando`);
+        reportLog.info(`⏭️  Juego ${gameId} ya está en proceso (reporte simultáneo de otro cliente), saltando`);
         return res.json({
             status: 'duplicate',
             gameId,
@@ -235,15 +279,21 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
     // timestamp en el futuro se reemplaza por la hora del servidor.
     const tsMs = new Date(gameData.timestamp).getTime();
     if (!Number.isFinite(tsMs) || tsMs > Date.now() + 10 * 60 * 1000) {
-        console.log(`⚠️  Timestamp inválido o futuro en ${gameId} (${gameData.timestamp}) — se usa la hora del servidor`);
+        reportLog.warn(`⚠️  Timestamp inválido o futuro en ${gameId} (${gameData.timestamp}) — se usa la hora del servidor`);
         gameData.timestamp = new Date().toISOString();
     }
+
+    // Si el guardado en Supabase (paso 8) ya se completó y algo truena
+    // DESPUÉS, la partida queda persistida pero el cliente nunca recibió
+    // confirmación: estado inconsistente que amerita una alerta a Discord
+    // (server/alerts.js), no solo un log.
+    let gameSaved = false;
 
     try {
         // 1. Verificar duplicados en Supabase
         const exists = await supabase.gameExists(gameId);
         if (exists) {
-            console.log(`⏭️  Juego ${gameId} ya procesado, saltando`);
+            reportLog.info(`⏭️  Juego ${gameId} ya procesado, saltando`);
             return res.json({
                 status: 'duplicate',
                 gameId,
@@ -269,7 +319,7 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
         // 4. Evaluar validez (formato no soportado, reinicios, abandonos, cortas)
         const verdict = evaluateMatch(gameData, players, schemaVersion);
         if (verdict.voided) {
-            console.log(`🚫 Partida ${gameId} anulada (${verdict.reason}) — se guarda sin publicar`);
+            reportLog.info(`🚫 Partida ${gameId} anulada (${verdict.reason}) — se guarda sin publicar`);
             await supabase.saveGame(gameData, players, { ...saveMeta, isVoided: true, voidReason: verdict.reason });
             return res.json({
                 status: 'voided', gameId, reason: verdict.reason,
@@ -279,7 +329,7 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
 
         // 5. 2v2 en matchmaking se ignora (solo customs 2v2). 4v4 sí acepta matchmaking.
         if (format === '2v2' && gameData.isMatchmaking === true) {
-            console.log(`🎮 Partida ${gameId} es 2v2 matchmaking — ignorada (2v2 solo customs)`);
+            reportLog.info(`🎮 Partida ${gameId} es 2v2 matchmaking — ignorada (2v2 solo customs)`);
             return res.json({
                 status: 'skipped', gameId,
                 message: 'Partida 2v2 de matchmaking ignorada'
@@ -287,7 +337,7 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
         }
 
         // 6. Generar PNG
-        console.log(`🎨 Generando imagen ${format} para partida ${gameId} (${gameData.mapName})...`);
+        reportLog.info(`🎨 Generando imagen ${format} para partida ${gameId} (${gameData.mapName})...`);
         const pngPath = path.join(OUTPUT_DIR, `match_${gameId}.png`);
         await renderer.generatePNG(gameData, players, pngPath);
 
@@ -296,12 +346,12 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
         //    4v4 -> Discord(validación) + WhatsApp(Torneos Halo 3)
         if (format === '2v2') {
             const dsResult = await discord.sendImage(pngPath, gameData, players);
-            console.log(`   ${dsResult ? '✅' : '❌'} Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
+            reportLog.info(`   ${dsResult ? '✅' : '❌'} Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
         }
 
         if (format === '4v4') {
             const ds4Result = await discord4v4.sendImage(pngPath, gameData, players);
-            console.log(`   ${ds4Result ? '✅' : '❌'} Discord (4v4): ${ds4Result ? 'Enviado' : 'Fallido'}`);
+            reportLog.info(`   ${ds4Result ? '✅' : '❌'} Discord (4v4): ${ds4Result ? 'Enviado' : 'Fallido'}`);
         }
 
         if (whatsapp.isReady()) {
@@ -310,19 +360,20 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
                 const { winnerLine, mapLine, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
                 const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
                 const waResult = await whatsapp.sendImage(pngPath, waCaption, chatId);
-                console.log(`   ${waResult ? '✅' : '❌'} WhatsApp (${format}): ${waResult ? 'Enviado' : 'Fallido'}`);
+                reportLog.info(`   ${waResult ? '✅' : '❌'} WhatsApp (${format}): ${waResult ? 'Enviado' : 'Fallido'}`);
             } else {
-                console.log(`   ⚠️  Sin grupo de WhatsApp configurado para ${format}`);
+                reportLog.warn(`   ⚠️  Sin grupo de WhatsApp configurado para ${format}`);
             }
         } else if (process.env.WHATSAPP_ENABLED === 'true') {
             // Que la omisión quede en el log: una sesión caída (waiting_qr)
             // pasaba días sin ninguna traza en los reportes.
-            console.log(`   ⚠️  WhatsApp (${format}): omitido, servicio en estado '${whatsapp.getStatus().status}'`);
+            reportLog.warn(`   ⚠️  WhatsApp (${format}): omitido, servicio en estado '${whatsapp.getStatus().status}'`);
         }
 
         // 8. Guardar en Supabase
         await supabase.saveGame(gameData, players, saveMeta);
-        console.log(`✅ Juego ${gameId} (${format}) procesado completamente`);
+        gameSaved = true;
+        reportLog.info(`✅ Juego ${gameId} (${format}) procesado completamente`);
 
         // 9. Anuncio automático del marcador de la ronda (Bo3) en el grupo 2v2:
         //    cómo va la ronda en curso, o su cierre si alguien llegó a 2.
@@ -334,11 +385,11 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
                     const update = formatLiveRoundUpdate(currentOrLastSession(rondasGames));
                     if (update) {
                         const okRonda = await whatsapp.sendMessage(update, chatId);
-                        console.log(`   ${okRonda ? '✅' : '❌'} WhatsApp (marcador ronda): ${okRonda ? 'Enviado' : 'Fallido'}`);
+                        reportLog.info(`   ${okRonda ? '✅' : '❌'} WhatsApp (marcador ronda): ${okRonda ? 'Enviado' : 'Fallido'}`);
                     }
                 } catch (e) {
                     // El marcador es un extra: si falla, la partida ya quedó publicada y guardada
-                    console.error(`   ⚠️  Marcador de ronda falló: ${e.message}`);
+                    reportLog.warn({ err: e }, '   ⚠️  Marcador de ronda falló');
                 }
             }
         }
@@ -346,37 +397,18 @@ app.post('/api/report', reportLimiter, authMiddleware, async (req, res) => {
         res.json({ status: 'processed', gameId, format, message: 'Reporte procesado' });
 
     } catch (error) {
-        console.error(`❌ Error procesando ${gameId}:`, error);
-        res.status(500).json({
-            status: 'error',
-            gameId,
-            error: 'Error interno procesando el reporte'
-        });
+        reportLog.error({ err: error, gameId }, `❌ Error procesando ${gameId}`);
+        if (gameSaved) {
+            alerts.alert('error',
+                `Reporte de la partida ${gameId} falló DESPUÉS de guardarse en Supabase: ${error.message}. ` +
+                'La partida ya quedó persistida; revisar si publicó bien en Discord/WhatsApp.',
+                { key: `report:${gameId}` });
+        }
+        next(error);
     } finally {
         inFlightReports.delete(gameId);
     }
-});
-
-
-
-/**
- * Actualizar webhook de Discord
- * POST /api/discord/webhook
- * Body: { webhookUrl: "https://discord.com/api/webhooks/..." }
- */
-app.post('/api/discord/webhook', authMiddleware, (req, res) => {
-    const { webhookUrl } = req.body;
-
-    if (!webhookUrl) {
-        return res.status(400).json({ error: 'Debes proporcionar webhookUrl' });
-    }
-
-    discord.setWebhookUrl(webhookUrl);
-    res.json({
-        status: 'ok',
-        message: 'Webhook de Discord actualizado'
-    });
-});
+}));
 
 // ============== ADMIN ENDPOINTS ==============
 
@@ -431,59 +463,41 @@ async function resolveGameId(idParam, res) {
  * DELETE /api/admin/games/:id
  * Header: X-Admin-Key
  */
-app.delete('/api/admin/games/:id', adminAuthMiddleware, async (req, res) => {
-    try {
-        const fullId = await resolveGameId(req.params.id, res);
-        if (!fullId) return;
+app.delete('/api/admin/games/:id', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const fullId = await resolveGameId(req.params.id, res);
+    if (!fullId) return;
 
-        await supabase.deleteGame(fullId);
-        console.log(`🗑️  [ADMIN] Partida eliminada: ${fullId}`);
-        res.json({ status: 'deleted', gameId: fullId });
-    } catch (error) {
-        console.error('❌ Error en delete admin:', error.message);
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+    await supabase.deleteGame(fullId);
+    log.info(`🗑️  [ADMIN] Partida eliminada: ${fullId}`);
+    res.json({ status: 'deleted', gameId: fullId });
+}));
 
 /**
  * Restaurar una partida anulada (falso positivo del validador).
  * POST /api/admin/games/:id/unvoid
  */
-app.post('/api/admin/games/:id/unvoid', adminAuthMiddleware, async (req, res) => {
-    try {
-        const fullId = await resolveGameId(req.params.id, res);
-        if (!fullId) return;
+app.post('/api/admin/games/:id/unvoid', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const fullId = await resolveGameId(req.params.id, res);
+    if (!fullId) return;
 
-        await supabase.setVoided(fullId, false);
-        console.log(`♻️  [ADMIN] Partida restaurada: ${fullId}`);
-        res.json({ status: 'unvoided', gameId: fullId });
-    } catch (error) {
-        console.error('❌ Error en unvoid admin:', error.message);
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+    await supabase.setVoided(fullId, false);
+    log.info(`♻️  [ADMIN] Partida restaurada: ${fullId}`);
+    res.json({ status: 'unvoided', gameId: fullId });
+}));
 
 /**
  * Anular manualmente una partida (ej. detectada tarde como reiniciada).
  * POST /api/admin/games/:id/void
  * Body opcional: { reason: "texto" }
  */
-app.post('/api/admin/games/:id/void', adminAuthMiddleware, async (req, res) => {
-    try {
-        const fullId = await resolveGameId(req.params.id, res);
-        if (!fullId) return;
+app.post('/api/admin/games/:id/void', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const fullId = await resolveGameId(req.params.id, res);
+    if (!fullId) return;
 
-        await supabase.setVoided(fullId, true, req.body?.reason || 'manual');
-        console.log(`🚫 [ADMIN] Partida anulada manualmente: ${fullId}`);
-        res.json({ status: 'voided', gameId: fullId });
-    } catch (error) {
-        console.error('❌ Error en void admin:', error.message);
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+    await supabase.setVoided(fullId, true, req.body?.reason || 'manual');
+    log.info(`🚫 [ADMIN] Partida anulada manualmente: ${fullId}`);
+    res.json({ status: 'voided', gameId: fullId });
+}));
 
 // ============== ADMIN: WHATSAPP ==============
 
@@ -492,22 +506,17 @@ app.post('/api/admin/games/:id/void', adminAuthMiddleware, async (req, res) => {
  * 204 si no hay QR pendiente (ya emparejado o servicio apagado).
  * GET /api/admin/whatsapp/qr
  */
-app.get('/api/admin/whatsapp/qr', adminAuthMiddleware, async (req, res) => {
-    try {
-        const qr = whatsapp.getQR();
-        if (!qr) {
-            return res.status(204).end();
-        }
-        const QRCode = require('qrcode');
-        const png = await QRCode.toBuffer(qr, { width: 400, margin: 2 });
-        res.set('Content-Type', 'image/png');
-        res.set('Cache-Control', 'no-store');
-        res.send(png);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+app.get('/api/admin/whatsapp/qr', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const qr = whatsapp.getQR();
+    if (!qr) {
+        return res.status(204).end();
     }
-});
+    const QRCode = require('qrcode');
+    const png = await QRCode.toBuffer(qr, { width: 400, margin: 2 });
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'no-store');
+    res.send(png);
+}));
 
 /**
  * Estado del servicio de WhatsApp.
@@ -521,21 +530,16 @@ app.get('/api/admin/whatsapp/status', adminAuthMiddleware, (req, res) => {
  * Lista de grupos disponibles (para obtener el WHATSAPP_GROUP_ID).
  * GET /api/admin/whatsapp/groups
  */
-app.get('/api/admin/whatsapp/groups', adminAuthMiddleware, async (req, res) => {
-    try {
-        const groups = await whatsapp.listGroups();
-        res.json(groups);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+app.get('/api/admin/whatsapp/groups', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const groups = await whatsapp.listGroups();
+    res.json(groups);
+}));
 
 /**
  * Dispara AHORA el mensaje semanal (para probar sin esperar al lunes).
  * POST /api/admin/whatsapp/test-weekly
  */
-app.post('/api/admin/whatsapp/test-weekly', adminAuthMiddleware, async (req, res) => {
+app.post('/api/admin/whatsapp/test-weekly', adminAuthMiddleware, asyncHandler(async (req, res) => {
     if (!whatsapp.isReady()) {
         return res.status(503).json({ error: 'WhatsApp no está listo' });
     }
@@ -543,7 +547,7 @@ app.post('/api/admin/whatsapp/test-weekly', adminAuthMiddleware, async (req, res
     if (!chatId) return res.status(503).json({ error: 'Sin grupo 2v2 configurado' });
     const ok = await whatsapp.sendMessage(WEEKLY_MESSAGE, chatId);
     res.json({ status: ok ? 'sent' : 'failed', message: WEEKLY_MESSAGE });
-});
+}));
 
 /**
  * Vista previa del comando !equipos SIN enviarlo al grupo.
@@ -551,35 +555,25 @@ app.post('/api/admin/whatsapp/test-weekly', adminAuthMiddleware, async (req, res
  * Con &mentions=A,B,C,D simula jugadores ya resueltos desde menciones
  * (ejercita la regla de exactamente 4 y la respuesta de emparejamientos).
  */
-app.get('/api/admin/whatsapp/preview-equipos', adminAuthMiddleware, async (req, res) => {
-    try {
-        const format = FORMATS.includes(req.query.format) ? req.query.format : '2v2';
-        const mentionTags = String(req.query.mentions || '').split(',').map(s => s.trim()).filter(Boolean);
-        const reply = await buildEquiposReply(format, String(req.query.players || ''), mentionTags, {
-            fromMentions: mentionTags.length > 0
-        });
-        res.type('text/plain').send(reply);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+app.get('/api/admin/whatsapp/preview-equipos', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const format = FORMATS.includes(req.query.format) ? req.query.format : '2v2';
+    const mentionTags = String(req.query.mentions || '').split(',').map(s => s.trim()).filter(Boolean);
+    const reply = await buildEquiposReply(format, String(req.query.players || ''), mentionTags, {
+        fromMentions: mentionTags.length > 0
+    });
+    res.type('text/plain').send(reply);
+}));
 
 /**
  * Participantes del grupo de WhatsApp de un formato, con nombre visible y
  * ambas formas de JID (número y LID). Para el bootstrap del roster.
  * GET /api/admin/whatsapp/participants?format=2v2|4v4
  */
-app.get('/api/admin/whatsapp/participants', adminAuthMiddleware, async (req, res) => {
-    try {
-        if (!whatsapp.isReady()) return res.status(503).json({ error: 'WhatsApp no está listo' });
-        const format = FORMATS.includes(req.query.format) ? req.query.format : '2v2';
-        res.json(await whatsapp.getGroupParticipants(format));
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+app.get('/api/admin/whatsapp/participants', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    if (!whatsapp.isReady()) return res.status(503).json({ error: 'WhatsApp no está listo' });
+    const format = FORMATS.includes(req.query.format) ? req.query.format : '2v2';
+    res.json(await whatsapp.getGroupParticipants(format));
+}));
 
 /**
  * Roster número ↔ gamertag persistido.
@@ -670,15 +664,10 @@ async function sendWeeklySaldos({ force = false, skipReset = false } = {}) {
  * Vista previa del corte semanal SIN enviarlo ni reiniciar nada.
  * GET /api/admin/whatsapp/preview-saldos
  */
-app.get('/api/admin/whatsapp/preview-saldos', adminAuthMiddleware, async (req, res) => {
-    try {
-        const { payload, gamesCount } = await buildSaldosPayload();
-        res.type('text/plain').send(payload ? payload.text : `(sin retas pendientes: ${gamesCount} partidas)`);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+app.get('/api/admin/whatsapp/preview-saldos', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const { payload, gamesCount } = await buildSaldosPayload();
+    res.type('text/plain').send(payload ? payload.text : `(sin retas pendientes: ${gamesCount} partidas)`);
+}));
 
 /**
  * Dispara AHORA el corte semanal: envío real al grupo + reset del marcador.
@@ -687,112 +676,87 @@ app.get('/api/admin/whatsapp/preview-saldos', adminAuthMiddleware, async (req, r
  * — manda el mensaje real pero deja el marcador de rondas intacto).
  * POST /api/admin/whatsapp/send-saldos
  */
-app.post('/api/admin/whatsapp/send-saldos', adminAuthMiddleware, async (req, res) => {
-    try {
-        res.json(await sendWeeklySaldos({
-            force: req.body?.force === true,
-            skipReset: req.body?.skipReset === true
-        }));
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+app.post('/api/admin/whatsapp/send-saldos', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    res.json(await sendWeeklySaldos({
+        force: req.body?.force === true,
+        skipReset: req.body?.skipReset === true
+    }));
+}));
 
 /**
  * Anuncio operativo al grupo (avisos de nuevas versiones del cliente, etc.).
  * POST /api/admin/whatsapp/announce  Body: { text, format? ('2v2'|'4v4') }
  */
-app.post('/api/admin/whatsapp/announce', adminAuthMiddleware, async (req, res) => {
-    try {
-        const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
-        if (!text) return res.status(400).json({ error: 'Falta text' });
-        if (text.length > 4000) return res.status(400).json({ error: 'Texto demasiado largo' });
-        // El bot procesa sus propios mensajes (message_create): un anuncio que
-        // empiece con "!" dispararía un comando en bucle.
-        if (text.startsWith('!')) return res.status(400).json({ error: 'El anuncio no puede empezar con "!"' });
-        if (!whatsapp.isReady()) return res.status(503).json({ error: 'WhatsApp no está listo' });
-        const format = req.body?.format === '4v4' ? '4v4' : '2v2';
-        const chatId = whatsapp.groupIdFor(format);
-        if (!chatId) return res.status(503).json({ error: `Sin grupo ${format} configurado` });
-        const ok = await whatsapp.sendMessage(text, chatId, { waitUntilMsgSent: true });
-        res.json({ sent: ok, format });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+app.post('/api/admin/whatsapp/announce', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    if (!text) return res.status(400).json({ error: 'Falta text' });
+    if (text.length > 4000) return res.status(400).json({ error: 'Texto demasiado largo' });
+    // El bot procesa sus propios mensajes (message_create): un anuncio que
+    // empiece con "!" dispararía un comando en bucle.
+    if (text.startsWith('!')) return res.status(400).json({ error: 'El anuncio no puede empezar con "!"' });
+    if (!whatsapp.isReady()) return res.status(503).json({ error: 'WhatsApp no está listo' });
+    const format = req.body?.format === '4v4' ? '4v4' : '2v2';
+    const chatId = whatsapp.groupIdFor(format);
+    if (!chatId) return res.status(503).json({ error: `Sin grupo ${format} configurado` });
+    const ok = await whatsapp.sendMessage(text, chatId, { waitUntilMsgSent: true });
+    res.json({ sent: ok, format });
+}));
 
 const JID_SHAPE = /^\d{5,20}@(c\.us|lid)$/;
 
-app.post('/api/admin/whatsapp/roster', adminAuthMiddleware, async (req, res) => {
-    try {
-        const links = Array.isArray(req.body?.links) ? req.body.links : null;
-        if (!links) return res.status(400).json({ error: 'Body esperado: { links: [{ jids, gamertag }] }' });
-        if (links.length > 100) return res.status(400).json({ error: 'Máximo 100 vínculos por llamada' });
+app.post('/api/admin/whatsapp/roster', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const links = Array.isArray(req.body?.links) ? req.body.links : null;
+    if (!links) return res.status(400).json({ error: 'Body esperado: { links: [{ jids, gamertag }] }' });
+    if (links.length > 100) return res.status(400).json({ error: 'Máximo 100 vínculos por llamada' });
 
-        const payload = await withRosterLock(async () => {
-            const data = req.body.replace === true
-                ? { version: 1, links: [] }
-                : rosterStore.loadRoster(OUTPUT_DIR);
+    const payload = await withRosterLock(async () => {
+        const data = req.body.replace === true
+            ? { version: 1, links: [] }
+            : rosterStore.loadRoster(OUTPUT_DIR);
 
-            const results = [];
-            for (const raw of links) {
-                const jids = (Array.isArray(raw?.jids) ? raw.jids : [raw?.jid])
-                    .filter(Boolean).map(String).filter(j => JID_SHAPE.test(j));
-                const gamertag = sanitizeCaptionText(String(raw?.gamertag || '')).trim();
-                if (!jids.length || !gamertag || gamertag.length > MAX_TAG_LEN || gamertag.startsWith('!')) {
-                    results.push({ gamertag: gamertag || null, ok: false, error: 'jids con forma inválida y/o gamertag inválido' });
-                    continue;
-                }
-                const result = rosterStore.linkJid(data, jids[0], gamertag, {
-                    known: raw?.known !== false,
-                    by: 'admin-api'
-                });
-                if (result.ok) {
-                    for (const alias of jids.slice(1)) rosterStore.addAlias(result.link, alias);
-                }
-                results.push({ gamertag, ok: result.ok, conflict: result.conflict?.gamertag });
+        const results = [];
+        for (const raw of links) {
+            const jids = (Array.isArray(raw?.jids) ? raw.jids : [raw?.jid])
+                .filter(Boolean).map(String).filter(j => JID_SHAPE.test(j));
+            const gamertag = sanitizeCaptionText(String(raw?.gamertag || '')).trim();
+            if (!jids.length || !gamertag || gamertag.length > MAX_TAG_LEN || gamertag.startsWith('!')) {
+                results.push({ gamertag: gamertag || null, ok: false, error: 'jids con forma inválida y/o gamertag inválido' });
+                continue;
             }
+            const result = rosterStore.linkJid(data, jids[0], gamertag, {
+                known: raw?.known !== false,
+                by: 'admin-api'
+            });
+            if (result.ok) {
+                for (const alias of jids.slice(1)) rosterStore.addAlias(result.link, alias);
+            }
+            results.push({ gamertag, ok: result.ok, conflict: result.conflict?.gamertag });
+        }
 
-            rosterStore.saveRoster(OUTPUT_DIR, data);
-            return { status: 'ok', total: data.links.length, results };
-        });
-        res.json(payload);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+        rosterStore.saveRoster(OUTPUT_DIR, data);
+        return { status: 'ok', total: data.links.length, results };
+    });
+    res.json(payload);
+}));
 
 /**
  * Vista previa del comando !rondas SIN enviarlo al grupo.
  * GET /api/admin/whatsapp/preview-rondas
  */
-app.get('/api/admin/whatsapp/preview-rondas', adminAuthMiddleware, async (req, res) => {
-    try {
-        const games = await getRondasGames();
-        res.type('text/plain').send(formatRondasMessage(currentOrLastSession(games)));
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+app.get('/api/admin/whatsapp/preview-rondas', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const games = await getRondasGames();
+    res.type('text/plain').send(formatRondasMessage(currentOrLastSession(games)));
+}));
 
 /**
  * Vista previa del texto del comando !partidas SIN enviarlo al grupo.
  * GET /api/admin/whatsapp/preview-partidas?format=2v2|4v4
  */
-app.get('/api/admin/whatsapp/preview-partidas', adminAuthMiddleware, async (req, res) => {
-    try {
-        const format = FORMATS.includes(req.query.format) ? req.query.format : '2v2';
-        const games = await supabase.getRecentGamesWithPlayers(10, format);
-        res.type('text/plain').send(formatRecentGamesWhatsApp(games));
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+app.get('/api/admin/whatsapp/preview-partidas', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const format = FORMATS.includes(req.query.format) ? req.query.format : '2v2';
+    const games = await supabase.getRecentGamesWithPlayers(10, format);
+    res.type('text/plain').send(formatRecentGamesWhatsApp(games));
+}));
 
 /**
  * Arma la respuesta del comando !equipos: divide la lista de jugadores en dos
@@ -1318,7 +1282,7 @@ async function handleAnularCommand({ format, args, msg, mentionedIds, senderId }
             by: senderId || null,
         });
         anuladas.saveAnuladas(OUTPUT_DIR, data);
-        console.log(`🚫 [WHATSAPP] Partida anulada con !anular: ${game.game_unique_id} (por ${senderTag || senderId || '?'})`);
+        wappLog.info(`🚫 [WHATSAPP] Partida anulada con !anular: ${game.game_unique_id} (por ${senderTag || senderId || '?'})`);
 
         const quienes = [...new Set((game.players || []).map(p => sanitizeCaptionText(p.gamertag)))].join(', ');
         return `*Partida anulada:* ${sanitizeCaptionText(game.map_name || '?')} (${game.game_unique_id.slice(0, 8)})${quienes ? ` — ${quienes}` : ''}.\nYa no cuenta para marcador, cuenta ni stats.`;
@@ -1454,7 +1418,7 @@ async function handleMarcadorCommand({ format, args, msg, mentionedIds, senderId
             games: virtuals,
         });
         ajustes.saveAjustes(OUTPUT_DIR, data);
-        console.log(`🛠️  [WHATSAPP] Marcador ajustado con !marcador: ${virtuals.length} partidas virtuales (por ${senderId || '?'})`);
+        wappLog.info(`🛠️  [WHATSAPP] Marcador ajustado con !marcador: ${virtuals.length} partidas virtuales (por ${senderId || '?'})`);
 
         // Confirmar con el marcador YA corregido, recalculado de verdad
         const after = computeEnfrentamientos(currentOrLastSession(await getRondasGames()).games)
@@ -1511,52 +1475,42 @@ function buildComandosReply(format) {
  * Mapas sin identificar: códigos crudos vistos que aún no tienen nombre.
  * Para recopilarlos y luego mapearlos. GET /api/admin/unknown-maps
  */
-app.get('/api/admin/unknown-maps', adminAuthMiddleware, async (req, res) => {
-    try {
-        const { data, error } = await supabase.client
-            .from('games')
-            .select('map_code, timestamp')
-            .not('map_code', 'is', null);
-        if (error) throw error;
+app.get('/api/admin/unknown-maps', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const { data, error } = await supabase.client
+        .from('games')
+        .select('map_code, timestamp')
+        .not('map_code', 'is', null);
+    if (error) throw error;
 
-        const known = new Set(Object.keys(MAP_NAMES));
-        const counts = {};
-        for (const g of data || []) {
-            if (known.has(g.map_code)) continue;
-            if (!counts[g.map_code]) counts[g.map_code] = { code: g.map_code, count: 0, lastSeen: g.timestamp };
-            counts[g.map_code].count++;
-            if (g.timestamp > counts[g.map_code].lastSeen) counts[g.map_code].lastSeen = g.timestamp;
-        }
-        res.json(Object.values(counts).sort((a, b) => b.count - a.count));
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+    const known = new Set(Object.keys(MAP_NAMES));
+    const counts = {};
+    for (const g of data || []) {
+        if (known.has(g.map_code)) continue;
+        if (!counts[g.map_code]) counts[g.map_code] = { code: g.map_code, count: 0, lastSeen: g.timestamp };
+        counts[g.map_code].count++;
+        if (g.timestamp > counts[g.map_code].lastSeen) counts[g.map_code].lastSeen = g.timestamp;
     }
-});
+    res.json(Object.values(counts).sort((a, b) => b.count - a.count));
+}));
 
 /**
  * Backfill: aplica un nombre a todas las partidas con un map_code dado.
  * Se usa tras agregar el código a utils/maps.js (para corregir partidas viejas).
  * POST /api/admin/map-backfill  Body: { code, name }
  */
-app.post('/api/admin/map-backfill', adminAuthMiddleware, async (req, res) => {
-    try {
-        const code = String(req.body?.code || '').trim().toLowerCase();
-        const name = String(req.body?.name || '').trim();
-        if (!code || !name) return res.status(400).json({ error: 'Faltan code y/o name' });
+app.post('/api/admin/map-backfill', adminAuthMiddleware, asyncHandler(async (req, res) => {
+    const code = String(req.body?.code || '').trim().toLowerCase();
+    const name = String(req.body?.name || '').trim();
+    if (!code || !name) return res.status(400).json({ error: 'Faltan code y/o name' });
 
-        const { data, error } = await supabase.client
-            .from('games')
-            .update({ map_name: name })
-            .eq('map_code', code)
-            .select('game_unique_id');
-        if (error) throw error;
-        res.json({ status: 'ok', code, name, updated: (data || []).length });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+    const { data, error } = await supabase.client
+        .from('games')
+        .update({ map_name: name })
+        .eq('map_code', code)
+        .select('game_unique_id');
+    if (error) throw error;
+    res.json({ status: 'ok', code, name, updated: (data || []).length });
+}));
 
 // ============== DASHBOARD STATS ENDPOINTS ==============
 
@@ -1568,225 +1522,190 @@ function reqFormat(req) {
 /**
  * Global Stats por formato
  */
-app.get('/api/stats/global', async (req, res) => {
-    try {
-        const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
-        const players = aggregatePlayers(games);
+app.get('/api/stats/global', asyncHandler(async (req, res) => {
+    const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
+    const players = aggregatePlayers(games);
 
-        const totals = players.reduce((acc, p) => ({
-            totalKills: acc.totalKills + p.total_kills,
-            totalDeaths: acc.totalDeaths + p.total_deaths,
-            totalPlayers: acc.totalPlayers + 1
-        }), { totalKills: 0, totalDeaths: 0, totalPlayers: 0 });
+    const totals = players.reduce((acc, p) => ({
+        totalKills: acc.totalKills + p.total_kills,
+        totalDeaths: acc.totalDeaths + p.total_deaths,
+        totalPlayers: acc.totalPlayers + 1
+    }), { totalKills: 0, totalDeaths: 0, totalPlayers: 0 });
 
-        res.json({
-            ...totals,
-            totalGames: games.length,
-            avgKD: totals.totalDeaths > 0 ? (totals.totalKills / totals.totalDeaths).toFixed(2) : totals.totalKills.toFixed(2)
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+    res.json({
+        ...totals,
+        totalGames: games.length,
+        avgKD: totals.totalDeaths > 0 ? (totals.totalKills / totals.totalDeaths).toFixed(2) : totals.totalKills.toFixed(2)
+    });
+}));
 
 /**
  * MVP & Top Performers por formato
  */
-app.get('/api/stats/mvp', async (req, res) => {
-    try {
-        const MIN_GAMES = parseInt(process.env.LEADERBOARD_MIN_GAMES || '5', 10);
+app.get('/api/stats/mvp', asyncHandler(async (req, res) => {
+    const MIN_GAMES = parseInt(process.env.LEADERBOARD_MIN_GAMES || '5', 10);
 
-        const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
-        const data = aggregatePlayers(games);
+    const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
+    const data = aggregatePlayers(games);
 
-        // Calculate KDA and efficiency for all players
-        const playersWithMLG = data.map(p => {
-            const kda = p.total_deaths > 0
-                ? ((p.total_kills + p.total_assists) / p.total_deaths)
-                : (p.total_kills + p.total_assists);
-            const gamesPlayed = p.total_games || 1;
-            const efficiency = (p.total_kills / gamesPlayed) - (p.total_deaths / gamesPlayed);
-            return { ...p, kda, efficiency };
-        });
+    // Calculate KDA and efficiency for all players
+    const playersWithMLG = data.map(p => {
+        const kda = p.total_deaths > 0
+            ? ((p.total_kills + p.total_assists) / p.total_deaths)
+            : (p.total_kills + p.total_assists);
+        const gamesPlayed = p.total_games || 1;
+        const efficiency = (p.total_kills / gamesPlayed) - (p.total_deaths / gamesPlayed);
+        return { ...p, kda, efficiency };
+    });
 
-        // Mismo mínimo de partidas que el leaderboard.
-        // Nota: los sorts usan copias ([...arr]) para no mutar la lista base
-        // (antes el segundo cálculo heredaba el orden del primero).
-        const eligiblePlayers = playersWithMLG.filter(p => p.total_games >= MIN_GAMES);
+    // Mismo mínimo de partidas que el leaderboard.
+    // Nota: los sorts usan copias ([...arr]) para no mutar la lista base
+    // (antes el segundo cálculo heredaba el orden del primero).
+    const eligiblePlayers = playersWithMLG.filter(p => p.total_games >= MIN_GAMES);
 
-        const mvp = eligiblePlayers.length > 0
-            ? [...eligiblePlayers].sort((a, b) => b.kda - a.kda)[0] : null;
+    const mvp = eligiblePlayers.length > 0
+        ? [...eligiblePlayers].sort((a, b) => b.kda - a.kda)[0] : null;
 
-        const topEfficiency = eligiblePlayers.length > 0
-            ? [...eligiblePlayers].sort((a, b) => b.efficiency - a.efficiency)[0] : null;
+    const topEfficiency = eligiblePlayers.length > 0
+        ? [...eligiblePlayers].sort((a, b) => b.efficiency - a.efficiency)[0] : null;
 
-        // Spree King: dato puntual, cuenta para todos (sin mínimo)
-        const spreeKing = playersWithMLG.length > 0
-            ? [...playersWithMLG].sort((a, b) => (b.best_spree || 0) - (a.best_spree || 0))[0] : null;
+    // Spree King: dato puntual, cuenta para todos (sin mínimo)
+    const spreeKing = playersWithMLG.length > 0
+        ? [...playersWithMLG].sort((a, b) => (b.best_spree || 0) - (a.best_spree || 0))[0] : null;
 
-        const mostConsistent = eligiblePlayers.length > 0
-            ? [...eligiblePlayers].sort((a, b) =>
-                (b.total_score / b.total_games) - (a.total_score / a.total_games))[0]
-            : null;
+    const mostConsistent = eligiblePlayers.length > 0
+        ? [...eligiblePlayers].sort((a, b) =>
+            (b.total_score / b.total_games) - (a.total_score / a.total_games))[0]
+        : null;
 
-        res.json({
-            mvp: mvp ? { ...mvp, kda: Math.round(mvp.kda * 100) / 100 } : null,
-            topEfficiency: topEfficiency ? { ...topEfficiency, efficiency: Math.round(topEfficiency.efficiency * 10) / 10 } : null,
-            spreeKing: spreeKing || null,
-            mostConsistent: mostConsistent || null
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+    res.json({
+        mvp: mvp ? { ...mvp, kda: Math.round(mvp.kda * 100) / 100 } : null,
+        topEfficiency: topEfficiency ? { ...topEfficiency, efficiency: Math.round(topEfficiency.efficiency * 10) / 10 } : null,
+        spreeKing: spreeKing || null,
+        mostConsistent: mostConsistent || null
+    });
+}));
 
 /**
  * Leaderboard con métricas MLG Halo 3
  */
-app.get('/api/stats/leaderboard', async (req, res) => {
-    try {
-        const clampInt = (v, def, lo, hi) => {
-            const n = parseInt(v, 10);
-            return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : def;
+app.get('/api/stats/leaderboard', asyncHandler(async (req, res) => {
+    const clampInt = (v, def, lo, hi) => {
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : def;
+    };
+    const MIN_GAMES = clampInt(req.query.minGames ?? process.env.LEADERBOARD_MIN_GAMES, 5, 0, 1000);
+    const limit = clampInt(req.query.limit, 20, 1, 100);
+
+    // Agregar jugadores y récord V-D-E desde las partidas del formato pedido
+    const allGames = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
+    const data = aggregatePlayers(allGames);
+    const records = computeRecords(allGames);
+
+    // Calcular métricas MLG para cada jugador
+    const mlgLeaderboard = data.map(player => {
+        const kda = player.total_deaths > 0
+            ? ((player.total_kills + player.total_assists) / player.total_deaths)
+            : (player.total_kills + player.total_assists);
+
+        const gamesPlayed = player.total_games || 1;
+        const efficiency = (player.total_kills / gamesPlayed) - (player.total_deaths / gamesPlayed);
+        const bestSpree = player.best_spree || 0;
+
+        // Slayer Score 0-100 (misma fórmula que usa el armador de equipos)
+        const slayerScore = computeSlayerScore(player);
+
+        // Tier por Slayer Score; con pocas partidas aún no compite (Placement)
+        const isPlacement = (player.total_games || 0) < MIN_GAMES;
+        let tier, tierColor;
+        if (isPlacement) {
+            tier = 'Placement';
+            tierColor = '#7d8fa0'; // Gris
+        } else if (slayerScore >= 75) {
+            tier = 'Pro';
+            tierColor = '#FFD700'; // Gold
+        } else if (slayerScore >= 60) {
+            tier = 'Semi-Pro';
+            tierColor = '#C0C0C0'; // Silver
+        } else if (slayerScore >= 45) {
+            tier = 'Competitive';
+            tierColor = '#CD7F32'; // Bronze
+        } else {
+            tier = 'Amateur';
+            tierColor = '#94a3b8';
+        }
+
+        const record = records.get(player.gamertag) || { wins: 0, losses: 0, draws: 0 };
+
+        return {
+            ...player,
+            kda: Math.round(kda * 100) / 100,
+            efficiency: Math.round(efficiency * 10) / 10,
+            avg_spree: bestSpree,
+            slayer_score: Math.round(slayerScore * 10) / 10,
+            tier,
+            tier_color: tierColor,
+            is_placement: isPlacement,
+            wins: record.wins,
+            losses: record.losses,
+            draws: record.draws
         };
-        const MIN_GAMES = clampInt(req.query.minGames ?? process.env.LEADERBOARD_MIN_GAMES, 5, 0, 1000);
-        const limit = clampInt(req.query.limit, 20, 1, 100);
+    });
 
-        // Agregar jugadores y récord V-D-E desde las partidas del formato pedido
-        const allGames = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
-        const data = aggregatePlayers(allGames);
-        const records = computeRecords(allGames);
+    // Placement al final; el resto por Slayer Score
+    mlgLeaderboard.sort((a, b) =>
+        (a.is_placement === b.is_placement)
+            ? b.slayer_score - a.slayer_score
+            : (a.is_placement ? 1 : -1)
+    );
 
-        // Calcular métricas MLG para cada jugador
-        const mlgLeaderboard = data.map(player => {
-            const kda = player.total_deaths > 0
-                ? ((player.total_kills + player.total_assists) / player.total_deaths)
-                : (player.total_kills + player.total_assists);
+    res.json(mlgLeaderboard.slice(0, limit));
+}));
 
-            const gamesPlayed = player.total_games || 1;
-            const efficiency = (player.total_kills / gamesPlayed) - (player.total_deaths / gamesPlayed);
-            const bestSpree = player.best_spree || 0;
-
-            // Slayer Score 0-100 (misma fórmula que usa el armador de equipos)
-            const slayerScore = computeSlayerScore(player);
-
-            // Tier por Slayer Score; con pocas partidas aún no compite (Placement)
-            const isPlacement = (player.total_games || 0) < MIN_GAMES;
-            let tier, tierColor;
-            if (isPlacement) {
-                tier = 'Placement';
-                tierColor = '#7d8fa0'; // Gris
-            } else if (slayerScore >= 75) {
-                tier = 'Pro';
-                tierColor = '#FFD700'; // Gold
-            } else if (slayerScore >= 60) {
-                tier = 'Semi-Pro';
-                tierColor = '#C0C0C0'; // Silver
-            } else if (slayerScore >= 45) {
-                tier = 'Competitive';
-                tierColor = '#CD7F32'; // Bronze
-            } else {
-                tier = 'Amateur';
-                tierColor = '#94a3b8';
-            }
-
-            const record = records.get(player.gamertag) || { wins: 0, losses: 0, draws: 0 };
-
-            return {
-                ...player,
-                kda: Math.round(kda * 100) / 100,
-                efficiency: Math.round(efficiency * 10) / 10,
-                avg_spree: bestSpree,
-                slayer_score: Math.round(slayerScore * 10) / 10,
-                tier,
-                tier_color: tierColor,
-                is_placement: isPlacement,
-                wins: record.wins,
-                losses: record.losses,
-                draws: record.draws
-            };
-        });
-
-        // Placement al final; el resto por Slayer Score
-        mlgLeaderboard.sort((a, b) =>
-            (a.is_placement === b.is_placement)
-                ? b.slayer_score - a.slayer_score
-                : (a.is_placement ? 1 : -1)
-        );
-
-        res.json(mlgLeaderboard.slice(0, limit));
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
-
-app.get('/api/stats/recent', async (req, res) => {
-    try {
-        const gamesWithPlayers = await supabase.getRecentGamesWithPlayers(10, reqFormat(req));
-        res.json(gamesWithPlayers);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+app.get('/api/stats/recent', asyncHandler(async (req, res) => {
+    const gamesWithPlayers = await supabase.getRecentGamesWithPlayers(10, reqFormat(req));
+    res.json(gamesWithPlayers);
+}));
 
 /**
  * Lista simple de jugadores del formato (para buscadores/selectores del dashboard)
  */
-app.get('/api/stats/players', async (req, res) => {
-    try {
-        const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
-        const players = aggregatePlayers(games)
-            .map(p => ({ gamertag: p.gamertag, total_games: p.total_games }))
-            .sort((a, b) => a.gamertag.localeCompare(b.gamertag));
-        res.json(players);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
+app.get('/api/stats/players', asyncHandler(async (req, res) => {
+    const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
+    const players = aggregatePlayers(games)
+        .map(p => ({ gamertag: p.gamertag, total_games: p.total_games }))
+        .sort((a, b) => a.gamertag.localeCompare(b.gamertag));
+    res.json(players);
+}));
 
 /**
  * Head-to-head entre dos jugadores: como rivales y como dupla.
  * GET /api/stats/h2h?p1=<gamertag>&p2=<gamertag>
  */
-app.get('/api/stats/h2h', async (req, res) => {
-    try {
-        const { p1, p2 } = req.query;
-        if (!p1 || !p2) {
-            return res.status(400).json({ error: 'Faltan p1 y/o p2' });
-        }
-        if (String(p1).toLowerCase() === String(p2).toLowerCase()) {
-            return res.status(400).json({ error: 'Elige dos jugadores distintos' });
-        }
-        const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
-        res.json(computeH2H(games, p1, p2));
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+app.get('/api/stats/h2h', asyncHandler(async (req, res) => {
+    const { p1, p2 } = req.query;
+    if (!p1 || !p2) {
+        return res.status(400).json({ error: 'Faltan p1 y/o p2' });
     }
-});
+    if (String(p1).toLowerCase() === String(p2).toLowerCase()) {
+        return res.status(400).json({ error: 'Elige dos jugadores distintos' });
+    }
+    const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
+    res.json(computeH2H(games, p1, p2));
+}));
 
 /**
  * Perfil de un jugador: totales, récord V-D-E e historial de partidas.
  * GET /api/stats/player/:gamertag
  */
-app.get('/api/stats/player/:gamertag', async (req, res) => {
-    try {
-        const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
-        const profile = computePlayerProfile(games, req.params.gamertag);
-        if (!profile) {
-            return res.status(404).json({ error: `No hay partidas de '${req.params.gamertag}'` });
-        }
-        res.json(profile);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+app.get('/api/stats/player/:gamertag', asyncHandler(async (req, res) => {
+    const games = await supabase.getAllValidGamesWithPlayers(reqFormat(req));
+    const profile = computePlayerProfile(games, req.params.gamertag);
+    if (!profile) {
+        return res.status(404).json({ error: `No hay partidas de '${req.params.gamertag}'` });
     }
-});
+    res.json(profile);
+}));
 
 // ============== STRIPE PAYMENT ENDPOINTS ==============
 
@@ -1795,48 +1714,46 @@ app.get('/api/stats/player/:gamertag', async (req, res) => {
  * POST /api/stripe/create-payment-intent
  * Body: { amount: number } // amount in cents
  */
-app.post('/api/stripe/create-payment-intent', publicLimiter, async (req, res) => {
-    try {
-        if (!stripe) {
-            return res.status(503).json({
-                error: 'Stripe is not configured on this server'
-            });
-        }
-
-        const amount = Number(req.body?.amount);
-
-        // Entre $0.50 y $1,000 (evita PaymentIntents absurdos / abuso de la API)
-        if (!Number.isFinite(amount) || amount < 50 || amount > 100000) {
-            return res.status(400).json({
-                error: 'Amount must be between 50 and 100000 cents'
-            });
-        }
-
-        // Create a PaymentIntent
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount: Math.round(amount),
-            currency: 'usd',
-            automatic_payment_methods: {
-                enabled: true,
-            },
-            metadata: {
-                project: 'carnage-reporter',
-                purpose: 'donation'
-            }
-        });
-
-        res.json({
-            clientSecret: paymentIntent.client_secret
-        });
-    } catch (error) {
-        console.error('Error creating payment intent:', error);
-        res.status(500).json({
-            error: 'Failed to create payment intent'
+app.post('/api/stripe/create-payment-intent', publicLimiter, asyncHandler(async (req, res) => {
+    if (!stripe) {
+        return res.status(503).json({
+            error: 'Stripe is not configured on this server'
         });
     }
-});
+
+    const amount = Number(req.body?.amount);
+
+    // Entre $0.50 y $1,000 (evita PaymentIntents absurdos / abuso de la API)
+    if (!Number.isFinite(amount) || amount < 50 || amount > 100000) {
+        return res.status(400).json({
+            error: 'Amount must be between 50 and 100000 cents'
+        });
+    }
+
+    // Create a PaymentIntent
+    const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount),
+        currency: 'usd',
+        automatic_payment_methods: {
+            enabled: true,
+        },
+        metadata: {
+            project: 'carnage-reporter',
+            purpose: 'donation'
+        }
+    });
+
+    res.json({
+        clientSecret: paymentIntent.client_secret
+    });
+}));
 
 // ============== INICIO DEL SERVIDOR ==============
+
+// /api/* que no matcheó ninguna ruta anterior -> 404 JSON, no el index.html
+// del SPA. Debe ir DESPUÉS de todas las rutas /api/* de arriba y ANTES del
+// catch-all del SPA de abajo.
+app.use('/api', notFound);
 
 // Servir index.html para cualquier otra ruta (SPA)
 app.get('*', (req, res) => {
@@ -1848,28 +1765,41 @@ app.get('*', (req, res) => {
     }
 });
 
+// Manejador de errores de Express: SIEMPRE al final de todo el stack.
+app.use(errorHandler);
+
+let httpServer = null; // instancia de http.Server (app.listen), para el apagado limpio
+
 async function start() {
-    console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║              CARNAGE REPORTER SERVER                     ║');
-    console.log('║           Halo 3 MCC Stats - VPS Edition                 ║');
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
+    log.info('╔══════════════════════════════════════════════════════════╗');
+    log.info('║              CARNAGE REPORTER SERVER                     ║');
+    log.info('║           Halo 3 MCC Stats - VPS Edition                 ║');
+    log.info('╚══════════════════════════════════════════════════════════╝');
 
     // Iniciar servidor Express
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`\n🚀 Servidor escuchando en http://0.0.0.0:${PORT}`);
-        console.log(`   POST /api/report - Recibir reportes`);
-        console.log(`   GET  /api/health - Health check`);
-        console.log(`   GET  /api/status - Estado del servidor`);
-        console.log('\n👀 Esperando reportes de clientes...\n');
+    httpServer = app.listen(PORT, '0.0.0.0', () => {
+        log.info(`🚀 Servidor escuchando en http://0.0.0.0:${PORT}`);
+        log.info('   POST /api/report - Recibir reportes');
+        log.info('   GET  /api/health - Health check');
+        log.info('   GET  /api/status - Estado del servidor');
+        log.info('👀 Esperando reportes de clientes...');
     });
 
-    // Avisos operativos de WhatsApp (sesión caída / recuperada) al Discord 2v2,
-    // que es el canal que sí sigue vivo cuando WhatsApp se cae.
-    whatsapp.setAlertHandler(text => discord.sendMessage(text));
+    // Avisos operativos de WhatsApp (sesión caída / recuperada) por el canal
+    // de alertas (server/alerts.js) en vez del Discord de resultados, para
+    // que sigan llegando aunque el canal de resultados esté saturado.
+    // whatsapp.js ya arma el texto con su propio prefijo (🔴/🟢); aquí se
+    // deriva el nivel de ese prefijo y se le quita para que alerts.alert()
+    // ponga el suyo (evita duplicarlo).
+    whatsapp.setAlertHandler(text => {
+        const level = text.startsWith('🔴') ? 'error' : text.startsWith('🟢') ? 'info' : 'warn';
+        const clean = text.replace(/^[🔴🟠🟢]\s*/u, '');
+        return alerts.alert(level, clean, { key: 'whatsapp:session' });
+    });
 
     // Inicializar WhatsApp en segundo plano (no bloquea el arranque de Express)
     whatsapp.initialize().catch(err => {
-        console.error('❌ WhatsApp no pudo inicializar:', err.message);
+        log.error({ err }, '❌ WhatsApp no pudo inicializar');
     });
 
     // Comando del grupo: !partidas -> últimas 10 partidas del formato del grupo
@@ -1930,7 +1860,9 @@ async function start() {
     // Tareas programadas de los lunes (solo grupo 2v2 / Retas H3):
     // 09:00 corte de saldos + reset del marcador, 10:00 "¿Habrá revancha?"
     // Más mantenimiento diario (Fase A0): backup de estado y limpieza de PNGs.
-    startSchedules(whatsapp, {
+    // La referencia se guarda para reportarla en /api/health y detenerla en
+    // el apagado limpio (ver shutdown() más abajo).
+    schedulerHandle = startSchedules(whatsapp, {
         sendWeeklySaldos,
         runBackup: () => runBackup({
             outputDir: OUTPUT_DIR,
@@ -1940,17 +1872,72 @@ async function start() {
         }),
         runCleanup: () => runCleanup({ outputDir: OUTPUT_DIR }),
     });
+
+    return httpServer;
 }
 
-// Manejo de cierre graceful
-process.on('SIGINT', async () => {
-    console.log('\n\n👋 Cerrando servidor...');
-    process.exit(0);
+/**
+ * Apagado limpio (Fase A1): cierra el servidor HTTP (deja de aceptar
+ * conexiones nuevas), detiene los cron jobs, destruye la sesión de WhatsApp
+ * y vacía el logger antes de salir con código 0. Plazo duro de 15s: si algo
+ * se cuelga (p.ej. whatsapp.destroy() esperando a Chromium), se fuerza la
+ * salida con código 1 en vez de dejar el proceso colgado para siempre
+ * (Docker con `restart: always` lo vuelve a levantar de todos modos).
+ */
+let shuttingDown = false;
+async function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info(`👋 Cerrando servidor (${signal})...`);
+
+    const hardDeadline = setTimeout(() => {
+        log.error('⏱️  El apagado no terminó en 15s, forzando salida');
+        process.exit(1);
+    }, 15000);
+    hardDeadline.unref();
+
+    try {
+        if (httpServer) {
+            await new Promise((resolve) => httpServer.close(() => resolve()));
+        }
+        if (schedulerHandle) schedulerHandle.stopAll();
+        await whatsapp.destroy();
+        log.info('👋 Servidor cerrado limpiamente');
+        clearTimeout(hardDeadline);
+        logger.flush();
+        process.exit(0);
+    } catch (err) {
+        log.error({ err }, '❌ Error durante el apagado');
+        clearTimeout(hardDeadline);
+        process.exit(1);
+    }
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+/**
+ * Errores no atrapados por nada más (promesa rechazada sin .catch, excepción
+ * síncrona fuera de cualquier try/catch): se loggean como fatales, se manda
+ * una alerta a Discord (server/alerts.js) y el proceso sale con código 1
+ * tras una pausa breve para darle tiempo a esa alerta de salir antes de que
+ * el proceso muera. Docker con `restart: always` levanta el contenedor de
+ * nuevo.
+ */
+function fatal(kind, err) {
+    log.fatal({ err }, `💀 ${kind} no manejado — el proceso va a salir`);
+    alerts.alert('error', `${kind} no manejado: ${err?.message || err}. El proceso se reinicia.`, { key: 'process' })
+        .finally(() => setTimeout(() => process.exit(1), 2000));
+}
+
+process.on('unhandledRejection', (reason) => {
+    fatal('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
+});
+process.on('uncaughtException', (err) => {
+    fatal('uncaughtException', err);
 });
 
-process.on('SIGTERM', async () => {
-    console.log('\n\n👋 Cerrando servidor (SIGTERM)...');
-    process.exit(0);
+start().catch(err => {
+    log.fatal({ err }, '💀 start() falló, el servidor no pudo arrancar');
+    process.exit(1);
 });
-
-start().catch(console.error);

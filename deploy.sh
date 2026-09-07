@@ -113,6 +113,10 @@ services:
     image: carnage-reporter:latest
     container_name: carnage-dashboard
     restart: always
+    # Le da tiempo al apagado limpio (server/index.js: cierra el server HTTP,
+    # detiene los cron, destruye la sesión de WhatsApp) antes de que Docker
+    # mande SIGKILL; el default de compose es 10s, corto para whatsapp-web.js.
+    stop_grace_period: 20s
     ports:
       - "127.0.0.1:${HOST_PORT}:3000"
     env_file:
@@ -121,6 +125,11 @@ services:
       - /root/carnage-reporter-docker/server/output:/app/server/output
       # Sesión de WhatsApp persistente (sobrevive redeploys; escanear QR solo una vez)
       - /root/carnage-reporter-docker/wwebjs_auth:/app/server/.wwebjs_auth
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 EOF
 
 # 3. Levantar SOLO este servicio (no afecta nada más del VPS)

@@ -17,15 +17,6 @@ class DiscordService {
     }
 
     /**
-     * Cambia el webhook de Discord dinámicamente
-     * @param {string} url - Nueva URL del webhook
-     */
-    setWebhookUrl(url) {
-        this.webhookUrl = url;
-        log.info('💬 Discord webhook actualizado');
-    }
-
-    /**
      * Obtiene el webhook actual (oculta parte de la URL por seguridad)
      */
     getWebhookInfo() {
