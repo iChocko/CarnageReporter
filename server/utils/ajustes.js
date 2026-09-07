@@ -19,8 +19,8 @@
  * elimina el último lote completo.
  */
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, writeJsonAtomic } = require('../state/jsonStore');
 
 const AJUSTES_FILE = 'ajustes.json';
 
@@ -34,26 +34,19 @@ function emptyAjustes() {
 
 /** Carga los lotes de ajuste; tolerante a archivo faltante o corrupto. */
 function loadAjustes(dir) {
-    try {
-        const data = JSON.parse(fs.readFileSync(ajustesFilePath(dir), 'utf-8'));
-        if (!data || !Array.isArray(data.ajustes)) return emptyAjustes();
-        const valid = data.ajustes.filter(a =>
-            a && Number.isFinite(Date.parse(a.timestamp)) &&
-            Array.isArray(a.games) && a.games.length > 0 &&
-            a.games.every(g => g && Number.isFinite(Date.parse(g.timestamp)) && Array.isArray(g.players))
-        );
-        return { version: data.version || 1, ajustes: valid };
-    } catch {
-        return emptyAjustes();
-    }
+    const data = readJson(ajustesFilePath(dir), null);
+    if (!data || !Array.isArray(data.ajustes)) return emptyAjustes();
+    const valid = data.ajustes.filter(a =>
+        a && Number.isFinite(Date.parse(a.timestamp)) &&
+        Array.isArray(a.games) && a.games.length > 0 &&
+        a.games.every(g => g && Number.isFinite(Date.parse(g.timestamp)) && Array.isArray(g.players))
+    );
+    return { version: data.version || 1, ajustes: valid };
 }
 
-/** Guarda los lotes con escritura atómica (tmp + rename). */
+/** Guarda los lotes con escritura atómica (tmp + fsync + rename). */
 function saveAjustes(dir, data) {
-    const file = ajustesFilePath(dir);
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-    fs.renameSync(tmp, file);
+    writeJsonAtomic(ajustesFilePath(dir), data);
 }
 
 /** Todas las partidas virtuales de ajuste, listas para mezclar en la tubería. */

@@ -10,8 +10,8 @@
  * archivo que forfeits.js: volumen montado en OUTPUT_DIR, sobrevive redeploys).
  */
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, writeJsonAtomic } = require('../state/jsonStore');
 
 const ANULADAS_FILE = 'anuladas.json';
 const ANULAR_COOLDOWN_MS = 5 * 60 * 1000; // dos !anular en <5 min = doble reacción al mismo error
@@ -26,25 +26,18 @@ function emptyAnuladas() {
 
 /** Carga la bitácora; tolerante a archivo faltante o corrupto (lista vacía). */
 function loadAnuladas(dir) {
-    try {
-        const data = JSON.parse(fs.readFileSync(anuladasFilePath(dir), 'utf-8'));
-        if (!data || !Array.isArray(data.anuladas)) return emptyAnuladas();
-        const valid = data.anuladas.filter(a =>
-            a && typeof a.gameId === 'string' && a.gameId.length > 0 &&
-            Number.isFinite(Date.parse(a.annulledAt))
-        );
-        return { version: data.version || 1, anuladas: valid };
-    } catch {
-        return emptyAnuladas();
-    }
+    const data = readJson(anuladasFilePath(dir), null);
+    if (!data || !Array.isArray(data.anuladas)) return emptyAnuladas();
+    const valid = data.anuladas.filter(a =>
+        a && typeof a.gameId === 'string' && a.gameId.length > 0 &&
+        Number.isFinite(Date.parse(a.annulledAt))
+    );
+    return { version: data.version || 1, anuladas: valid };
 }
 
-/** Guarda la bitácora con escritura atómica (tmp + rename). */
+/** Guarda la bitácora con escritura atómica (tmp + fsync + rename). */
 function saveAnuladas(dir, data) {
-    const file = anuladasFilePath(dir);
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-    fs.renameSync(tmp, file);
+    writeJsonAtomic(anuladasFilePath(dir), data);
 }
 
 /**

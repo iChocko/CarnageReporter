@@ -21,9 +21,9 @@
  * siempre).
  */
 
-const fs = require('fs');
 const path = require('path');
 
+const { readJson, writeJsonAtomic } = require('../state/jsonStore');
 const { clusterSessions, computeEnfrentamientos, RONDA_MXN } = require('./sessions');
 const { sanitizeCaptionText } = require('./matchSummary');
 const { lineupKeyOf } = require('./forfeits');
@@ -108,17 +108,13 @@ const CORTE_FILE = 'saldos_corte.json';
 
 /** Timestamp (ms epoch) del último corte hecho, o null. */
 function getLastCorteTs(dir) {
-    try {
-        const data = JSON.parse(fs.readFileSync(path.join(dir, CORTE_FILE), 'utf-8'));
-        return Number.isFinite(data.lastCorteTs) ? data.lastCorteTs : null;
-    } catch {
-        return null;
-    }
+    const data = readJson(path.join(dir, CORTE_FILE), null);
+    return data && Number.isFinite(data.lastCorteTs) ? data.lastCorteTs : null;
 }
 
 /** Registra que el corte de hoy ya se hizo. */
 function setLastCorteTs(dir, ts = Date.now()) {
-    fs.writeFileSync(path.join(dir, CORTE_FILE), JSON.stringify({ lastCorteTs: ts, corteAt: new Date(ts).toISOString() }));
+    writeJsonAtomic(path.join(dir, CORTE_FILE), { lastCorteTs: ts, corteAt: new Date(ts).toISOString() }, { pretty: false });
     return ts;
 }
 

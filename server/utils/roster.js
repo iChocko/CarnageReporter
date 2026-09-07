@@ -14,8 +14,8 @@
  * redeploys sin tocar el esquema de la base), igual que rondasReset.js.
  */
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, writeJsonAtomic } = require('../state/jsonStore');
 
 const ROSTER_FILE = 'whatsapp_roster.json';
 
@@ -32,21 +32,14 @@ function emptyRoster() {
 
 /** Carga el roster; tolerante a archivo faltante o corrupto (roster vacío). */
 function loadRoster(dir) {
-    try {
-        const data = JSON.parse(fs.readFileSync(rosterFilePath(dir), 'utf-8'));
-        if (!data || !Array.isArray(data.links)) return emptyRoster();
-        return { version: data.version || 1, links: data.links.filter(l => l && Array.isArray(l.jids) && l.gamertag) };
-    } catch {
-        return emptyRoster();
-    }
+    const data = readJson(rosterFilePath(dir), null);
+    if (!data || !Array.isArray(data.links)) return emptyRoster();
+    return { version: data.version || 1, links: data.links.filter(l => l && Array.isArray(l.jids) && l.gamertag) };
 }
 
-/** Guarda el roster con escritura atómica (tmp + rename). */
+/** Guarda el roster con escritura atómica (tmp + fsync + rename). */
 function saveRoster(dir, roster) {
-    const file = rosterFilePath(dir);
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(roster, null, 2));
-    fs.renameSync(tmp, file);
+    writeJsonAtomic(rosterFilePath(dir), roster);
 }
 
 /** Busca el vínculo que contenga este JID exacto. */

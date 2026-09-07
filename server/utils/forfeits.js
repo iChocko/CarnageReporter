@@ -13,8 +13,8 @@
  * rondas primera-a-2, dinero, anuncio en vivo) funciona sin cambios.
  */
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, writeJsonAtomic } = require('../state/jsonStore');
 
 const FORFEITS_FILE = 'forfeits.json';
 
@@ -28,27 +28,20 @@ function emptyForfeits() {
 
 /** Carga los W.O.; tolerante a archivo faltante o corrupto (lista vacía). */
 function loadForfeits(dir) {
-    try {
-        const data = JSON.parse(fs.readFileSync(forfeitsFilePath(dir), 'utf-8'));
-        if (!data || !Array.isArray(data.forfeits)) return emptyForfeits();
-        const valid = data.forfeits.filter(f =>
-            f && Number.isFinite(Date.parse(f.timestamp)) &&
-            Array.isArray(f.sides) && f.sides.length === 2 &&
-            f.sides.every(s => Array.isArray(s) && s.length > 0) &&
-            (f.loserSide === 0 || f.loserSide === 1)
-        );
-        return { version: data.version || 1, forfeits: valid };
-    } catch {
-        return emptyForfeits();
-    }
+    const data = readJson(forfeitsFilePath(dir), null);
+    if (!data || !Array.isArray(data.forfeits)) return emptyForfeits();
+    const valid = data.forfeits.filter(f =>
+        f && Number.isFinite(Date.parse(f.timestamp)) &&
+        Array.isArray(f.sides) && f.sides.length === 2 &&
+        f.sides.every(s => Array.isArray(s) && s.length > 0) &&
+        (f.loserSide === 0 || f.loserSide === 1)
+    );
+    return { version: data.version || 1, forfeits: valid };
 }
 
-/** Guarda los W.O. con escritura atómica (tmp + rename). */
+/** Guarda los W.O. con escritura atómica (tmp + fsync + rename). */
 function saveForfeits(dir, data) {
-    const file = forfeitsFilePath(dir);
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-    fs.renameSync(tmp, file);
+    writeJsonAtomic(forfeitsFilePath(dir), data);
 }
 
 /**

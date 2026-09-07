@@ -10,8 +10,8 @@
  * sin necesidad de tocar el esquema de la base de datos.
  */
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, writeJsonAtomic } = require('../state/jsonStore');
 
 const RESET_FILE = 'rondas_reset.json';
 
@@ -21,17 +21,13 @@ function resetFilePath(dir) {
 
 /** Timestamp (ms epoch) del último reset, o null si no hay. */
 function getResetTs(dir) {
-    try {
-        const data = JSON.parse(fs.readFileSync(resetFilePath(dir), 'utf-8'));
-        return Number.isFinite(data.resetTs) ? data.resetTs : null;
-    } catch {
-        return null;
-    }
+    const data = readJson(resetFilePath(dir), null);
+    return data && Number.isFinite(data.resetTs) ? data.resetTs : null;
 }
 
 /** Registra un reset en este instante (o en el ts indicado). */
 function setResetTs(dir, ts = Date.now()) {
-    fs.writeFileSync(resetFilePath(dir), JSON.stringify({ resetTs: ts, resetAt: new Date(ts).toISOString() }));
+    writeJsonAtomic(resetFilePath(dir), { resetTs: ts, resetAt: new Date(ts).toISOString() }, { pretty: false });
     return ts;
 }
 
