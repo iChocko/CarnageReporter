@@ -10,6 +10,9 @@
 ### 🚀 DESCARGA DIRECTA
 > [!IMPORTANT]
 > **[📥 Descargar CarnageReporter.exe para PC](https://github.com/iChocko/CarnageReporter/releases/latest/download/CarnageReporter.exe)**
+> (ejecutable portable, no instala nada) — o
+> **[📦 Descargar el instalador (CarnageReporter-Setup.exe)](https://github.com/iChocko/CarnageReporter/releases/latest/download/CarnageReporter-Setup.exe)**
+> (agrega accesos directos y la opción de iniciar con Windows desde el propio instalador).
 > *Compatible con Windows 10/11 (Halo 3 MCC PC).*
 
 > [!NOTE]
@@ -17,6 +20,11 @@
 > (el ejecutable aún no está firmado digitalmente; el código es abierto y puedes revisarlo aquí mismo).
 > - **Al descargar**: en la barra de descargas → ⋯ → **Conservar** → "Mostrar más" → **Conservar de todas formas**.
 > - **Al abrir**: clic en **"Más información"** → **"Ejecutar de todas formas"** (solo la primera vez).
+>
+> Cada release publica además `SHA256SUMS` y `SHA256SUMS.sig`: los hashes de
+> los `.exe` y su firma Ed25519, para quien quiera verificar la descarga a
+> mano (el cliente ya lo hace solo antes de auto-actualizarse — ver
+> [`docs/release-signing.md`](docs/release-signing.md)).
 
 <sub>🔐 Free code signing on Windows provided by [SignPath.io](https://signpath.io), certificate by
 [SignPath Foundation](https://signpath.org) *(en proceso de integración)*. Consulta la
@@ -91,6 +99,14 @@ Si deseas correr el proyecto desde el código fuente o contribuir:
    [`docs/sea-fallback.md`](docs/sea-fallback.md) para la alternativa con
    Node SEA si el empaquetador deja de funcionar.
 
+   **Instalador (.exe → Setup.exe)**: `client/installer/CarnageReporter.iss`
+   ([Inno Setup 6](https://jrsoftware.org/isinfo.php)) empaqueta el `.exe` ya
+   compilado en `CarnageReporter-Setup.exe` (accesos directos de menú Inicio,
+   tarea opcional "Iniciar con Windows", desinstalador que limpia el
+   arranque automático). Se compila con `iscc client/installer/CarnageReporter.iss`
+   — no se puede probar en macOS/Linux, solo se valida por revisión y en CI
+   (`windows-latest`, donde Inno Setup ya viene preinstalado).
+
    El ejecutable (y `node client/carnage_client.js` en desarrollo) acepta
    además de `--background`:
    - `--version`: imprime la versión y sale (código 0).
@@ -103,14 +119,35 @@ Si deseas correr el proyecto desde el código fuente o contribuir:
      arranque automático con Windows sin pasar por el menú interactivo.
    - `--drain-now`: reintenta de inmediato lo que esté en la cola de envío
      (spool), sin esperar al timer de 60s ni a que llegue una partida nueva.
+   - `--rollback` (Fase B5): revierte a la versión anterior guardada como
+     `CarnageReporter.prev.exe` junto al exe (se crea automáticamente en cada
+     auto-actualización exitosa). Falla con un mensaje claro si no hay
+     ninguna versión anterior que restaurar. El menú interactivo también
+     ofrece esta opción (`[R] Revertir`) cuando detecta una actualización
+     reciente.
+
+   **Auto-actualización verificada (Fase B5)**: desde v1.7 el cliente ya no
+   instala un `.exe` descargado sin más — antes de reemplazar nada, verifica
+   el SHA256 del `.exe` contra `SHA256SUMS` del release y la firma Ed25519 de
+   `SHA256SUMS` contra una clave pública embebida en el propio cliente. Si el
+   release no publica esos dos archivos, o cualquiera de las dos
+   verificaciones falla, la actualización se cancela y el ejecutable en uso
+   queda intacto. También respeta `ETag`/`304 Not Modified` y el rate-limit
+   de la API de GitHub (se salta la revisión hasta que expire, en vez de
+   seguir insistiendo). Detalle completo en
+   [`docs/release-signing.md`](docs/release-signing.md).
 
    **Dónde vive cada cosa (desde v1.7 / Fase B3)**: `settings.json`, la
    bitácora (`carnage_client.log`), la cola de reportes pendientes/fallidos
-   (`spool/`), `status.json` e `instance.json` ya NO viven junto al exe sino
-   en `%LOCALAPPDATA%\CarnageReporter` (o `CARNAGE_DATA_DIR` si lo defines).
-   El `config.json`/`config.gen.js` con la API key sigue leyéndose junto al
-   exe. Un `settings.json`/`carnage_autostart.vbs` de una instalación anterior
-   se migra (copia) automáticamente la primera vez que corre esta versión.
+   (`spool/`), `status.json`, `instance.json`, `update.log`,
+   `update-state.json` y los `.exe` descargados en verificación
+   (`updates/<version>.exe.part` → `.exe`) ya NO viven junto al exe sino en
+   `%LOCALAPPDATA%\CarnageReporter` (o `CARNAGE_DATA_DIR` si lo defines). El
+   `config.json`/`config.gen.js` con la API key, el propio `.exe` y su
+   respaldo `CarnageReporter.prev.exe` (para `--rollback`) sí siguen junto al
+   exe. Un `settings.json`/`carnage_autostart.vbs` de una instalación
+   anterior se migra (copia) automáticamente la primera vez que corre esta
+   versión.
 
    **Reportes robustos (spool)**: un XML que no se pudo enviar (sin
    conexión, servidor caído) se mueve a `spool\pending\` y se reintenta con
