@@ -41,6 +41,7 @@ body {
   color: var(--steel);
   font-family: 'Arial Narrow', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
   min-height: 100vh;
+  min-height: 100dvh; /* barras del navegador movil: alto real de viewport */
   -webkit-font-smoothing: antialiased;
 }
 
@@ -132,6 +133,12 @@ td {
   white-space: nowrap;
 }
 tbody tr:nth-child(odd) { background: rgba(70, 100, 135, 0.07); }
+/* Primera columna fija al hacer scroll horizontal en tablas angostas (celular) */
+.tablewrap th:first-child, .tablewrap td:first-child {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--bg-2);
+}
+.tablewrap tbody tr:nth-child(odd) td:first-child { background: #101c28; }
 tbody tr.clickable { cursor: pointer; transition: background .15s ease; }
 tbody tr.clickable:hover { background: rgba(90, 140, 190, 0.14); }
 tbody tr.clickable:focus-visible { outline: 2px solid var(--blue-light); outline-offset: -2px; }
@@ -350,4 +357,30 @@ footer.site a:hover, footer.site button:hover { color: var(--blue-light); }
   .brand h1 { font-size: 26px; }
   .tab { padding: 9px 14px; font-size: 12px; }
   .view { padding: 14px; }
+}
+
+/* Celular: la mayoría de la comunidad entra desde el teléfono */
+@media (max-width: 600px) {
+  .wrap { padding: 0 12px 40px; }
+
+  header.site { flex-direction: column; align-items: stretch; }
+  .head-right { text-align: left; }
+  .format-toggle { width: 100%; }
+  .fmt-btn { flex: 1 1 0; }
+
+  /* Tira de tabs con scroll horizontal y snap, en vez de wrap */
+  nav.tabs {
+    flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch; padding-bottom: 2px;
+  }
+  .tab { flex: 0 0 auto; scroll-snap-align: start; }
+
+  /* Objetivos de toque de al menos 44px */
+  .tab, .fmt-btn, .pchip, .btn-steel, .select-steel, .input-steel,
+  footer.site button, .formula-hint button {
+    min-height: 44px;
+  }
+  .select-steel, .input-steel { min-width: 0; width: 100%; }
+  .h2h-pickers { flex-direction: column; align-items: stretch; }
+  .h2h-pickers .vs { text-align: center; }
 }
