@@ -48,7 +48,7 @@ test('round-trip: link, save, load, findByJid/findByGamertag', () => {
 
     const loaded = roster.loadRoster(dir);
     assert.strictEqual(roster.findByJid(loaded, '5215554353385@c.us').gamertag, 'Rober K15 Mx');
-    assert.strictEqual(roster.findByGamertag(loaded, 'rober k15 mx').jids[0], '5215554353385@c.us');
+    assert.strictEqual(roster.findByGamertag(loaded, 'rober k15 mx').ids[0], 'pn:5215554353385');
 });
 
 test('addAlias aprende la otra forma de JID y ambas resuelven', () => {
@@ -56,14 +56,14 @@ test('addAlias aprende la otra forma de JID y ambas resuelven', () => {
     const { link } = roster.linkJid(data, '5215554353385@c.us', 'Rober K15 Mx', {});
     roster.addAlias(link, '111222333@lid');
     roster.addAlias(link, '111222333@lid'); // idempotente
-    assert.strictEqual(link.jids.length, 2);
+    assert.strictEqual(link.ids.length, 2);
     assert.strictEqual(roster.findByJid(data, '111222333@lid').gamertag, 'Rober K15 Mx');
 });
 
 test('re-link del mismo JID sobrescribe y reporta el tag anterior', () => {
     const data = { version: 1, links: [] };
-    roster.linkJid(data, 'x@c.us', 'TagViejo', {});
-    const r = roster.linkJid(data, 'x@c.us', 'TagNuevo', {});
+    roster.linkJid(data, '111@c.us', 'TagViejo', {});
+    const r = roster.linkJid(data, '111@c.us', 'TagNuevo', {});
     assert.ok(r.ok);
     assert.strictEqual(r.previous, 'TagViejo');
     assert.strictEqual(data.links.length, 1);
@@ -71,8 +71,8 @@ test('re-link del mismo JID sobrescribe y reporta el tag anterior', () => {
 
 test('tag reclamado por otro JID -> conflicto, no toca nada', () => {
     const data = { version: 1, links: [] };
-    roster.linkJid(data, 'a@c.us', 'Axtorion', {});
-    const r = roster.linkJid(data, 'b@c.us', 'axtorion', {});
+    roster.linkJid(data, '111@c.us', 'Axtorion', {});
+    const r = roster.linkJid(data, '222@c.us', 'axtorion', {});
     assert.ok(!r.ok);
     assert.strictEqual(r.conflict.gamertag, 'Axtorion');
     assert.strictEqual(data.links.length, 1);
@@ -80,7 +80,7 @@ test('tag reclamado por otro JID -> conflicto, no toca nada', () => {
 
 test('unlinkGamertag quita el vínculo (case-insensitive)', () => {
     const data = { version: 1, links: [] };
-    roster.linkJid(data, 'a@c.us', 'Axtorion', {});
+    roster.linkJid(data, '111@c.us', 'Axtorion', {});
     assert.ok(roster.unlinkGamertag(data, 'AXTORION'));
     assert.ok(!roster.unlinkGamertag(data, 'Axtorion'));
     assert.strictEqual(data.links.length, 0);

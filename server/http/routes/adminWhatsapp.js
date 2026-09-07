@@ -19,8 +19,10 @@ const { buildSaldosPayload, sendWeeklySaldos } = require('../../domain/saldos');
 const { buildEquiposReply } = require('../../domain/equipos');
 const { MAX_TAG_LEN } = require('../../commands/mentions');
 const { WEEKLY_MESSAGE } = require('../../jobs/scheduler');
+const { identityFromJid, identityKeys } = require('../../messaging/jid');
 
 const JID_SHAPE = /^\d{5,20}@(c\.us|lid)$/;
+const ID_KEY_SHAPE = /^(pn|lid):\d{4,20}$/;
 
 function createAdminWhatsappRouter(ctx) {
     const router = express.Router();
@@ -105,6 +107,7 @@ function createAdminWhatsappRouter(ctx) {
      * GET  /api/admin/whatsapp/roster            -> estado actual
      * POST /api/admin/whatsapp/roster            -> siembra/actualiza vínculos
      *      Body: { links: [{ jids: ["521...@c.us", ...], gamertag, known? }], replace? }
+     *      o, formato nuevo (Fase A3): { links: [{ ids: ["pn:521...", "lid:1234"], gamertag, known? }] }
      *      Con replace=true sustituye el roster completo; si no, hace merge.
      */
     router.get('/api/admin/whatsapp/roster', adminAuth, (req, res) => {
@@ -168,24 +171,28 @@ function createAdminWhatsappRouter(ctx) {
 
         const payload = await ctx.locks.withRosterLock(async () => {
             const data = req.body.replace === true
-                ? { version: 1, links: [] }
+                ? { version: 2, links: [] }
                 : rosterStore.loadRoster(ctx.outputDir);
 
             const results = [];
             for (const raw of links) {
-                const jids = (Array.isArray(raw?.jids) ? raw.jids : [raw?.jid])
-                    .filter(Boolean).map(String).filter(j => JID_SHAPE.test(j));
+                // Formato nuevo (ids: claves de Identity) o viejo (jids: JIDs crudos).
+                const idKeys = Array.isArray(raw?.ids)
+                    ? raw.ids.filter(Boolean).map(String).filter(k => ID_KEY_SHAPE.test(k))
+                    : (Array.isArray(raw?.jids) ? raw.jids : [raw?.jid])
+                        .filter(Boolean).map(String).filter(j => JID_SHAPE.test(j))
+                        .flatMap(j => identityKeys(identityFromJid(j)));
                 const gamertag = sanitizeCaptionText(String(raw?.gamertag || '')).trim();
-                if (!jids.length || !gamertag || gamertag.length > MAX_TAG_LEN || gamertag.startsWith('!')) {
-                    results.push({ gamertag: gamertag || null, ok: false, error: 'jids con forma inválida y/o gamertag inválido' });
+                if (!idKeys.length || !gamertag || gamertag.length > MAX_TAG_LEN || gamertag.startsWith('!')) {
+                    results.push({ gamertag: gamertag || null, ok: false, error: 'ids/jids con forma inválida y/o gamertag inválido' });
                     continue;
                 }
-                const result = rosterStore.linkJid(data, jids[0], gamertag, {
+                const result = rosterStore.linkJid(data, idKeys[0], gamertag, {
                     known: raw?.known !== false,
                     by: 'admin-api'
                 });
                 if (result.ok) {
-                    for (const alias of jids.slice(1)) rosterStore.addAlias(result.link, alias);
+                    for (const alias of idKeys.slice(1)) rosterStore.addAlias(result.link, alias);
                 }
                 results.push({ gamertag, ok: result.ok, conflict: result.conflict?.gamertag });
             }

@@ -6,6 +6,7 @@
 'use strict';
 
 const rosterStore = require('../utils/roster');
+const { identityFromKeys, toLegacyJid } = require('../messaging/jid');
 const { computeSaldos, formatSaldosMessage, getLastCorteTs, setLastCorteTs, isSameCdmxDay } = require('../utils/saldos');
 const { setResetTs } = require('../utils/rondasReset');
 const { getSaldosGames } = require('./rondas');
@@ -22,8 +23,8 @@ async function buildSaldosPayload(ctx) {
     const data = rosterStore.loadRoster(ctx.outputDir);
     const jidByTagLower = new Map();
     for (const link of data.links) {
-        const phone = link.jids.find(j => j.endsWith('@c.us')) || link.jids[0];
-        if (phone) jidByTagLower.set(link.gamertag.toLowerCase(), phone);
+        const jid = toLegacyJid(identityFromKeys(link.ids));
+        if (jid) jidByTagLower.set(link.gamertag.toLowerCase(), jid);
     }
 
     return { payload: formatSaldosMessage(saldos, games.length, jidByTagLower), gamesCount: games.length };

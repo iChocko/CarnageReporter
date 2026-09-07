@@ -11,11 +11,11 @@ const { isAdminSender } = require('./admin');
 
 /** Comando !roster: lista los vínculos; "unlink <tag>" (admin) desvincula. */
 function createRosterHandler(ctx) {
-    return async function handleRosterCommand({ args, msg, senderId }) {
+    return async function handleRosterCommand({ format, args, msg, senderId }) {
         const arg = (args || '').trim();
 
         if (/^unlink(\s|$)/i.test(arg)) {
-            if (!(await isAdminSender(ctx, senderId, msg))) return 'Solo un admin puede desvincular.';
+            if (!(await isAdminSender(ctx, senderId, msg, format))) return 'Solo un admin puede desvincular.';
             const tag = sanitizeCaptionText(arg.replace(/^unlink\s*/i, '')).trim();
             if (!tag) return 'Uso: !roster unlink <gamertag>';
             return ctx.locks.withRosterLock(async () => {
@@ -31,8 +31,8 @@ function createRosterHandler(ctx) {
 
         const lines = [`*ROSTER* (${data.links.length} registrado${data.links.length !== 1 ? 's' : ''})`];
         for (const link of [...data.links].sort((a, b) => a.gamertag.localeCompare(b.gamertag))) {
-            const phone = link.jids.find(j => j.endsWith('@c.us')) || link.jids[0] || '';
-            const digits = jidDigits(phone) || '????';
+            const pnKey = link.ids.find(k => k.startsWith('pn:')) || link.ids[0] || '';
+            const digits = jidDigits(pnKey) || '????';
             lines.push(`• ${link.gamertag} — …${digits}`);
         }
         lines.push('', 'Para registrarte: !soy <gamertag>');
