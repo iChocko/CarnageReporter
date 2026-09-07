@@ -9,6 +9,11 @@ const express = require('express');
 const { asyncHandler } = require('../errors');
 const { FORMATS } = require('../../utils/format');
 const { computeRecords, computeH2H, computePlayerProfile, aggregatePlayers, computeSlayerScore } = require('../../utils/records');
+const { currentOrLastSession, summarizeSession, RONDA_MXN } = require('../../utils/sessions');
+const { computeSaldos, getLastCorteTs } = require('../../utils/saldos');
+const { getResetTs } = require('../../utils/rondasReset');
+const { getRondasGames, getSaldosGames } = require('../../domain/rondas');
+const { loadRoster } = require('../../utils/roster');
 
 // Formato pedido en el query (?format=2v2|4v4), default 2v2.
 function reqFormat(req) {
@@ -17,6 +22,14 @@ function reqFormat(req) {
 
 function createStatsRouter(ctx) {
     const router = express.Router();
+
+    // Lecturas públicas cacheables 30s (el dashboard hace polling; el cache
+    // de gamesCache ya tiene TTL de 5 min, esto solo evita re-servir el mismo
+    // JSON en ráfagas cortas de varios visitantes a la vez).
+    router.use((req, res, next) => {
+        res.set('Cache-Control', 'public, max-age=30');
+        next();
+    });
 
     /**
      * Global Stats por formato
@@ -204,6 +217,45 @@ function createStatsRouter(ctx) {
             return res.status(404).json({ error: `No hay partidas de '${req.params.gamertag}'` });
         }
         res.json(profile);
+    }));
+
+    /**
+     * Marcador de la reta en curso (o la última jugada), para la vista web
+     * de !rondas. Misma fuente de verdad que el mensaje de WhatsApp
+     * (utils/sessions.js summarizeSession).
+     * GET /api/stats/rondas
+     */
+    router.get('/api/stats/rondas', asyncHandler(async (req, res) => {
+        const games = await getRondasGames(ctx);
+        const session = summarizeSession(currentOrLastSession(games));
+        res.json({ session, rondaMxn: RONDA_MXN });
+    }));
+
+    /**
+     * Saldos netos pendientes desde el último corte semanal (o el último
+     * !rondas reset si nunca ha habido corte), para la vista web.
+     * GET /api/stats/saldos
+     */
+    router.get('/api/stats/saldos', asyncHandler(async (req, res) => {
+        const sinceTs = getLastCorteTs(ctx.outputDir) ?? getResetTs(ctx.outputDir);
+        const games = await getSaldosGames(ctx);
+        res.json({ sinceTs, gamesCount: games.length, saldos: computeSaldos(games) });
+    }));
+
+    /**
+     * Roster público: solo gamertag y si ya jugó (known). NUNCA expone JIDs
+     * de WhatsApp (números de teléfono) — ver server/utils/roster.js.
+     * GET /api/stats/roster
+     */
+    router.get('/api/stats/roster', asyncHandler(async (req, res) => {
+        const games = await ctx.gamesCache.getAllValidGamesWithPlayers(reqFormat(req));
+        const totalsByTag = new Map(aggregatePlayers(games).map(p => [p.gamertag.toLowerCase(), p.total_games]));
+        const roster = loadRoster(ctx.outputDir).links.map(l => ({
+            gamertag: l.gamertag,
+            known: !!l.known,
+            totalGames: totalsByTag.get(String(l.gamertag).toLowerCase()) || 0,
+        }));
+        res.json(roster);
     }));
 
     return router;
