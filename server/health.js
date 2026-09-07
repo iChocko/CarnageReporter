@@ -90,7 +90,7 @@ function createHealthCheck({
 
         const checks = {
             supabase: supabaseCheck,
-            whatsapp: { enabled: whatsapp.enabled, state: whatsappState, transport: 'wwebjs' },
+            whatsapp: { enabled: whatsapp.enabled, state: whatsappState, transport: whatsapp.transport || 'wwebjs' },
             renderer: { lastOkAt: renderer.lastOkAt },
             disk: { outputFreeMb: getDiskFreeMb() },
             scheduler: { jobs: getSchedulerJobs() },

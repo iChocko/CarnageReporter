@@ -18,7 +18,7 @@ const { createMarcadorHandler } = require('./marcador');
 const { createComandosHandler } = require('./comandos');
 
 /**
- * @param {import('../services/whatsapp')} whatsapp
+ * @param {import('../messaging/port').MessagingPort} whatsapp
  * @param {object} ctx - contexto compartido (ver server/index.js)
  */
 function registerAll(whatsapp, ctx) {

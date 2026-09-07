@@ -11,7 +11,7 @@ const log = logger.child({ mod: 'http' });
 
 /**
  * @param {object} opts
- * @param {import('./services/whatsapp')} opts.whatsapp
+ * @param {import('./messaging/port').MessagingPort} opts.whatsapp
  * @param {{ alert: function }} opts.alerts
  * @param {() => import('http').Server|null} opts.getHttpServer
  * @param {() => {stopAll: function}|null} opts.getSchedulerHandle
@@ -24,7 +24,7 @@ function createLifecycle({ whatsapp, alerts, getHttpServer, getSchedulerHandle }
      * Apagado limpio (Fase A1): cierra el servidor HTTP (deja de aceptar
      * conexiones nuevas), detiene los cron jobs, destruye la sesión de
      * WhatsApp y vacía el logger antes de salir con código 0. Plazo duro de
-     * 15s: si algo se cuelga (p.ej. whatsapp.destroy() esperando a
+     * 15s: si algo se cuelga (p.ej. whatsapp.stop() esperando a
      * Chromium), se fuerza la salida con código 1 en vez de dejar el proceso
      * colgado para siempre (Docker con `restart: always` lo vuelve a
      * levantar de todos modos).
@@ -47,7 +47,7 @@ function createLifecycle({ whatsapp, alerts, getHttpServer, getSchedulerHandle }
             }
             const schedulerHandle = getSchedulerHandle();
             if (schedulerHandle) schedulerHandle.stopAll();
-            await whatsapp.destroy();
+            await whatsapp.stop();
             log.info('👋 Servidor cerrado limpiamente');
             clearTimeout(hardDeadline);
             logger.flush();

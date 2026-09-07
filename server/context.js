@@ -35,6 +35,11 @@ function buildCtx({ config, logger, services, alerts, outputDir, version, getSch
         config,
         logger,
         ...services,
+        // `port` es el mismo MessagingPort que `whatsapp` (Fase A3): el nombre
+        // `whatsapp` se conserva porque report/pipeline.js, domain/saldos.js,
+        // jobs/* y health.js ya lo usan así; `port` es el nombre "de contrato"
+        // para código nuevo que programe contra server/messaging/port.js.
+        port: services.whatsapp,
         alerts,
         outputDir,
         gamesCache: createGamesCache({ supabase: services.supabase }),

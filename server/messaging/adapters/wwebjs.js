@@ -1,6 +1,24 @@
 /**
- * WhatsApp Service
- * Envío de reportes al grupo de WhatsApp vía whatsapp-web.js.
+ * Adaptador WhatsApp (whatsapp-web.js) — Fase A3.
+ *
+ * Es el `MessagingPort` real de producción: mismo comportamiento que el
+ * viejo `server/services/whatsapp.js` (Fase A0-A2), movido aquí y con la
+ * superficie de MessagingPort encima. El despacho de comandos EN VIVO
+ * (`handleIncomingMessage`, el Map `this.commands`) se deja tal cual estaba
+ * — es la ruta que corre en producción hoy y no tiene red de tests propia
+ * (whatsapp-web.js necesita Chromium real), así que no vale la pena
+ * arriesgar un comportamiento distinto solo por pureza del contrato.
+ *
+ * Lo nuevo son shims ADICIONALES que traducen ese estado interno al
+ * contrato de MessagingPort (getSelfIdentity, mentionJid, sendText,
+ * formatForChat, getPairing...) para que comandos/infra nuevos puedan
+ * programar contra el contrato — y para que un futuro adaptador (Baileys,
+ * Fase A5) tenga que respetar el mismo shape. Los métodos heredados
+ * (`sendImage(imagePath, caption, chatId)`, `sendMessage(text, chatId, opts)`,
+ * `isReady()`, `groupIdFor()`, `getQR()`, `registerCommand()`, `authPath`,
+ * `setAlertHandler()`, `notifyAlert()`) NO cambian de firma ni de
+ * comportamiento: `report/pipeline.js`, `domain/saldos.js`, `jobs/*` y
+ * `health.js` los siguen llamando exactamente igual.
  *
  * - Se habilita con WHATSAPP_ENABLED=true; si está apagado, todo es no-op.
  * - Sesión persistente con LocalAuth en WHATSAPP_AUTH_DIR (default server/.wwebjs_auth).
@@ -12,12 +30,16 @@
 
 const path = require('path');
 const fs = require('fs');
-const { logger } = require('../logger');
+const { logger } = require('../../logger');
+const { MessagingPort, SendError, NotSupportedError } = require('../port');
+const { identityFromJid, mergeIdentity, toLegacyJid } = require('../jid');
 
 const log = logger.child({ mod: 'whatsapp' });
 
-class WhatsAppService {
+class WwebjsPort extends MessagingPort {
     constructor() {
+        super();
+        this.transport = 'wwebjs';
         this.enabled = process.env.WHATSAPP_ENABLED === 'true';
         this.client = null;
         this.ready = false;
@@ -31,7 +53,7 @@ class WhatsAppService {
         // format -> chatId resuelto (tras conectar); y el inverso chatId -> format
         this.resolvedGroups = {};
         this.chatIdToFormat = {};
-        this.authPath = process.env.WHATSAPP_AUTH_DIR || path.join(__dirname, '..', '.wwebjs_auth');
+        this.authPath = process.env.WHATSAPP_AUTH_DIR || path.join(__dirname, '..', '..', '.wwebjs_auth');
         this.isRestarting = false;
         this.keepAliveInterval = null;
         this.keepAliveIntervalMs = 5 * 60 * 1000; // 5 minutos
@@ -45,6 +67,10 @@ class WhatsAppService {
         // sin esto la caída es silenciosa (los reportes solo omiten WhatsApp).
         this.alertHandler = null;
         this.sessionLostAlerted = false; // un aviso por episodio, no por cada QR (se regenera cada ~30s)
+        this.since = null;
+        this.lastError = null;
+        this.reconnects = 0;
+        this.readOnly = false;
 
         if (!this.enabled) {
             log.info('📴 WhatsApp deshabilitado (WHATSAPP_ENABLED != true)');
@@ -132,6 +158,7 @@ class WhatsAppService {
         if (!this.enabled) return;
         this.isRestarting = false;
         this.initRetryCount++;
+        this.reconnects++;
         const delay = this.getRetryDelay(this.initRetryCount);
         log.info(`🔁 Reintentando conexión de WhatsApp en ${delay / 1000}s (intento ${this.initRetryCount})...`);
         setTimeout(() => this.restart(), delay);
@@ -198,6 +225,8 @@ class WhatsAppService {
             this.client.on('qr', (qr) => {
                 this.currentQR = qr;
                 this.status = 'waiting_qr';
+                this._setState('waiting_pairing');
+                this._emitPairing();
                 // El QR debe llegar a `docker logs` como texto plano (dibujo ASCII
                 // escaneable), no envuelto en JSON como el resto de los logs.
                 /* eslint-disable no-console */
@@ -219,6 +248,7 @@ class WhatsAppService {
             this.client.on('authenticated', () => {
                 log.info('✅ WhatsApp autenticado');
                 this.currentQR = null;
+                this._setState('connecting');
             });
 
             this.client.on('ready', async () => {
@@ -227,6 +257,7 @@ class WhatsAppService {
                 this.currentQR = null;
                 this.isRestarting = false;
                 this.initRetryCount = 0;
+                this.since = new Date().toISOString();
                 log.info('📱 WhatsApp listo.');
                 if (this.sessionLostAlerted) {
                     this.sessionLostAlerted = false;
@@ -238,6 +269,8 @@ class WhatsAppService {
                 await this.resolveOwnIds();
 
                 this.startKeepAlive();
+                this._setState('ready');
+                this._emitPairing(null);
                 resolve();
             });
 
@@ -245,6 +278,8 @@ class WhatsAppService {
                 log.error({ authMsg: msg }, '❌ Error de autenticación WhatsApp');
                 this.ready = false;
                 this.status = 'disconnected';
+                this.lastError = String(msg || 'auth_failure');
+                this._setState('logged_out');
                 resolve();
             });
 
@@ -252,6 +287,8 @@ class WhatsAppService {
                 log.warn({ reason }, '⚠️  WhatsApp desconectado');
                 this.ready = false;
                 this.status = 'disconnected';
+                this.lastError = String(reason || 'disconnected');
+                this._setState(reason === 'LOGOUT' ? 'logged_out' : 'reconnecting');
                 if (!this.isRestarting) {
                     log.info('🔄 Intentando reconectar en 5s...');
                     setTimeout(() => this.restart(), 5000);
@@ -265,11 +302,17 @@ class WhatsAppService {
                 this.handleIncomingMessage(msg).catch(err =>
                     log.error({ err }, '❌ Error atendiendo comando WhatsApp')
                 );
+                // Traducción best-effort a IncomingMessage del contrato (además
+                // del despacho real de arriba, no en su lugar): permite que
+                // infraestructura nueva (ShadowPort, futuros contract tests)
+                // observe los mensajes sin duplicar la lógica de negocio.
+                this._emitPortMessage(msg);
             });
 
             this.client.initialize().catch((error) => {
                 log.error({ err: error }, '❌ Error inicializando WhatsApp');
                 this.status = 'disconnected';
+                this.lastError = String(error?.message || error);
                 this.scheduleReconnect();
                 resolve();
             });
@@ -333,11 +376,33 @@ class WhatsAppService {
     }
 
     /**
-     * Envía una imagen con caption a un chat específico.
-     * Nunca lanza: devuelve false en fallo (no debe tumbar /api/report).
-     * @param {string} chatId - grupo destino (obligatorio)
+     * Formato del grupo al que pertenece un chatId (inverso de groupIdFor).
+     * Parte del contrato MessagingPort.
      */
-    async sendImage(imagePath, caption, chatId) {
+    formatForChat(chatId) {
+        return this.chatIdToFormat[chatId] || null;
+    }
+
+    /**
+     * Envía una imagen con caption a un chat específico.
+     *
+     * Dos formas conviven bajo el mismo nombre (se distinguen por el tipo del
+     * segundo argumento, nunca ambiguo en la práctica: la forma vieja siempre
+     * manda un caption de texto):
+     *   - Heredada: `sendImage(imagePath, caption, chatId)` -> boolean, nunca
+     *     lanza (la usan report/pipeline.js y jobs/*).
+     *   - Contrato MessagingPort: `sendImage(chatId, { path, caption, mentions })`
+     *     -> `{id}` o lanza `SendError`.
+     */
+    async sendImage(a, b, c) {
+        if (b !== null && typeof b === 'object') {
+            return this._sendImagePort(a, b || {});
+        }
+        return this._sendImageLegacy(a, b, c);
+    }
+
+    /** Forma heredada de sendImage: nunca lanza, boolean. */
+    async _sendImageLegacy(imagePath, caption, chatId) {
         if (!this.enabled) return false;
 
         const isConnected = await this.ensureConnection();
@@ -384,6 +449,16 @@ class WhatsAppService {
         return false;
     }
 
+    /** Forma MessagingPort de sendImage: {id} o SendError. */
+    async _sendImagePort(chatId, { path: imagePath, caption, mentions } = {}) {
+        if (!chatId || !imagePath) throw new SendError('sendImage requiere chatId y path', 'permanent');
+        if (!this.isReady()) throw new SendError('WhatsApp no está listo', 'not_ready');
+        const ok = await this._sendImageLegacy(imagePath, caption || '', chatId);
+        if (!ok) throw new SendError('No se pudo enviar la imagen', 'transient');
+        void mentions; // whatsapp-web.js no soporta mentions en mensajes de imagen
+        return { id: `sent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` };
+    }
+
     /**
      * Envía un mensaje de texto a un chat específico.
      * @param {string} text
@@ -407,6 +482,19 @@ class WhatsAppService {
     }
 
     /**
+     * Forma MessagingPort de un envío de texto: {id} o SendError. Reusa
+     * sendMessage (heredado) por dentro; no cambia el comportamiento real.
+     */
+    async sendText(chatId, text, opts = {}) {
+        if (!chatId || !text) throw new SendError('sendText requiere chatId y text', 'permanent');
+        if (this.readOnly) throw new SendError('WhatsApp en modo solo-lectura', 'read_only');
+        if (!this.isReady()) throw new SendError('WhatsApp no está listo', 'not_ready');
+        const ok = await this.sendMessage(text, chatId, opts.mentions ? { mentions: opts.mentions } : undefined);
+        if (!ok) throw new SendError('No se pudo enviar el mensaje', 'transient');
+        return { id: `sent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` };
+    }
+
+    /**
      * IDs propios del bot (wid + su LID), para detectar auto-menciones.
      * El LID se resuelve una sola vez tras conectar; si falla, queda solo el wid.
      */
@@ -423,6 +511,20 @@ class WhatsAppService {
 
     getOwnIds() {
         return this.ownIds;
+    }
+
+    /** Identidad propia del bot, parte del contrato MessagingPort. */
+    getSelfIdentity() {
+        let identity = {};
+        for (const jid of this.ownIds) {
+            identity = mergeIdentity(identity, identityFromJid(jid));
+        }
+        return (identity.pn || identity.lid) ? identity : null;
+    }
+
+    /** Token de mención "clásico" (@c.us/@lid) a partir de una Identity. */
+    mentionJid(identity) {
+        return toLegacyJid(identity) || '';
     }
 
     /**
@@ -447,6 +549,20 @@ class WhatsAppService {
     }
 
     /**
+     * Resuelve/enriquece una Identity contra el puente LID↔teléfono. Parte
+     * del contrato MessagingPort; por dentro usa resolveLidPn tal cual.
+     * Nunca lanza (best effort): en fallo devuelve la identidad de entrada.
+     */
+    async resolveIdentity(identity, { network = true } = {}) {
+        if (!network || !identity) return identity || {};
+        const jid = toLegacyJid(identity);
+        if (!jid) return identity;
+        const [pair] = await this.resolveLidPn([jid]);
+        if (!pair) return identity;
+        return mergeIdentity(identity, mergeIdentity(identityFromJid(pair.lid), identityFromJid(pair.pn)));
+    }
+
+    /**
      * Nombre visible y número de un JID (best effort; nunca lanza).
      * OJO: WhatsApp Web no siempre trae pushname para un contacto pedido por
      * su forma @lid — para eso resolveLidPn ya da la forma @c.us, que sí lo trae.
@@ -464,6 +580,14 @@ class WhatsAppService {
         } catch {
             return {};
         }
+    }
+
+    /** Nombre visible de una Identity; parte del contrato MessagingPort. */
+    async getDisplayName(identity) {
+        const jid = toLegacyJid(identity);
+        if (!jid) return null;
+        const info = await this.getContactInfo(jid);
+        return info.pushname || info.name || null;
     }
 
     /**
@@ -492,6 +616,7 @@ class WhatsAppService {
                 entry.jidLid = pair.lid || (jid.endsWith('@lid') ? jid : undefined);
                 entry.jidPhone = pair.pn || (jid.endsWith('@c.us') ? jid : undefined);
             }
+            entry.identity = mergeIdentity(identityFromJid(entry.jidLid), identityFromJid(entry.jidPhone || jid));
             out.push(entry);
         }
         return out;
@@ -553,6 +678,35 @@ class WhatsAppService {
         }
     }
 
+    /**
+     * Traduce un mensaje nativo de whatsapp-web.js a IncomingMessage y lo
+     * emite como evento 'message' del puerto (ver port.js). Best effort:
+     * nunca debe tumbar el despacho real de comandos (arriba).
+     */
+    _emitPortMessage(msg) {
+        try {
+            const msgChat = msg.fromMe ? msg.to : msg.from;
+            const format = this.chatIdToFormat[msgChat] || null;
+            const senderJid = msg.author || msg.from;
+            const mentionedIds = (msg.mentionedIds || []).map(m =>
+                typeof m === 'string' ? m : (m?._serialized || m?.id?._serialized || '')
+            ).filter(Boolean);
+            this.emit('message', {
+                id: msg.id?._serialized || msg.id || `${msgChat}-${msg.timestamp || Date.now()}`,
+                chatId: msgChat,
+                format,
+                fromMe: !!msg.fromMe,
+                timestamp: (msg.timestamp ? msg.timestamp * 1000 : Date.now()),
+                sender: identityFromJid(senderJid),
+                text: msg.body || '',
+                mentions: mentionedIds.map(identityFromJid),
+                raw: msg,
+            });
+        } catch (err) {
+            log.warn({ err }, '⚠️  No se pudo traducir el mensaje entrante al contrato MessagingPort');
+        }
+    }
+
     isReady() {
         return this.enabled && this.ready;
     }
@@ -561,12 +715,25 @@ class WhatsAppService {
         return this.currentQR;
     }
 
+    /** Parte del contrato MessagingPort: { qr } o null. */
+    getPairing() {
+        return this.currentQR ? { qr: this.currentQR } : null;
+    }
+
+    async requestPairingCode(phone) {
+        if (!this.client || typeof this.client.requestPairingCode !== 'function') {
+            throw new NotSupportedError('requestPairingCode()');
+        }
+        return this.client.requestPairingCode(phone);
+    }
+
     /**
      * Estado para el endpoint admin: disabled | initializing | waiting_qr | ready | disconnected
      */
     getStatus() {
         return {
             status: this.status,
+            transport: this.transport,
             groups: {
                 '2v2': this.resolvedGroups['2v2'] || null,
                 '4v4': this.resolvedGroups['4v4'] || null,
@@ -668,6 +835,50 @@ class WhatsAppService {
             this.client = null;
         }
     }
+
+    // --- MessagingPort: ciclo de vida genérico (alias de los métodos de arriba) ---
+
+    /** Alias de initialize(), para quien programe contra el contrato MessagingPort. */
+    async start() {
+        return this.initialize();
+    }
+
+    /** Alias de destroy(). */
+    async stop() {
+        return this.destroy();
+    }
+
+    _setState(state) {
+        this._portState = state;
+        this.emit('status', this.getPortStatus());
+    }
+
+    _emitPairing(pairing = this.getPairing()) {
+        this.emit('pairing', pairing);
+    }
+
+    /**
+     * Shape completo del contrato MessagingPort (ver port.js JSDoc). Se deja
+     * como método aparte de getStatus() para no romper a health.js ni al
+     * endpoint admin, que dependen del shape heredado {status, groups,
+     * configured}; getStatus() se queda tal cual.
+     */
+    getPortStatus() {
+        return {
+            transport: this.transport,
+            state: this._portState || (this.enabled ? 'starting' : 'disabled'),
+            since: this.since,
+            lastError: this.lastError,
+            reconnects: this.reconnects,
+            groups: {
+                '2v2': this.resolvedGroups['2v2'] || this.groupConfig['2v2'] || null,
+                '4v4': this.resolvedGroups['4v4'] || this.groupConfig['4v4'] || null,
+            },
+            self: this.getSelfIdentity(),
+            readOnly: this.readOnly,
+        };
+    }
 }
 
-module.exports = WhatsAppService;
+module.exports = WwebjsPort;
+module.exports.WwebjsPort = WwebjsPort;
