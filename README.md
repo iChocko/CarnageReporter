@@ -80,6 +80,26 @@ Si deseas correr el proyecto desde el código fuente o contribuir:
    - Cliente: `npm start`
    - Servidor: `node server/index.js`
    - Dashboard: `cd dashboard && npm run dev`
+5. **Compilar el cliente (.exe de Windows)**:
+   ```bash
+   ./build_client.sh
+   # o directamente:
+   cd client && npm install && npm run build
+   ```
+   Genera `client/dist/CarnageReporter.exe` con [`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg)
+   (fork mantenido de `pkg`, targeting `node22-win-x64`). Ver
+   [`docs/sea-fallback.md`](docs/sea-fallback.md) para la alternativa con
+   Node SEA si el empaquetador deja de funcionar.
+
+   El ejecutable (y `node client/carnage_client.js` en desarrollo) acepta
+   además de `--background`:
+   - `--version`: imprime la versión y sale (código 0).
+   - `--selftest`: corre el parser XML real contra un fixture interno y sale
+     0/1 — útil para verificar un build recién compilado sin tener un XML
+     real de una partida.
+   - `--status`: consulta si ya hay una instancia corriendo en segundo plano.
+   - `--enable-autostart` / `--disable-autostart`: activa o desactiva el
+     arranque automático con Windows sin pasar por el menú interactivo.
 
 ---
 
