@@ -3,19 +3,13 @@
  * y las reglas de validación (quién puede, cooldown, ventana de sesión).
  */
 
+const { test } = require('node:test');
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const anuladas = require('../server/utils/anuladas');
-
-let passed = 0;
-function test(name, fn) {
-    fn();
-    passed++;
-    console.log(`  ✅ ${name}`);
-}
+const anuladas = require('../utils/anuladas');
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'wa-anuladas-'));
 
@@ -114,4 +108,3 @@ test('la ventana respeta gapMinutes custom', () => {
     assert.strictEqual(r.ok, false);
 });
 
-console.log(`\n✅ ${passed} tests OK\n`);

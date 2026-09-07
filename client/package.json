@@ -5,6 +5,7 @@
   "main": "carnage_client.js",
   "scripts": {
     "start": "node carnage_client.js",
+    "test": "node --test test/*.test.js",
     "build": "pkg carnage_client.js --targets node18-win-x64 --output dist/CarnageClient.exe"
   },
   "dependencies": {

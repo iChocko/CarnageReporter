@@ -5,21 +5,15 @@
  *  - server/utils/matchSummary -> línea de mapa+gametype para captions
  */
 
+const { test } = require('node:test');
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { resolveMap, MAP_PLACEHOLDER, MAP_UNKNOWN } = require('../server/utils/maps');
-const { extractMapCodeFromFilmName, findMapCodeFromFilms } = require('../client/carnage_client');
-const { buildCaptionParts } = require('../server/utils/matchSummary');
-
-let passed = 0;
-function test(name, fn) {
-    fn();
-    passed++;
-    console.log(`  ✅ ${name}`);
-}
+const { resolveMap, MAP_PLACEHOLDER, MAP_UNKNOWN } = require('../utils/maps');
+const { extractMapCodeFromFilmName, findMapCodeFromFilms } = require('../../client/carnage_client');
+const { buildCaptionParts } = require('../utils/matchSummary');
 
 console.log('\n— resolveMap —');
 
@@ -126,4 +120,3 @@ test('gametype con token "$..." no se agrega', () => {
     assert.strictEqual(parts.mapLine, 'Guardian');
 });
 
-console.log(`\n✅ ${passed} tests OK\n`);

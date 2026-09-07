@@ -4,6 +4,7 @@
  * versiones del auto-update.
  */
 
+const { test } = require('node:test');
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -11,14 +12,7 @@ const path = require('path');
 
 const {
     buildVbsContent, isNewerVersion, loadSettings, saveSettings, VERSION
-} = require('../client/carnage_client');
-
-let passed = 0;
-function test(name, fn) {
-    fn();
-    passed++;
-    console.log(`  ✅ ${name}`);
-}
+} = require('../carnage_client');
 
 console.log('\n— buildVbsContent (.vbs de arranque invisible) —');
 
@@ -82,4 +76,3 @@ test('la VERSION del cliente es la 1.6.0 del modo automático', () => {
     assert.strictEqual(VERSION, '1.6.0');
 });
 
-console.log(`\n✅ ${passed} tests OK`);

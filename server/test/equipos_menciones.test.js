@@ -4,21 +4,15 @@
  * validación/limpieza del comando !equipos.
  */
 
+const { test } = require('node:test');
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const roster = require('../server/utils/roster');
-const { computeDuoRecords } = require('../server/utils/records');
-const teams = require('../server/utils/teams');
-
-let passed = 0;
-function test(name, fn) {
-    fn();
-    passed++;
-    console.log(`  ✅ ${name}`);
-}
+const roster = require('../utils/roster');
+const { computeDuoRecords } = require('../utils/records');
+const teams = require('../utils/teams');
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'wa-roster-'));
 
@@ -265,4 +259,3 @@ test('jugador sin partidas queda con la media y marcado como estimado', () => {
     assert.ok(Math.abs(nuevo.skill - idx.mean) < 1e-9);
 });
 
-console.log(`\n✅ ${passed} tests OK\n`);

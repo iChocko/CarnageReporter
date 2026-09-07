@@ -3,20 +3,14 @@
  * marcador de reset (rondasReset).
  */
 
+const { test } = require('node:test');
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { formatLiveRoundUpdate, currentOrLastSession } = require('../server/utils/sessions');
-const { getResetTs, setResetTs, filterGamesAfterReset } = require('../server/utils/rondasReset');
-
-let passed = 0;
-function test(name, fn) {
-    fn();
-    passed++;
-    console.log(`  ✅ ${name}`);
-}
+const { formatLiveRoundUpdate, currentOrLastSession } = require('../utils/sessions');
+const { getResetTs, setResetTs, filterGamesAfterReset } = require('../utils/rondasReset');
 
 // Partida sintética 2v2: [A,B] vs [C,D]. winner: 'L' izquierda, 'R' derecha, 'T' empate.
 let tsBase = Date.now() - 60 * 60 * 1000; // hace 1 hora, sesión viva
@@ -110,4 +104,3 @@ test('archivo corrupto -> se ignora sin tronar', () => {
     assert.strictEqual(getResetTs(dir), null);
 });
 
-console.log(`\n✅ ${passed} tests OK\n`);

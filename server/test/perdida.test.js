@@ -3,22 +3,16 @@
  * virtual W.O. y su integración con la tubería de rondas (sessions.js).
  */
 
+const { test } = require('node:test');
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const forfeits = require('../server/utils/forfeits');
-const { teamOutcomes } = require('../server/utils/records');
-const { currentOrLastSession, formatLiveRoundUpdate, formatRondasMessage } = require('../server/utils/sessions');
-const { filterGamesAfterReset, setResetTs } = require('../server/utils/rondasReset');
-
-let passed = 0;
-function test(name, fn) {
-    fn();
-    passed++;
-    console.log(`  ✅ ${name}`);
-}
+const forfeits = require('../utils/forfeits');
+const { teamOutcomes } = require('../utils/records');
+const { currentOrLastSession, formatLiveRoundUpdate, formatRondasMessage } = require('../utils/sessions');
+const { filterGamesAfterReset, setResetTs } = require('../utils/rondasReset');
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'wa-forfeits-'));
 
@@ -154,4 +148,3 @@ test('un W.O. anterior al !rondas reset queda fuera del marcador', () => {
     assert.strictEqual(left[0].map_name, 'Guardian');
 });
 
-console.log(`\n✅ ${passed} tests OK\n`);

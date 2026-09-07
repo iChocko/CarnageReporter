@@ -4,6 +4,7 @@
  * mensaje con menciones.
  */
 
+const { test } = require('node:test');
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -11,14 +12,7 @@ const path = require('path');
 
 const {
     computeSaldos, formatSaldosMessage, getLastCorteTs, setLastCorteTs, isSameCdmxDay
-} = require('../server/utils/saldos');
-
-let passed = 0;
-function test(name, fn) {
-    fn();
-    passed++;
-    console.log(`  ✅ ${name}`);
-}
+} = require('../utils/saldos');
 
 // Partida sintética 2v2 en un instante dado (minutos desde una base fija).
 const tsBase = Date.parse('2026-07-07T20:00:00.000Z');
@@ -132,7 +126,7 @@ test('deudas con menciones para los del roster y texto plano para el resto', () 
 });
 
 test('los W.O. (partidas virtuales) también suman al corte', () => {
-    const forfeits = require('../server/utils/forfeits');
+    const forfeits = require('../utils/forfeits');
     const wo = forfeits.forfeitToGame({
         timestamp: new Date(tsBase + 16 * 60 * 1000).toISOString(),
         sides: [['Alfa', 'Beta'], ['Cyto', 'Delta']],
@@ -178,4 +172,3 @@ test('isSameCdmxDay respeta la zona horaria de CDMX', () => {
     assert.ok(!isSameCdmxDay(b, c));
 });
 
-console.log(`\n✅ ${passed} tests OK\n`);

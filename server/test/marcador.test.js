@@ -8,21 +8,15 @@
  * admin declara el marcador REAL para que el bot inyecte lo que faltó.
  */
 
+const { test } = require('node:test');
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const ajustes = require('../server/utils/ajustes');
-const { teamOutcomes } = require('../server/utils/records');
-const { currentOrLastSession, computeEnfrentamientos, formatRondasMessage } = require('../server/utils/sessions');
-
-let passed = 0;
-function test(name, fn) {
-    fn();
-    passed++;
-    console.log(`  ✅ ${name}`);
-}
+const ajustes = require('../utils/ajustes');
+const { teamOutcomes } = require('../utils/records');
+const { currentOrLastSession, computeEnfrentamientos, formatRondasMessage } = require('../utils/sessions');
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'wa-ajustes-'));
 
@@ -177,4 +171,3 @@ test('los empates reales no estorban al plan (no suman a la ronda)', () => {
     assert.deepStrictEqual([e.current.winsA, e.current.winsB], [1, 0]);
 });
 
-console.log(`\n🎉 ${passed} pruebas pasaron\n`);
