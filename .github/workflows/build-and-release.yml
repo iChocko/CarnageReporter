@@ -32,6 +32,15 @@ jobs:
           fi
           echo "Tag $GITHUB_REF_NAME coincide con client/package.json ($pkg_version)."
 
+      - name: Verificar secret RELEASE_SIGNING_KEY (Fase B5 — firma de SHA256SUMS)
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.RELEASE_SIGNING_KEY }}" ]; then
+            echo "::error::Falta el secret RELEASE_SIGNING_KEY (PEM de la clave privada Ed25519 de firma de releases). Ver docs/release-signing.md — sin este secret no se puede publicar un release verificable y el auto-update del cliente lo rechazará."
+            exit 1
+          fi
+          echo "RELEASE_SIGNING_KEY presente."
+
       - name: Install dependencies
         run: npm ci
         working-directory: client
@@ -58,13 +67,86 @@ jobs:
           ./client/dist/CarnageReporter.exe --version
           ./client/dist/CarnageReporter.exe --selftest
 
+      - name: Asegurar Inno Setup (iscc) disponible
+        shell: bash
+        run: |
+          if ! command -v iscc >/dev/null 2>&1; then
+            echo "iscc no está en PATH; instalando Inno Setup via choco..."
+            choco install innosetup -y --no-progress
+            echo "C:\Program Files (x86)\Inno Setup 6" >> "$GITHUB_PATH"
+          else
+            echo "Inno Setup ya está disponible en PATH."
+          fi
+
+      - name: Compilar instalador (Inno Setup)
+        shell: bash
+        continue-on-error: false
+        run: iscc client/installer/CarnageReporter.iss
+
+      # ---- Firma de código con SignPath (pendiente de aprobación OSS) ----
+      # CarnageReporter.exe (y el instalador) todavía no están firmados
+      # digitalmente: por eso SmartScreen se queja al descargar/ejecutar (ver
+      # nota en el README). Se solicitó una firma gratuita a SignPath
+      # Foundation para proyectos open source (https://signpath.org) — ver
+      # docs/release-signing.md para el estado de esa solicitud. Una vez
+      # aprobada, este paso iría AQUÍ (antes de calcular SHA256SUMS, para que
+      # el hash cubra los binarios ya firmados):
+      #
+      # - name: Firmar con SignPath
+      #   uses: signpath/github-action-submit-signing-request@v1
+      #   with:
+      #     api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
+      #     organization-id: '<pendiente: id de organización SignPath>'
+      #     project-slug: 'CarnageReporter'
+      #     signing-policy-slug: 'release-signing'
+      #     artifact-configuration-slug: 'carnage-reporter-exe'
+      #     github-artifact-id: '${{ steps.upload_unsigned.outputs.artifact-id }}'
+      #     wait-for-completion: true
+      #     output-artifact-directory: 'client/dist/signed'
+      #
+      # Alternativa/respaldo si SignPath no aplica (proyecto deja de ser 100%
+      # OSS, o la aprobación tarda demasiado): Azure Trusted Signing, de pago
+      # pero sin proceso de aprobación — ver docs/release-signing.md.
+
+      - name: Generar SHA256SUMS
+        shell: bash
+        run: |
+          cd client/dist
+          sha256sum *.exe > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Firmar SHA256SUMS (Ed25519)
+        shell: bash
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: node client/scripts/sign-release.js client/dist/SHA256SUMS
+
+      - name: Detectar prerelease (tags con -beta/-rc)
+        id: prerelease
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-beta* || "$GITHUB_REF_NAME" == *-rc* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          files: client/dist/CarnageReporter.exe
+          # Orden importante: CarnageReporter.exe PRIMERO. Clientes viejos
+          # (anteriores a esta fase) eligen "el primer .exe" de la lista de
+          # assets sin mirar el nombre — si el instalador quedara primero,
+          # intentarían auto-actualizarse con un instalador en vez del
+          # ejecutable portable.
+          files: |
+            client/dist/CarnageReporter.exe
+            client/dist/CarnageReporter-Setup.exe
+            client/dist/SHA256SUMS
+            client/dist/SHA256SUMS.sig
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
