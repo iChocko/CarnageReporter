@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+            client/package-lock.json
+            dashboard/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install server dependencies
+        run: npm ci --prefix server
+
+      - name: Install client dependencies
+        run: npm ci --prefix client
+
+      - name: Install dashboard dependencies
+        run: npm ci --prefix dashboard
+
+      - name: Lint (server/client/tests/scripts)
+        run: npm run lint
+
+      - name: Test (server + client)
+        run: npm test
+
+      - name: Lint dashboard
+        run: npm --prefix dashboard run lint
+
+      - name: Build dashboard
+        run: npm --prefix dashboard run build
