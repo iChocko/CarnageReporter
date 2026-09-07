@@ -90,8 +90,9 @@ function sideScore(game, sideMembers) {
  * Agrupa la sesión en enfrentamientos (por alineación, reanudables) y corta
  * cada uno en rondas (primera a 2; empates no suman).
  * @returns {array<{ key, sides, rondas: array, current: object|null, wonA, wonB }>}
- *   ronda = { winner: 0|1, games: [{ map, scoreA, scoreB, win: boolean|null }] }
+ *   ronda = { winner: 0|1, games: [{ map, scoreA, scoreB, win: boolean|null, gameId, kind }] }
  *   current = ronda en curso { winsA, winsB, games } o null
+ *   kind = 'wo' (W.O. de !perdida) | 'ajuste' (!marcador) | 'game' (partida real)
  */
 function computeEnfrentamientos(sessionGames) {
     const byLineup = new Map();
@@ -105,8 +106,9 @@ function computeEnfrentamientos(sessionGames) {
         const scoreA = sideScore(g, e.sides[0]);
         const scoreB = sideScore(g, e.sides[1]);
         const win = scoreA > scoreB ? 0 : (scoreB > scoreA ? 1 : null); // null = empate
+        const kind = g.is_forfeit ? 'wo' : (g.is_adjustment ? 'ajuste' : 'game');
 
-        e.acc.games.push({ map: g.map_name, scoreA, scoreB, win, timestamp: g.timestamp });
+        e.acc.games.push({ map: g.map_name, scoreA, scoreB, win, timestamp: g.timestamp, gameId: g.game_unique_id, kind });
         if (win === 0) e.acc.winsA++;
         if (win === 1) e.acc.winsB++;
 
@@ -139,35 +141,100 @@ function sessionDateLabel(timestamp) {
 }
 
 /**
- * Mensaje de WhatsApp del comando !rondas.
+ * Resumen estructurado (JSON-friendly) de una sesión: la misma información
+ * que renderiza !rondas por WhatsApp, en forma de datos en vez de texto, para
+ * que el dashboard web y el mensaje de WhatsApp compartan una sola fuente de
+ * verdad (formatRondasMessage se arma a partir de esto — ver más abajo).
+ *
+ * Gamertags y nombres de mapa YA vienen saneados (sanitizeCaptionText) y los
+ * lados de cada enfrentamiento ya están en orientación de DISPLAY: el lado
+ * que va ganando la sesión (más rondas) es siempre sides[0] (izquierda),
+ * igual que hace !rondas al mostrar el equipo que va arriba a la izquierda.
+ *
+ * @param {{games: array, live: boolean}|null} session
+ * @param {{rondaMxn?: number}} [opts]
+ * @returns {object|null} null si no hay partidas
+ */
+function summarizeSession(session, { rondaMxn = RONDA_MXN } = {}) {
+    if (!session || !session.games.length) return null;
+
+    const games = session.games;
+    const clean = s => sanitizeCaptionText(s);
+    const sortClean = members => [...members].sort((a, b) => a.localeCompare(b)).map(clean);
+
+    const cuenta = [];
+    const enfrentamientos = computeEnfrentamientos(games).map(e => {
+        // El equipo que va ganando la sesión (más rondas) se muestra a la izquierda.
+        const flip = e.wonB > e.wonA;
+        const sides = flip ? [sortClean(e.sides[1]), sortClean(e.sides[0])] : [sortClean(e.sides[0]), sortClean(e.sides[1])];
+        const rondasWon = flip ? [e.wonB, e.wonA] : [e.wonA, e.wonB];
+
+        // Partida en orientación de display (izquierda-derecha)
+        const orientGame = g => ({
+            gameId: g.gameId,
+            map: clean(g.map),
+            scores: flip ? [g.scoreB, g.scoreA] : [g.scoreA, g.scoreB],
+            winnerSide: g.win === null ? null : (flip ? (g.win === 1 ? 0 : 1) : g.win),
+            timestamp: g.timestamp,
+            kind: g.kind,
+        });
+
+        const rondas = e.rondas.map(r => ({
+            winnerSide: flip ? (r.winner === 1 ? 0 : 1) : r.winner,
+            games: r.games.map(orientGame),
+        }));
+
+        const current = e.current ? {
+            wins: flip ? [e.current.winsB, e.current.winsA] : [e.current.winsA, e.current.winsB],
+            games: e.current.games.map(orientGame),
+        } : null;
+
+        if (rondasWon[0] !== rondasWon[1]) {
+            const debtorSide = rondasWon[0] > rondasWon[1] ? 1 : 0;
+            cuenta.push({
+                winners: sides[1 - debtorSide],
+                losers: sides[debtorSide],
+                rounds: Math.abs(rondasWon[0] - rondasWon[1]),
+                amountMxn: Math.abs(rondasWon[0] - rondasWon[1]) * rondaMxn,
+            });
+        }
+
+        return { sides, rondasWon, rondas, current };
+    });
+
+    return {
+        live: session.live,
+        dateLabel: sessionDateLabel(games[0].timestamp),
+        startedAt: games[0].timestamp,
+        lastGameAt: games[games.length - 1].timestamp,
+        gamesCount: games.length,
+        enfrentamientos,
+        cuenta,
+    };
+}
+
+/**
+ * Mensaje de WhatsApp del comando !rondas, armado a partir de
+ * summarizeSession (única fuente de verdad compartida con la API web).
  */
 function formatRondasMessage(session) {
-    if (!session || !session.games.length) {
+    const summary = summarizeSession(session);
+    if (!summary) {
         return 'Sin retas registradas todavía.';
     }
 
-    const games = session.games;
-    const label = sessionDateLabel(games[0].timestamp);
-    const estado = session.live ? '🟢 En curso' : '🔴 Terminada';
-    const enfs = computeEnfrentamientos(games);
-    const clean = s => sanitizeCaptionText(s);
-
+    const estado = summary.live ? '🟢 En curso' : '🔴 Terminada';
     const lines = [
-        `*RETAS · ${label}*`,
-        `${estado} · ${games.length} partida${games.length !== 1 ? 's' : ''}`
+        `*RETAS · ${summary.dateLabel}*`,
+        `${estado} · ${summary.gamesCount} partida${summary.gamesCount !== 1 ? 's' : ''}`
     ];
-    const cuenta = [];
 
-    for (const e of enfs) {
-        // El equipo que va ganando la sesión (más rondas) se muestra a la izquierda.
-        const flip = e.wonB > e.wonA;
-        const [leftMembers, rightMembers] = flip ? [e.sides[1], e.sides[0]] : [e.sides[0], e.sides[1]];
-        const [wonL, wonR] = flip ? [e.wonB, e.wonA] : [e.wonA, e.wonB];
-        const nameL = sideDisplay(leftMembers, clean);
-        const nameR = sideDisplay(rightMembers, clean);
-        // Marcador de cada partida en la orientación de display (izquierda-derecha)
-        const orient = g => flip ? { map: g.map, sL: g.scoreB, sR: g.scoreA, win: g.win } : { map: g.map, sL: g.scoreA, sR: g.scoreB, win: g.win };
-        const gameStr = g => { const o = orient(g); return `${clean(o.map)} ${o.sL}-${o.sR}${o.win === null ? ' (empate)' : ''}`; };
+    for (const e of summary.enfrentamientos) {
+        const [leftMembers, rightMembers] = e.sides;
+        const [wonL, wonR] = e.rondasWon;
+        const nameL = leftMembers.join(' + ');
+        const nameR = rightMembers.join(' + ');
+        const gameStr = g => `${g.map} ${g.scores[0]}-${g.scores[1]}${g.winnerSide === null ? ' (empate)' : ''}`;
 
         lines.push('', '━━━━━━━━━━━━', `*${nameL}*  🆚  *${nameR}*`, '');
 
@@ -179,7 +246,6 @@ function formatRondasMessage(session) {
             const debtor = wonL > wonR ? nameR : nameL;
             const amount = Math.abs(wonL - wonR) * RONDA_MXN;
             lines.push(`💰 *${debtor}* deben *$${amount}*`);
-            cuenta.push(`${debtor} → $${amount}`);
         }
 
         // Detalle por ronda (trazabilidad): quién la ganó, las partidas y la
@@ -187,9 +253,8 @@ function formatRondasMessage(session) {
         lines.push('');
         let runL = 0, runR = 0;
         e.rondas.forEach((r, i) => {
-            const ganador = sideDisplay(e.sides[r.winner], clean);
-            const wonByLeft = flip ? r.winner === 1 : r.winner === 0;
-            if (wonByLeft) runL++; else runR++;
+            const ganador = r.winnerSide === 0 ? nameL : nameR;
+            if (r.winnerSide === 0) runL++; else runR++;
             lines.push(`*Ronda ${i + 1}* — ${ganador}`);
             r.games.forEach(g => lines.push(`     • ${gameStr(g)}`));
             if (runL === runR) {
@@ -200,33 +265,34 @@ function formatRondasMessage(session) {
             }
         });
         if (e.current) {
-            const [curL, curR] = flip ? [e.current.winsB, e.current.winsA] : [e.current.winsA, e.current.winsB];
+            const [curL, curR] = e.current.wins;
             const rn = e.rondas.length + 1;
             let head;
-            if (session.live) {
+            if (summary.live) {
                 // Sesión viva: la ronda se está jugando ahora. Primera a 2:
                 // cualquier líder está en match point.
-                let estado;
-                if (curL > curR) estado = `*${nameL}* arriba ${curL}-${curR} — match point`;
-                else if (curR > curL) estado = `*${nameR}* arriba ${curR}-${curL} — match point`;
-                else if (curL === 0) estado = `0-0, nada suma todavía`;
-                else estado = `${curL}-${curR} — la que sigue define`;
-                head = `*Ronda ${rn}* — en juego · ${estado}`;
+                let estadoRonda;
+                if (curL > curR) estadoRonda = `*${nameL}* arriba ${curL}-${curR} — match point`;
+                else if (curR > curL) estadoRonda = `*${nameR}* arriba ${curR}-${curL} — match point`;
+                else if (curL === 0) estadoRonda = `0-0, nada suma todavía`;
+                else estadoRonda = `${curL}-${curR} — la que sigue define`;
+                head = `*Ronda ${rn}* — en juego · ${estadoRonda}`;
             } else {
                 // Sesión terminada con una ronda a medias: quedó sin resolver, NO cuenta
-                let estado;
-                if (curL > curR) estado = `iban ${curL}-${curR}, arriba *${nameL}*`;
-                else if (curR > curL) estado = `iban ${curR}-${curL}, arriba *${nameR}*`;
-                else estado = `iban ${curL}-${curR}`;
-                head = `*Ronda ${rn}* — quedó abierta (${estado}) · no cuenta`;
+                let estadoRonda;
+                if (curL > curR) estadoRonda = `iban ${curL}-${curR}, arriba *${nameL}*`;
+                else if (curR > curL) estadoRonda = `iban ${curR}-${curL}, arriba *${nameR}*`;
+                else estadoRonda = `iban ${curL}-${curR}`;
+                head = `*Ronda ${rn}* — quedó abierta (${estadoRonda}) · no cuenta`;
             }
             lines.push(head);
             e.current.games.forEach(g => lines.push(`     • ${gameStr(g)}`));
         }
     }
 
-    if (cuenta.length) {
-        lines.push('', '━━━━━━━━━━━━', '💰 *Cuenta de la noche*', ...cuenta.map(c => `   ${c}`));
+    if (summary.cuenta.length) {
+        lines.push('', '━━━━━━━━━━━━', '💰 *Cuenta de la noche*',
+            ...summary.cuenta.map(c => `   ${c.losers.join(' + ')} → $${c.amountMxn}`));
     }
 
     return lines.join('\n');
@@ -303,6 +369,6 @@ function formatLiveRoundUpdate(session) {
 
 module.exports = {
     clusterSessions, currentOrLastSession, computeEnfrentamientos,
-    lineupOf, formatRondasMessage, formatLiveRoundUpdate, sessionDateLabel,
+    lineupOf, summarizeSession, formatRondasMessage, formatLiveRoundUpdate, sessionDateLabel,
     SESSION_GAP_MINUTES, RONDA_MXN
 };
