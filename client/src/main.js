@@ -7,8 +7,12 @@ const path = require('path');
 const { VERSION } = require('./version');
 const paths = require('./paths');
 const autostart = require('./autostart');
-const { queryRunningInstance } = require('./statusServer');
+const { queryRunningInstance, drainRunningInstance } = require('./statusServer');
 const { parseXML } = require('./parser');
+const { readStatus } = require('./statusFile');
+const { ensureInstallId } = require('./settings');
+const { resolveConfig } = require('./config');
+const { drain } = require('./reporter');
 
 function parseArgs(argv) {
     return {
@@ -18,6 +22,7 @@ function parseArgs(argv) {
         selftest: argv.includes('--selftest'),
         enableAutostart: argv.includes('--enable-autostart'),
         disableAutostart: argv.includes('--disable-autostart'),
+        drainNow: argv.includes('--drain-now'),
     };
 }
 
@@ -63,6 +68,13 @@ async function main(entryScript, argv = process.argv.slice(2)) {
         return runSelftest();
     }
 
+    // De aquí en adelante sí se toca disco de forma persistente: preparar
+    // DATA_DIR (Fase B3) y migrar una copia de los archivos legados que
+    // vivían junto al exe (settings.json, carnage_autostart.vbs) una sola vez.
+    paths.ensureDataDir();
+    paths.migrateLegacyFile('settings.json');
+    paths.migrateLegacyFile('carnage_autostart.vbs');
+
     if (flags.enableAutostart) {
         const ok = autostart.enableAutostart(paths.IS_PKG ? null : entryScript);
         console.log(ok ? 'Arranque automático activado.' : 'No se pudo activar el arranque automático.');
@@ -76,12 +88,31 @@ async function main(entryScript, argv = process.argv.slice(2)) {
     }
 
     if (flags.status) {
+        const fromFile = readStatus();
+        if (fromFile) {
+            console.log(JSON.stringify(fromFile, null, 2));
+            return 0;
+        }
         const inst = await queryRunningInstance();
         if (!inst) {
             console.log('No hay ninguna instancia corriendo.');
             return 1;
         }
         console.log(JSON.stringify(inst, null, 2));
+        return 0;
+    }
+
+    if (flags.drainNow) {
+        const sentToRunning = await drainRunningInstance();
+        if (sentToRunning) {
+            console.log('Orden de reintento enviada a la instancia en ejecución.');
+            return 0;
+        }
+        const { ok, config } = resolveConfig();
+        if (!ok) return 1;
+        config.installId = ensureInstallId();
+        const result = await drain({ config, version: VERSION });
+        console.log(`Reintento manual: ${result.drained} pendiente(s) procesado(s).`);
         return 0;
     }
 
