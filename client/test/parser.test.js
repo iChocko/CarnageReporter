@@ -23,10 +23,16 @@ function loadFixture(name, { withFilm = false } = {}) {
     if (withFilm) {
         const autosaveDir = path.join(base, 'Halo3', 'autosave');
         fs.mkdirSync(autosaveDir, { recursive: true });
+        const filmDest = path.join(autosaveDir, 'asq_warehou_2B3D71C8_6A5319E9.film');
         fs.copyFileSync(
             path.join(FIXTURES_DIR, 'Halo3', 'autosave', 'asq_warehou_2B3D71C8_6A5319E9.film'),
-            path.join(autosaveDir, 'asq_warehou_2B3D71C8_6A5319E9.film')
+            filmDest
         );
+        // copyFileSync conserva el mtime del fixture (fecha del checkout); el
+        // film debe verse "reciente" (< 30 min) o findMapCodeFromFilms lo ignora
+        // y el test falla en cualquier checkout con más de media hora.
+        const now = new Date();
+        fs.utimesSync(filmDest, now, now);
     }
     const dest = path.join(base, name);
     fs.copyFileSync(path.join(FIXTURES_DIR, name), dest);
