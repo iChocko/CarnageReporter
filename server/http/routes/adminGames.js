@@ -9,6 +9,7 @@ const express = require('express');
 const { asyncHandler } = require('../errors');
 const { adminAuthMiddleware } = require('../auth');
 const { MAP_NAMES } = require('../../utils/maps');
+const { FORMATS } = require('../../utils/format');
 const { logger } = require('../../logger');
 
 const log = logger.child({ mod: 'http' });
@@ -43,6 +44,44 @@ async function resolveGameId(ctx, idParam, res) {
 function createAdminGamesRouter(ctx) {
     const router = express.Router();
     const adminAuth = adminAuthMiddleware(ctx.config);
+
+    /**
+     * Últimas N partidas (incluye anuladas, con motivo) para el panel admin
+     * del dashboard: !partidas/stats.js solo muestran válidas, aquí se
+     * necesita ver también lo anulado para poder restaurarlo.
+     * GET /api/admin/games?limit=20&format=2v2|4v4
+     */
+    router.get('/api/admin/games', adminAuth, asyncHandler(async (req, res) => {
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+        const format = FORMATS.includes(req.query.format) ? req.query.format : null;
+
+        let query = ctx.supabase.client
+            .from('games')
+            .select('game_unique_id, map_name, timestamp, format, is_voided, void_reason');
+        if (format) query = query.eq('format', format);
+        query = query.order('timestamp', { ascending: false }).limit(limit);
+
+        const { data: games, error } = await query;
+        if (error) throw error;
+        if (!games || games.length === 0) return res.json([]);
+
+        const ids = games.map(g => g.game_unique_id);
+        const { data: players, error: pError } = await ctx.supabase.client
+            .from('players')
+            .select('game_unique_id, gamertag, team_id, score, kills, deaths')
+            .in('game_unique_id', ids);
+        if (pError) throw pError;
+
+        const byGame = new Map();
+        for (const p of players || []) {
+            if (!byGame.has(p.game_unique_id)) byGame.set(p.game_unique_id, []);
+            byGame.get(p.game_unique_id).push({
+                gamertag: p.gamertag, team_id: p.team_id, score: p.score, kills: p.kills, deaths: p.deaths
+            });
+        }
+
+        res.json(games.map(g => ({ ...g, players: byGame.get(g.game_unique_id) || [] })));
+    }));
 
     /**
      * Eliminar una partida (y sus jugadores) por ID corto o completo.
