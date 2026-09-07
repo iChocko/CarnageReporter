@@ -47,6 +47,14 @@ function loadConfig(env = process.env) {
         LEADERBOARD_MIN_GAMES: env.LEADERBOARD_MIN_GAMES,
         CORS_ORIGIN: env.CORS_ORIGIN,
         BACKUP_INCLUDE_AUTH: env.BACKUP_INCLUDE_AUTH === 'true',
+        // Fase B3 — identidad de instalación (server/http/routes/report.js):
+        // instalaciones puntuales que se quieren cortar (reportes corruptos,
+        // copia mal configurada) sin tocar la API key compartida por todos.
+        REVOKED_INSTALL_IDS: (env.REVOKED_INSTALL_IDS || '')
+            .split(',').map(s => s.trim()).filter(Boolean),
+        // Versión mínima de cliente aceptada (semver "x.y.z"); sin configurar,
+        // no se rechaza ningún cliente por versión.
+        CLIENT_MIN_VERSION: env.CLIENT_MIN_VERSION || null,
     });
 }
 

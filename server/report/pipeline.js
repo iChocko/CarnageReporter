@@ -19,19 +19,44 @@ const { getRondasGames } = require('../domain/rondas');
 
 const reportLog = logger.child({ mod: 'report' });
 
+// Desfase máximo de reloj (Fase B3) que se tolera sin corregir: por debajo
+// de esto no vale la pena tocar el timestamp (jitter normal de red/NTP).
+const CLOCK_SKEW_THRESHOLD_MS = 2 * 60 * 1000;
+
 /**
- * @param {{ gameData: object, players: object[], filename?: string, schemaVersion: number, clientVersion: string|null }} input
+ * @param {{ gameData: object, players: object[], filename?: string, schemaVersion: number, clientVersion: string|null, installId?: string|null, clientSentAt?: string|null }} input
  * @param {object} ctx - contexto compartido (ver server/index.js)
  * @returns {Promise<{status: string, gameId: string, [key: string]: any}>}
  */
-async function processReport({ gameData, players, filename, schemaVersion, clientVersion }, ctx) {
+async function processReport({ gameData, players, filename, schemaVersion, clientVersion, installId, clientSentAt }, ctx) {
     const { supabase, renderer, discord, discord4v4, whatsapp, alerts, outputDir, gamesCache } = ctx;
     const gameId = gameData.gameUniqueId;
+
+    // Fase B3: los clientes v3 mandan clientSentAt (hora UTC real de su
+    // reloj al momento de enviar) además del timestamp de la partida (que
+    // sale del reloj LOCAL leído del nombre del archivo). Si el reloj del
+    // cliente está desfasado, clientSentAt también lo está — y por cuánto,
+    // así que se puede corregir el timestamp de la partida en vez de solo
+    // tirarlo a la hora del servidor (que pierde la hora real de la partida).
+    if (schemaVersion >= 3 && typeof clientSentAt === 'string') {
+        const sentMs = new Date(clientSentAt).getTime();
+        const originalTsMs = new Date(gameData.timestamp).getTime();
+        if (Number.isFinite(sentMs) && Number.isFinite(originalTsMs)) {
+            const skewMs = sentMs - Date.now();
+            if (Math.abs(skewMs) > CLOCK_SKEW_THRESHOLD_MS) {
+                const adjusted = new Date(originalTsMs - skewMs).toISOString();
+                reportLog.warn(`⚠️  Desfase de reloj de ${skewMs}ms en ${gameId} (clientSentAt=${clientSentAt}) — ajustando timestamp de ${gameData.timestamp} a ${adjusted}`);
+                gameData.timestamp = adjusted;
+            }
+        }
+    }
 
     // El timestamp viene del reloj de la máquina de cada cliente y no es
     // confiable (una llegó 6h adelantada y rompió el agrupado de sesiones).
     // El reporte llega segundos después de terminar la partida: cualquier
-    // timestamp en el futuro se reemplaza por la hora del servidor.
+    // timestamp en el futuro (ya sea el original de v1/v2, o lo que quedó
+    // tras el ajuste de arriba) se reemplaza por la hora del servidor como
+    // salvaguarda final.
     const tsMs = new Date(gameData.timestamp).getTime();
     if (!Number.isFinite(tsMs) || tsMs > Date.now() + 10 * 60 * 1000) {
         reportLog.warn(`⚠️  Timestamp inválido o futuro en ${gameId} (${gameData.timestamp}) — se usa la hora del servidor`);
@@ -69,7 +94,7 @@ async function processReport({ gameData, players, filename, schemaVersion, clien
 
         // 3. Clasificar formato (2v2 / 4v4 / null)
         const format = classifyFormat(players);
-        const saveMeta = { schemaVersion, clientVersion, mapCode, format };
+        const saveMeta = { schemaVersion, clientVersion, mapCode, format, installId, clientSentAt };
 
         // 4. Evaluar validez (formato no soportado, reinicios, abandonos, cortas)
         const verdict = evaluateMatch(gameData, players, schemaVersion);

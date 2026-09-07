@@ -71,7 +71,7 @@ class SupabaseService {
         }
 
         const { isVoided = false, voidReason = null, schemaVersion = 1, clientVersion = null,
-                mapCode = null, format = null } = meta;
+                mapCode = null, format = null, installId = null, clientSentAt = null } = meta;
 
         // 1. Insertar el juego (upsert para evitar duplicados)
         const { error: gameError } = await this.client
@@ -96,7 +96,11 @@ class SupabaseService {
                 schema_version: schemaVersion,
                 client_version: clientVersion,
                 map_code: mapCode,
-                format: format
+                format: format,
+                // Fase B3: identidad de instalación y hora real del cliente al enviar
+                reported_by_install: installId,
+                client_sent_at: (clientSentAt && Number.isFinite(new Date(clientSentAt).getTime()))
+                    ? new Date(clientSentAt).toISOString() : null
             }, { onConflict: 'game_unique_id' });
 
         if (gameError) {

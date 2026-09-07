@@ -192,3 +192,30 @@ CREATE TABLE IF NOT EXISTS public.state_backups (
 
 CREATE INDEX IF NOT EXISTS idx_state_backups_name_taken_at
     ON public.state_backups (name, taken_at DESC);
+
+-- ============================================================
+-- MIGRACIÓN B3 (Fase B3 — identidad de instalación y hora del cliente)
+-- ============================================================
+-- Aplicar A MANO en el SQL Editor de Supabase. NO se ejecuta sola: nada en
+-- el código de esta fase la corre automáticamente.
+--
+-- reported_by_install: X-Install-Id del cliente que mandó el reporte (UUID
+-- generado una vez por instalación, ver client/src/settings.js). Permite
+-- identificar/cortar una instalación puntual (REVOKED_INSTALL_IDS en
+-- server/config.js) sin tocar la API key compartida por todos los clientes.
+--
+-- client_sent_at: hora UTC real del reloj del cliente al momento de enviar
+-- el reporte (clientSentAt del payload schemaVersion 3). Se usa en
+-- server/report/pipeline.js para corregir el timestamp de la partida por el
+-- desfase de reloj del cliente, y queda guardada para poder auditar ese
+-- ajuste después.
+--
+-- Ambas columnas son NULLABLE: los clientes v1/v2 (o cualquier reporte de
+-- antes de esta migración) simplemente las dejan en NULL.
+-- ============================================================
+
+ALTER TABLE public.games ADD COLUMN IF NOT EXISTS reported_by_install TEXT;
+ALTER TABLE public.games ADD COLUMN IF NOT EXISTS client_sent_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_games_reported_by_install
+    ON public.games (reported_by_install) WHERE reported_by_install IS NOT NULL;
