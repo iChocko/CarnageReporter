@@ -336,6 +336,39 @@ class SupabaseService {
     getProcessedCount() {
         return this.processedCount;
     }
+
+    /**
+     * Sube (upsert) una copia de un archivo de estado local (roster, W.O.,
+     * anuladas, ajustes, reset de rondas, corte de saldos) como segunda
+     * copia fuera del host, además del .tar.gz local que arma jobs/backup.js.
+     * Tabla `state_backups` — ver bloque "migración A0" en supabase_schema.sql
+     * (se aplica a mano en el SQL editor, esta fase no la corre).
+     * @param {string} name - nombre del archivo (p.ej. "whatsapp_roster.json")
+     * @param {string} takenAt - ISO timestamp del backup
+     * @param {object} content - contenido ya parseado del JSON
+     * @returns {Promise<boolean>}
+     */
+    async saveStateBackup(name, takenAt, content) {
+        if (!this.client) {
+            console.log(`⚠️  Supabase no disponible, backup de estado omitido (${name})`);
+            return false;
+        }
+
+        try {
+            const { error } = await this.client
+                .from('state_backups')
+                .upsert({ name, taken_at: takenAt, content }, { onConflict: 'name,taken_at' });
+
+            if (error) {
+                console.error(`❌ Error subiendo backup de ${name}:`, error.message);
+                return false;
+            }
+            return true;
+        } catch (error) {
+            console.error(`❌ Error subiendo backup de ${name}:`, error.message);
+            return false;
+        }
+    }
 }
 
 module.exports = SupabaseService;

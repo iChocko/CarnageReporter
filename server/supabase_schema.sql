@@ -168,3 +168,27 @@ LIMIT 50;
 -- Verificación: si llegas aquí sin errores, todo quedó creado.
 -- SELECT * FROM public.games LIMIT 1;
 -- ============================================================
+
+-- ============================================================
+-- MIGRACIÓN A0 (Fase A0 — "red de seguridad sin cambiar comportamiento")
+-- ============================================================
+-- Aplicar A MANO en el SQL Editor de Supabase. NO se ejecuta sola: nada en
+-- el código de esta fase la corre automáticamente.
+--
+-- Tabla usada por server/jobs/backup.js (cron diario 03:30 CDMX) para subir
+-- una segunda copia — fuera del volumen del host — de cada archivo JSON de
+-- estado local (roster de WhatsApp, W.O., anuladas, ajustes de marcador,
+-- reset de rondas, corte de saldos). El backup local en .tar.gz
+-- (output/backups/) sigue siendo la copia primaria; esta tabla es la red
+-- de seguridad si el volumen del host se pierde ENTERO.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.state_backups (
+    name TEXT NOT NULL,        -- nombre del archivo, ej. "whatsapp_roster.json"
+    taken_at TIMESTAMPTZ NOT NULL,
+    content JSONB NOT NULL,
+    PRIMARY KEY (name, taken_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_state_backups_name_taken_at
+    ON public.state_backups (name, taken_at DESC);

@@ -12,8 +12,11 @@ const WEEKLY_MESSAGE = '¿Habrá revancha?';
  *  - 09:00 corte de saldos de la semana (callback provisto por index.js:
  *    manda los saldos al grupo 2v2 y reinicia el marcador)
  *  - 10:00 mensaje "¿Habrá revancha?"
+ * Y las tareas diarias de mantenimiento (Fase A0, red de seguridad):
+ *  - 03:30 backup del estado local (jobs/backup.js)
+ *  - 03:45 limpieza de PNGs viejos en output/ (jobs/cleanup.js)
  * @param {WhatsAppService} whatsapp
- * @param {{ sendWeeklySaldos?: function }} [jobs]
+ * @param {{ sendWeeklySaldos?: function, runBackup?: function, runCleanup?: function }} [jobs]
  */
 function startSchedules(whatsapp, jobs = {}) {
     if (typeof jobs.sendWeeklySaldos === 'function') {
@@ -49,6 +52,32 @@ function startSchedules(whatsapp, jobs = {}) {
     }, { timezone: 'America/Mexico_City' });
 
     console.log(`🗓️  Programado: "${WEEKLY_MESSAGE}" cada lunes 10:00 (CDMX) -> grupo 2v2`);
+
+    if (typeof jobs.runBackup === 'function') {
+        cron.schedule('30 3 * * *', async () => {
+            console.log('⏰ Cron diario: backup de estado...');
+            try {
+                const result = await jobs.runBackup();
+                console.log(`💾 Backup de estado: ${JSON.stringify(result)}`);
+            } catch (error) {
+                console.error('❌ Backup de estado falló:', error.message);
+            }
+        }, { timezone: 'America/Mexico_City' });
+        console.log('🗓️  Programado: backup diario de estado 03:30 (CDMX)');
+    }
+
+    if (typeof jobs.runCleanup === 'function') {
+        cron.schedule('45 3 * * *', async () => {
+            console.log('⏰ Cron diario: limpieza de PNGs viejos...');
+            try {
+                const result = await jobs.runCleanup();
+                console.log(`🧹 Limpieza de output/: ${JSON.stringify(result)}`);
+            } catch (error) {
+                console.error('❌ Limpieza de output/ falló:', error.message);
+            }
+        }, { timezone: 'America/Mexico_City' });
+        console.log('🗓️  Programado: limpieza diaria de PNGs viejos 03:45 (CDMX)');
+    }
 }
 
 module.exports = { startSchedules, WEEKLY_MESSAGE };

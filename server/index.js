@@ -32,6 +32,8 @@ const ajustes = require('./utils/ajustes');
 const { computeSaldos, formatSaldosMessage, getLastCorteTs, setLastCorteTs, isSameCdmxDay } = require('./utils/saldos');
 const { classifyFormat, FORMATS } = require('./utils/format');
 const { resolveMap, MAP_NAMES } = require('./utils/maps');
+const { runBackup } = require('./jobs/backup');
+const { runCleanup } = require('./jobs/cleanup');
 
 // Initialize Stripe
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -1927,7 +1929,12 @@ async function start() {
 
     // Tareas programadas de los lunes (solo grupo 2v2 / Retas H3):
     // 09:00 corte de saldos + reset del marcador, 10:00 "¿Habrá revancha?"
-    startSchedules(whatsapp, { sendWeeklySaldos });
+    // Más mantenimiento diario (Fase A0): backup de estado y limpieza de PNGs.
+    startSchedules(whatsapp, {
+        sendWeeklySaldos,
+        runBackup: () => runBackup({ outputDir: OUTPUT_DIR, authDir: whatsapp.authPath, supabase }),
+        runCleanup: () => runCleanup({ outputDir: OUTPUT_DIR }),
+    });
 }
 
 // Manejo de cierre graceful
