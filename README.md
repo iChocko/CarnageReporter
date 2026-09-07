@@ -97,9 +97,28 @@ Si deseas correr el proyecto desde el código fuente o contribuir:
    - `--selftest`: corre el parser XML real contra un fixture interno y sale
      0/1 — útil para verificar un build recién compilado sin tener un XML
      real de una partida.
-   - `--status`: consulta si ya hay una instancia corriendo en segundo plano.
+   - `--status`: imprime `status.json` si existe (o consulta la instancia
+     corriendo en `127.0.0.1:47613` como respaldo) y sale (código 0).
    - `--enable-autostart` / `--disable-autostart`: activa o desactiva el
      arranque automático con Windows sin pasar por el menú interactivo.
+   - `--drain-now`: reintenta de inmediato lo que esté en la cola de envío
+     (spool), sin esperar al timer de 60s ni a que llegue una partida nueva.
+
+   **Dónde vive cada cosa (desde v1.7 / Fase B3)**: `settings.json`, la
+   bitácora (`carnage_client.log`), la cola de reportes pendientes/fallidos
+   (`spool/`), `status.json` e `instance.json` ya NO viven junto al exe sino
+   en `%LOCALAPPDATA%\CarnageReporter` (o `CARNAGE_DATA_DIR` si lo defines).
+   El `config.json`/`config.gen.js` con la API key sigue leyéndose junto al
+   exe. Un `settings.json`/`carnage_autostart.vbs` de una instalación anterior
+   se migra (copia) automáticamente la primera vez que corre esta versión.
+
+   **Reportes robustos (spool)**: un XML que no se pudo enviar (sin
+   conexión, servidor caído) se mueve a `spool\pending\` y se reintenta con
+   backoff creciente (5s, 15s, 1m, 5m, 15m, hasta 1h) durante 7 días antes de
+   archivarse en `spool\failed\`. Sobrevive a que cierres el programa o se
+   reinicie Windows a la mitad. `CARNAGE_LOG_LEVEL=debug` (o
+   `settings.json: { "logLevel": "debug" }`) agrega detalle extra a la
+   bitácora.
 
 ---
 
