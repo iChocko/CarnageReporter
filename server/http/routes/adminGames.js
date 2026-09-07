@@ -1,18 +1,68 @@
 /**
- * Endpoints admin sobre partidas: void/unvoid/delete y mapas sin identificar
- * (Fase A2 — movidos tal cual desde index.js).
+ * Endpoints admin sobre partidas: void/unvoid/delete, mapas sin identificar
+ * (Fase A2 — movidos tal cual desde index.js) y republish (Fase A4).
  */
 
 'use strict';
 
+const path = require('path');
 const express = require('express');
 const { asyncHandler } = require('../errors');
 const { adminAuthMiddleware } = require('../auth');
 const { MAP_NAMES } = require('../../utils/maps');
-const { FORMATS } = require('../../utils/format');
+const { FORMATS, classifyFormat } = require('../../utils/format');
+const { buildCaptionParts } = require('../../utils/matchSummary');
+const { publishRow } = require('../../messaging/outboxPublish');
 const { logger } = require('../../logger');
 
 const log = logger.child({ mod: 'http' });
+
+/** DB row (snake_case, ver supabase_schema.sql) -> gameData (camelCase, forma del payload del cliente). */
+function dbRowToGameData(game) {
+    return {
+        gameUniqueId: game.game_unique_id,
+        gameEnum: game.game_enum,
+        isMatchmaking: game.is_matchmaking,
+        isTeamsEnabled: game.is_teams_enabled,
+        hopperName: game.hopper_name,
+        gameTypeName: game.game_type_name,
+        mapName: game.map_name,
+        mapCode: game.map_code,
+        timestamp: game.timestamp,
+        duration: game.duration,
+        playlistName: game.playlist_name,
+        lastMatchIncomplete: game.last_match_incomplete,
+        partySize: game.party_size,
+    };
+}
+
+/** DB row de `players` -> forma camelCase esperada por renderer/discord/captions. */
+function dbRowToPlayer(p) {
+    return {
+        xboxUserId: p.xbox_user_id,
+        gamertag: p.gamertag,
+        clanTag: p.clan_tag,
+        serviceId: p.service_id,
+        teamId: p.team_id,
+        score: p.score,
+        standing: p.standing,
+        kills: p.kills,
+        deaths: p.deaths,
+        assists: p.assists,
+        betrayals: p.betrayals,
+        suicides: p.suicides,
+        mostKillsInARow: p.most_kills_in_a_row,
+        secondsPlayed: p.seconds_played,
+        secondsAlive: p.seconds_alive,
+        completedGame: p.completed_game,
+        killsWeapon: p.kills_weapon,
+        killsGrenade: p.kills_grenade,
+        killsMelee: p.kills_melee,
+        killsOther: p.kills_other,
+        isGuest: p.is_guest,
+        medals: p.medals,
+    };
+}
 
 /**
  * Resuelve un ID (corto o completo) a un único game_unique_id.
@@ -125,6 +175,68 @@ function createAdminGamesRouter(ctx) {
         ctx.gamesCache.invalidateAll();
         log.info(`🚫 [ADMIN] Partida anulada manualmente: ${fullId}`);
         res.json({ status: 'voided', gameId: fullId });
+    }));
+
+    /**
+     * Re-renderiza y vuelve a publicar una partida YA guardada (Fase A4):
+     * red de seguridad para cuando el render o la publicación fallaron
+     * DESPUÉS del save-first (ver report/pipeline.js) — la partida quedó
+     * persistida pero el cliente nunca vio el PNG en Discord/WhatsApp.
+     * Idempotente: usa `dedupe_key = game_image:<canal>:<gameId>`, igual que
+     * el pipeline, así que republicar dos veces no manda dos imágenes si el
+     * outbox sigue teniendo la fila original pendiente/enviada.
+     * POST /api/admin/games/:id/republish
+     */
+    router.post('/api/admin/games/:id/republish', adminAuth, asyncHandler(async (req, res) => {
+        const fullId = await resolveGameId(ctx, req.params.id, res);
+        if (!fullId) return;
+
+        const record = await ctx.supabase.getGameWithPlayers(fullId);
+        if (!record) return res.status(404).json({ error: `No existe partida con ID '${fullId}'` });
+
+        const gameData = dbRowToGameData(record.game);
+        const players = record.players.map(dbRowToPlayer);
+        const format = record.game.format || classifyFormat(players);
+        if (!FORMATS.includes(format)) {
+            return res.status(422).json({ error: 'No se pudo determinar el formato (2v2/4v4) de esta partida' });
+        }
+
+        const pngPath = path.join(ctx.outputDir, `match_${fullId}.png`);
+        await ctx.renderer.generatePNG(gameData, players, pngPath);
+
+        const outboxEnabled = !!(ctx.config?.OUTBOX_ENABLED && ctx.outboxStore);
+        const discordSvc = format === '2v2' ? ctx.discord : ctx.discord4v4;
+        const discordChannel = format === '2v2' ? 'discord' : 'discord4v4';
+        const publish = {};
+
+        publish.discord = await publishRow(ctx, {
+            kind: 'game_image', channel: discordChannel,
+            dedupe_key: `game_image:${discordChannel}:${fullId}`,
+            payload: { gameId: fullId, imagePath: pngPath, format, gameData, players },
+        }, async () => {
+            const ok = await discordSvc.sendImage(pngPath, gameData, players);
+            return ok ? 'sent' : 'failed';
+        });
+
+        const chatId = ctx.whatsapp.groupIdFor(format);
+        if (!chatId) {
+            publish.whatsapp = 'skipped';
+        } else {
+            const { winnerLine, mapLine, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
+            const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
+            publish.whatsapp = await publishRow(ctx, {
+                kind: 'game_image', channel: 'whatsapp',
+                dedupe_key: `game_image:whatsapp:${fullId}`,
+                payload: { gameId: fullId, imagePath: pngPath, caption: waCaption, format },
+            }, async () => {
+                if (!ctx.whatsapp.isReady()) return 'failed';
+                const ok = await ctx.whatsapp.sendImage(pngPath, waCaption, chatId);
+                return ok ? 'sent' : 'failed';
+            });
+        }
+
+        log.info(`🔁 [ADMIN] Partida republicada: ${fullId} (${format}) ${outboxEnabled ? '(outbox)' : '(directo)'}`);
+        res.json({ status: 'republished', gameId: fullId, format, publish });
     }));
 
     /**

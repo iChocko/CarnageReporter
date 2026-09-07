@@ -281,6 +281,37 @@ class SupabaseService {
         return this._gamesWithPlayers({ format });
     }
 
+    /**
+     * Una partida (voided o no) con sus jugadores, por ID completo. Para
+     * POST /api/admin/games/:id/republish (Fase A4): re-renderizar y volver
+     * a publicar una partida ya guardada sin depender de que el cliente la
+     * vuelva a mandar.
+     * @param {string} gameUniqueId
+     * @returns {Promise<{game: object, players: array}|null>}
+     */
+    async getGameWithPlayers(gameUniqueId) {
+        if (!this.client) return null;
+
+        const { data: game, error: gError } = await this.client
+            .from('games')
+            .select('*')
+            .eq('game_unique_id', gameUniqueId)
+            .single();
+        if (gError) {
+            if (gError.code === 'PGRST116') return null; // no encontrado
+            throw new Error(`Error buscando partida: ${gError.message}`);
+        }
+        if (!game) return null;
+
+        const { data: players, error: pError } = await this.client
+            .from('players')
+            .select('*')
+            .eq('game_unique_id', gameUniqueId);
+        if (pError) throw new Error(`Error buscando jugadores: ${pError.message}`);
+
+        return { game, players: players || [] };
+    }
+
     /** Últimas N partidas válidas de un formato (recientes y comando !partidas). */
     async getRecentGamesWithPlayers(limit = 10, format) {
         return this._gamesWithPlayers({ format, limit });
