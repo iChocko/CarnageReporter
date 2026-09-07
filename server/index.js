@@ -1791,10 +1791,15 @@ async function start() {
     // whatsapp.js ya arma el texto con su propio prefijo (🔴/🟢); aquí se
     // deriva el nivel de ese prefijo y se le quita para que alerts.alert()
     // ponga el suyo (evita duplicarlo).
+    // La key incluye el nivel (y va sin cooldown) para que la alerta de
+    // "sesión caída" (error) y la de "sesión recuperada" (info) no compartan
+    // el dedupe de 30 min de alerts.js: whatsapp.js ya deduplica por episodio
+    // (sessionLostAlerted), así que aquí cada transición debe salir siempre,
+    // incluida una recuperación que llega minutos después de la caída.
     whatsapp.setAlertHandler(text => {
         const level = text.startsWith('🔴') ? 'error' : text.startsWith('🟢') ? 'info' : 'warn';
         const clean = text.replace(/^[🔴🟠🟢]\s*/u, '');
-        return alerts.alert(level, clean, { key: 'whatsapp:session' });
+        return alerts.alert(level, clean, { key: `whatsapp:session:${level}`, cooldownMs: 0 });
     });
 
     // Inicializar WhatsApp en segundo plano (no bloquea el arranque de Express)

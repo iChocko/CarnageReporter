@@ -73,6 +73,20 @@ test('distintas keys no interfieren entre sí', async () => {
     assert.strictEqual(discord.sent.length, 2);
 });
 
+test('cooldownMs: 0 nunca dedupea, aunque se repita la misma key (caso whatsapp:session)', async () => {
+    const discord = fakeDiscord();
+    const { alert } = createAlerts(discord);
+
+    const first = await alert('error', 'sesión caída', { key: 'whatsapp:session:error', cooldownMs: 0 });
+    const second = await alert('info', 'sesión recuperada', { key: 'whatsapp:session:info', cooldownMs: 0 });
+
+    assert.strictEqual(first, true);
+    assert.strictEqual(second, true, 'la recuperación no debió dedupearse contra la caída');
+    assert.strictEqual(discord.sent.length, 2);
+    assert.strictEqual(discord.sent[0], '🔴 sesión caída');
+    assert.strictEqual(discord.sent[1], '🟢 sesión recuperada');
+});
+
 test('pasado el cooldown, una key vuelve a poder alertar', async () => {
     const discord = fakeDiscord();
     const { alert } = createAlerts(discord);
