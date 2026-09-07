@@ -53,6 +53,16 @@ test('writeJsonAtomic: pretty=true indenta, pretty=false serializa compacto', ()
     assert.strictEqual(fs.readFileSync(compact, 'utf-8'), '{"a":1}');
 });
 
+test('writeJsonAtomic: si falla el rename, no deja el .tmp huérfano (y re-lanza el error)', () => {
+    const dir = tmpDir();
+    // "file" es un directorio existente -> renameSync(tmp, file) truena
+    // (EISDIR/EPERM) de forma barata y determinista, sin tocar locks reales.
+    const file = path.join(dir, 'es-un-directorio.json');
+    fs.mkdirSync(file);
+    assert.throws(() => writeJsonAtomic(file, { a: 1 }));
+    assert.ok(!fs.existsSync(`${file}.tmp`));
+});
+
 test('writeJsonAtomic: sobrescribe un archivo existente sin dejar rastro del contenido viejo', () => {
     const dir = tmpDir();
     const file = path.join(dir, 'datos.json');

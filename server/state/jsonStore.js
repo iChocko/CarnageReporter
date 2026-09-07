@@ -60,7 +60,15 @@ function writeJsonAtomic(file, data, { pretty = true } = {}) {
     } finally {
         fs.closeSync(fd);
     }
-    fs.renameSync(tmp, file);
+    try {
+        fs.renameSync(tmp, file);
+    } catch (err) {
+        // Best-effort: si el rename falla (p.ej. EPERM en Windows con el
+        // archivo bloqueado por otro proceso) no dejamos el .tmp huérfano
+        // acumulándose; el error original se re-lanza igual.
+        try { fs.unlinkSync(tmp); } catch { /* noop */ }
+        throw err;
+    }
 }
 
 // Candados en proceso por ruta absoluta de archivo (mismo patrón que
