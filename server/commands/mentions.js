@@ -9,13 +9,19 @@
 const rosterStore = require('../utils/roster');
 const { sanitizeCaptionText } = require('../utils/matchSummary');
 const { aggregatePlayers } = require('../utils/records');
+const { identityFromJid } = require('../messaging/jid');
 
 const MAX_TAG_LEN = 32;         // los gamertags de Xbox no pasan de ~16; techo holgado
 const MAX_MENTION_TARGETS = 20; // techo duro de menciones; validateRoster ya limita a 16
 
-/** Últimos 4 dígitos de un JID con forma válida, o '' si no la tiene. */
-function jidDigits(jid) {
-    return ((String(jid).match(/^(\d{4,})@/) || [])[1] || '').slice(-4);
+/**
+ * Últimos 4 dígitos de un JID o de una clave de Identity ('pn:521...',
+ * 'lid:1234'), o '' si no hay dígitos. Genérico: no le importa el formato
+ * de entrada, solo extrae dígitos.
+ */
+function jidDigits(jidOrKey) {
+    const digits = (String(jidOrKey || '').match(/\d{4,}/) || [])[0] || '';
+    return digits.slice(-4);
 }
 
 /**
@@ -82,7 +88,7 @@ async function resolveMentionsToTags(ctx, mentionedIds) {
     let unresolvedDisplays = [];
     if (unresolved.length) {
         unresolvedDisplays = await Promise.all(unresolved.map(async jid => {
-            const phoneForm = pairByJid.get(jid)?.pn || (jid.endsWith('@c.us') ? jid : null);
+            const phoneForm = pairByJid.get(jid)?.pn || (identityFromJid(jid).pn ? jid : null);
             const info = await whatsapp.getContactInfo(phoneForm || jid);
             const digits = jidDigits(phoneForm || jid);
             const nombre = sanitizeCaptionText(info.pushname || info.name || '');

@@ -28,7 +28,7 @@ function createAnularHandler(ctx) {
         const arg = teams.stripMentionTokens(args).toLowerCase();
 
         if (arg === 'deshacer') {
-            if (!(await isAdminSender(ctx, senderId, msg))) return 'Solo un admin puede deshacer una anulación.';
+            if (!(await isAdminSender(ctx, senderId, msg, format))) return 'Solo un admin puede deshacer una anulación.';
             return ctx.locks.withAnularLock(async () => {
                 const data = anuladas.loadAnuladas(ctx.outputDir);
                 if (!data.anuladas.length) return 'No hay partidas anuladas con este comando que restaurar.';
@@ -42,7 +42,7 @@ function createAnularHandler(ctx) {
         if (arg || (mentionedIds || []).length) return ANULAR_USAGE;
 
         const [isAdmin, senderTag] = await Promise.all([
-            isAdminSender(ctx, senderId, msg),
+            isAdminSender(ctx, senderId, msg, format),
             resolveSenderTag(ctx, senderId),
         ]);
 

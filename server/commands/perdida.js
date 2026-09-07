@@ -34,7 +34,7 @@ function createPerdidaHandler(ctx) {
         const arg = teams.stripMentionTokens(args).toLowerCase();
 
         if (arg === 'deshacer') {
-            if (!(await isAdminSender(ctx, senderId, msg))) return 'Solo un admin puede deshacer un W.O.';
+            if (!(await isAdminSender(ctx, senderId, msg, format))) return 'Solo un admin puede deshacer un W.O.';
             return ctx.locks.withForfeitLock(async () => {
                 const data = forfeits.loadForfeits(ctx.outputDir);
                 if (!data.forfeits.length) return 'No hay W.O. que borrar.';
@@ -79,7 +79,7 @@ function createPerdidaHandler(ctx) {
             const sideName = side => [...side].sort((a, b) => a.localeCompare(b)).map(sanitizeCaptionText).join(' + ');
 
             const senderInReta = senderTag && forfeits.sideIndexOf(sides, senderTag) !== -1;
-            if (!senderInReta && !(await isAdminSender(ctx, senderId, msg))) {
+            if (!senderInReta && !(await isAdminSender(ctx, senderId, msg, format))) {
                 return `Solo los 4 de la reta en curso pueden declarar un W.O. (${sideName(sides[0])} 🆚 ${sideName(sides[1])}).`;
             }
 

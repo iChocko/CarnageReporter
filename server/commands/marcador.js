@@ -66,7 +66,7 @@ function createMarcadorHandler(ctx) {
         if (parsed.error) return parsed.error;
 
         if (parsed.name.trim().toLowerCase() === 'deshacer' && !parsed.serie && !parsed.cur) {
-            if (!(await isAdminSender(ctx, senderId, msg))) return 'Solo un admin puede ajustar el marcador.';
+            if (!(await isAdminSender(ctx, senderId, msg, format))) return 'Solo un admin puede ajustar el marcador.';
             return ctx.locks.withAjusteLock(async () => {
                 const data = ajustes.loadAjustes(ctx.outputDir);
                 if (!data.ajustes.length) return 'No hay ajustes de marcador que revertir.';
@@ -80,7 +80,7 @@ function createMarcadorHandler(ctx) {
         }
 
         if (!parsed.serie && !parsed.cur) return MARCADOR_USAGE;
-        if (!(await isAdminSender(ctx, senderId, msg))) return 'Solo un admin puede ajustar el marcador.';
+        if (!(await isAdminSender(ctx, senderId, msg, format))) return 'Solo un admin puede ajustar el marcador.';
 
         // ¿De quién es el equipo del primer número? Mención o gamertag escrito.
         const humanMentions = [...new Set(mentionedIds || [])].filter(j => !ctx.whatsapp.getOwnIds().has(j));

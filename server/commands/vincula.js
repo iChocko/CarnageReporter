@@ -12,8 +12,8 @@ const { isAdminSender } = require('./admin');
 
 /** Comando !vincula @persona <gamertag>: registro hecho por un admin. */
 function createVinculaHandler(ctx) {
-    return async function handleVinculaCommand({ args, msg, mentionedIds, senderId }) {
-        if (!(await isAdminSender(ctx, senderId, msg))) return 'Solo un admin puede hacer eso.';
+    return async function handleVinculaCommand({ format, args, msg, mentionedIds, senderId }) {
+        if (!(await isAdminSender(ctx, senderId, msg, format))) return 'Solo un admin puede hacer eso.';
 
         const own = ctx.whatsapp.getOwnIds();
         const targets = [...new Set(mentionedIds || [])].filter(j => !own.has(j));

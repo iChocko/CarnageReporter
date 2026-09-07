@@ -63,11 +63,11 @@ function fakeWhatsapp() {
     };
 }
 
-function buildCtx() {
+function buildCtx({ adminJids = '' } = {}) {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'commands-golden-'));
     const supabase = fakeSupabase();
     return {
-        config: { WHATSAPP_ADMIN_JIDS: '' },
+        config: { WHATSAPP_ADMIN_JIDS: adminJids },
         logger,
         supabase,
         whatsapp: null, // se asigna abajo tras crear el fake
@@ -87,8 +87,8 @@ function buildCtx() {
     };
 }
 
-function setup() {
-    const ctx = buildCtx();
+function setup(ctxOpts = {}) {
+    const ctx = buildCtx(ctxOpts);
     const whatsapp = fakeWhatsapp();
     ctx.whatsapp = whatsapp;
     registerAll(whatsapp, ctx);
@@ -123,4 +123,48 @@ test('!marcador sin argumentos (solo admin) responde el uso completo', async () 
     const commands = setup();
     const reply = await commands.get('!marcador')({ format: '2v2', args: '', msg: {}, mentionedIds: [], senderId: '5215500000000@c.us' });
     assert.strictEqual(reply, MARCADOR_USAGE);
+});
+
+// Fase A3: cobertura extra de !vincula (admin) y !caracola (menciones) sobre
+// el mismo fakeWhatsapp de siempre (sin tocar su forma), ahora que
+// isAdminSender/resolveMentionsToTags viven sobre Identity (server/messaging/jid.js).
+
+test('!vincula @persona <gamertag> por un admin (WHATSAPP_ADMIN_JIDS) vincula y responde "Listo"', async () => {
+    const adminJid = '5215500000000@c.us';
+    const commands = setup({ adminJids: adminJid });
+    const reply = await commands.get('!vincula')({
+        format: '2v2',
+        args: 'PruebaTag',
+        msg: {},
+        mentionedIds: ['5215533333333@c.us'],
+        senderId: adminJid,
+    });
+    assert.strictEqual(reply, 'Listo: …3333 es *PruebaTag* (sin partidas todavía: rating provisional).');
+});
+
+test('!vincula por alguien que NO es admin no vincula nada', async () => {
+    const commands = setup(); // sin WHATSAPP_ADMIN_JIDS
+    const reply = await commands.get('!vincula')({
+        format: '2v2',
+        args: 'PruebaTag',
+        msg: {},
+        mentionedIds: ['5215533333333@c.us'],
+        senderId: '5215599999999@c.us',
+    });
+    assert.strictEqual(reply, 'Solo un admin puede hacer eso.');
+});
+
+test('!caracola con dos menciones sin registrar en el roster responde "Sin registrar" con ambas', async () => {
+    const commands = setup();
+    const reply = await commands.get('!caracola')({
+        format: '2v2',
+        args: '',
+        msg: {},
+        mentionedIds: ['5215511111111@c.us', '5215522222222@c.us'],
+        senderId: null,
+    });
+    assert.strictEqual(reply, [
+        'Sin registrar: …1111, …2222.',
+        'Que manden *!soy <gamertag>* o los vincula un admin con *!vincula @persona <gamertag>*.',
+    ].join('\n'));
 });
