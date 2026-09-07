@@ -68,5 +68,12 @@ COPY server/ ./
 # Exponer el puerto
 EXPOSE 3000
 
+# Healthcheck (Fase A1): pega a /api/health cada 30s. start-period de 90s le
+# da tiempo a Puppeteer/WhatsApp-Web.js de terminar de inicializar antes de
+# que un primer fallo cuente; nunca marca "unhealthy" por WhatsApp en
+# waiting_qr (ver server/health.js) — solo por un Supabase caído.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
+
 # Comando para iniciar
 CMD ["node", "index.js"]
