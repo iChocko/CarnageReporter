@@ -249,7 +249,7 @@ const H2HView = ({ players, format }) => {
     setLoading(true); setError(null); setData(null)
     try {
       setData(await getJSON(`${API}/h2h?p1=${encodeURIComponent(p1)}&p2=${encodeURIComponent(p2)}&format=${format}`))
-    } catch (e) {
+    } catch {
       setError('No se pudo comparar. Intenta de nuevo.')
     } finally {
       setLoading(false)
@@ -342,20 +342,24 @@ const H2HView = ({ players, format }) => {
 
 const PerfilView = ({ players, selected, onSelect, format }) => {
   const [query, setQuery] = useState('')
-  const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  // Resultado del último fetch completado, marcado con la key (selected+format)
+  // a la que corresponde. loading/profile/error se derivan comparando esa key
+  // con la key actual en vez de pisar el estado sincrónicamente dentro del efecto.
+  const [result, setResult] = useState(null)
+  const key = selected ? `${selected}::${format}` : null
 
   useEffect(() => {
-    if (!selected) { setProfile(null); return }
+    if (!key) return
     let cancelled = false
-    setLoading(true); setError(null)
     getJSON(`${API}/player/${encodeURIComponent(selected)}?format=${format}`)
-      .then(d => { if (!cancelled) setProfile(d) })
-      .catch(() => { if (!cancelled) setError(`No se encontró el perfil de "${selected}".`) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .then(d => { if (!cancelled) setResult({ key, profile: d, error: null }) })
+      .catch(() => { if (!cancelled) setResult({ key, profile: null, error: `No se encontró el perfil de "${selected}".` }) })
     return () => { cancelled = true }
-  }, [selected, format])
+  }, [key, selected, format])
+
+  const loading = Boolean(key) && (!result || result.key !== key)
+  const profile = result && result.key === key ? result.profile : null
+  const error = result && result.key === key ? result.error : null
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -444,27 +448,35 @@ const FORMATS = [
 const App = () => {
   const [format, setFormat] = useState('2v2')
   const [view, setView] = useState('rankings')
-  const [leaderboard, setLeaderboard] = useState([])
-  const [recent, setRecent] = useState([])
-  const [players, setPlayers] = useState([])
-  const [loading, setLoading] = useState(true)
   const [selectedPlayer, setSelectedPlayer] = useState(null)
   const [stripeOpen, setStripeOpen] = useState(false)
+  // Igual que en PerfilView: el resultado se marca con la key (format) a la
+  // que corresponde, y loading/leaderboard/recent/players se derivan de esa
+  // comparación en vez de llamar a setState directamente dentro del efecto.
+  const [dataResult, setDataResult] = useState(null)
 
   useEffect(() => {
-    setLoading(true)
-    setSelectedPlayer(null) // el perfil seleccionado puede no existir en el otro formato
+    let cancelled = false
     Promise.allSettled([
       getJSON(`${API}/leaderboard?limit=50&format=${format}`),
       getJSON(`${API}/recent?format=${format}`),
       getJSON(`${API}/players?format=${format}`)
     ]).then(([l, r, p]) => {
-      setLeaderboard(l.status === 'fulfilled' ? (l.value || []) : [])
-      setRecent(r.status === 'fulfilled' ? (r.value || []) : [])
-      setPlayers(p.status === 'fulfilled' ? (p.value || []) : [])
-      setLoading(false)
+      if (cancelled) return
+      setDataResult({
+        format,
+        leaderboard: l.status === 'fulfilled' ? (l.value || []) : [],
+        recent: r.status === 'fulfilled' ? (r.value || []) : [],
+        players: p.status === 'fulfilled' ? (p.value || []) : [],
+      })
     })
+    return () => { cancelled = true }
   }, [format])
+
+  const loading = !dataResult || dataResult.format !== format
+  const leaderboard = !loading ? dataResult.leaderboard : []
+  const recent = !loading ? dataResult.recent : []
+  const players = !loading ? dataResult.players : []
 
   const openProfile = (gamertag) => {
     setSelectedPlayer(gamertag)
