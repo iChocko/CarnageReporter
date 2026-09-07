@@ -47,6 +47,11 @@ function createHealthCheck({
     alertFn = async () => false,
     now = Date.now,
     statfs = fs.statfsSync,
+    // Fase A4 — outbox persistente. `outboxEnabled` viene de config.OUTBOX_ENABLED;
+    // `outboxStore` es undefined/null tanto si está apagado como si Supabase
+    // no está configurado o la tabla no existe todavía (OutboxUnavailableError).
+    outboxEnabled = false,
+    outboxStore = null,
 }) {
     let cache = null; // { at: number, body: object }
     let lastStatus = null; // para avisar solo en la TRANSICIÓN a 'down'
@@ -83,10 +88,28 @@ function createHealthCheck({
         }
     }
 
+    /**
+     * Estado del outbox (Fase A4): `pending`/`dead`/`oldestPendingSec` en
+     * null cuando está apagado, o cuando `stats()` truena (tabla faltante,
+     * Supabase caído) — un fallo aquí no debe tumbar todo el health check.
+     */
+    async function checkOutbox() {
+        if (!outboxEnabled || !outboxStore) {
+            return { enabled: outboxEnabled, pending: null, dead: null, oldestPendingSec: null };
+        }
+        try {
+            const stats = await outboxStore.stats();
+            return { enabled: true, ...stats };
+        } catch (err) {
+            return { enabled: true, pending: null, dead: null, oldestPendingSec: null, error: err.message };
+        }
+    }
+
     /** Arma { status, checks } sin cachear ni alertar (lo hace el handler). */
     async function computeHealth() {
         const supabaseCheck = await checkSupabase();
         const whatsappState = whatsapp.getStatus().status;
+        const outboxCheck = await checkOutbox();
 
         const checks = {
             supabase: supabaseCheck,
@@ -94,11 +117,13 @@ function createHealthCheck({
             renderer: { lastOkAt: renderer.lastOkAt },
             disk: { outputFreeMb: getDiskFreeMb() },
             scheduler: { jobs: getSchedulerJobs() },
+            outbox: outboxCheck,
         };
 
         let status = 'ok';
         if (!supabaseCheck.ok) status = 'down';
         else if (whatsapp.enabled && whatsappState !== 'ready') status = 'degraded';
+        else if (outboxCheck.dead > 0) status = 'degraded';
 
         return { status, checks };
     }

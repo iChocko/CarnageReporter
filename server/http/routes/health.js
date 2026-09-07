@@ -31,6 +31,8 @@ function createHealthRouter(ctx) {
         outputDir: ctx.outputDir,
         version: ctx.version,
         alertFn: ctx.alerts.alert,
+        outboxEnabled: !!ctx.config?.OUTBOX_ENABLED,
+        outboxStore: ctx.outboxStore || null,
     });
     router.get('/api/health', asyncHandler(health.handler));
 
