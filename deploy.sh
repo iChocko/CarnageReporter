@@ -102,7 +102,7 @@ rm -f /tmp/carnage-env-backup
 
 # 1. Construir la imagen Docker
 echo "🏗️  Construyendo imagen Docker..."
-docker build -t carnage-reporter:latest .
+docker build --build-arg VITE_STRIPE_PUBLISHABLE_KEY="${VITE_STRIPE_PUBLISHABLE_KEY:-}" -t carnage-reporter:latest .
 
 # 2. Escribir el docker-compose PROPIO de este proyecto (aislado, sin
 #    tocar ningún compose/Traefik global — este VPS no usa Traefik).

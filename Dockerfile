@@ -4,6 +4,8 @@ WORKDIR /app/dashboard
 COPY dashboard/package*.json ./
 RUN npm ci
 COPY dashboard/ ./
+ARG VITE_STRIPE_PUBLISHABLE_KEY
+ENV VITE_STRIPE_PUBLISHABLE_KEY=$VITE_STRIPE_PUBLISHABLE_KEY
 RUN npm run build
 
 # Final stage

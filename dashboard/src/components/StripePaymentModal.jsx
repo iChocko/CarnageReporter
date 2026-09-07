@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 
 const CloseIcon = (props) => (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -87,7 +88,7 @@ const PaymentForm = ({ amount, onClose }) => {
                         transition: 'all 0.2s'
                     }}
                 >
-                    Cancel
+                    Cancelar
                 </button>
                 <button
                     type="submit"
@@ -107,7 +108,7 @@ const PaymentForm = ({ amount, onClose }) => {
                         opacity: processing ? 0.6 : 1
                     }}
                 >
-                    {processing ? 'Processing...' : `Donate ${PREDEFINED_AMOUNTS.find(a => a.value === amount)?.label || `$${amount / 100}`}`}
+                    {processing ? 'Procesando...' : `Donar ${PREDEFINED_AMOUNTS.find(a => a.value === amount)?.label || `$${amount / 100}`}`}
                 </button>
             </div>
         </form>
@@ -120,13 +121,7 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
     const [customAmount, setCustomAmount] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
-    const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
-
-    useEffect(() => {
-        const handleResize = () => setIsMobile(window.innerWidth < 768)
-        window.addEventListener('resize', handleResize)
-        return () => window.removeEventListener('resize', handleResize)
-    }, [])
+    const isMobile = useMediaQuery('(max-width: 767px)')
 
     const handleAmountSelect = (amount) => {
         setSelectedAmount(amount)
@@ -157,7 +152,7 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
             const data = await response.json()
 
             if (!response.ok) {
-                throw new Error(data.error || 'Failed to initialize payment')
+                throw new Error(data.error || 'No se pudo iniciar el pago')
             }
 
             setClientSecret(data.clientSecret)
@@ -201,6 +196,7 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
             >
                 <button
                     onClick={onClose}
+                    aria-label="Cerrar"
                     style={{
                         position: 'absolute',
                         top: '1rem',
@@ -225,10 +221,10 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                     textTransform: 'uppercase',
                     letterSpacing: '0.1em'
                 }}>
-                    Support Carnage Reporter
+                    Apoyar Carnage Reporter
                 </h2>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '2rem' }}>
-                    Your donation (USD) helps keep the servers running
+                    Tu donación (USD) ayuda a mantener los servidores corriendo
                 </p>
 
                 {!clientSecret ? (
@@ -242,7 +238,7 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                                 letterSpacing: '0.1em',
                                 marginBottom: '0.75rem'
                             }}>
-                                Select Amount (USD)
+                                Elige un monto (USD)
                             </label>
                             <div style={{
                                 display: 'flex',
@@ -274,7 +270,7 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                             </div>
                             <input
                                 type="text"
-                                placeholder="Custom amount (USD $)"
+                                placeholder="Monto personalizado (USD $)"
                                 value={customAmount}
                                 onChange={handleCustomAmountChange}
                                 style={{
@@ -323,7 +319,7 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                                 opacity: loading ? 0.6 : 1
                             }}
                         >
-                            {loading ? 'Initializing...' : 'Continue to Payment'}
+                            {loading ? 'Iniciando...' : 'Continuar al pago'}
                         </button>
                     </>
                 ) : (
@@ -343,7 +339,7 @@ export const StripePaymentModal = ({ isOpen, onClose }) => {
                     }}>
                         <PaymentForm amount={selectedAmount} onClose={onClose} />
                         <div style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.7rem', opacity: 0.5 }}>
-                            ALL DONATIONS ARE PROCESSED IN USD
+                            TODAS LAS DONACIONES SE PROCESAN EN USD
                         </div>
                     </Elements>
                 )}
