@@ -45,5 +45,8 @@ jobs:
       - name: Lint dashboard
         run: npm --prefix dashboard run lint
 
+      - name: Test dashboard
+        run: npm --prefix dashboard test
+
       - name: Build dashboard
         run: npm --prefix dashboard run build
