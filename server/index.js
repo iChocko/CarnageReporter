@@ -5,8 +5,13 @@
  * Fase A2: este archivo es solo el bootstrap. La lógica vive repartida en
  * server/{config,app,http,report,domain,commands,jobs,state}: dotenv ->
  * config -> logger -> servicios + ctx -> createApp(ctx) -> listen ->
- * whatsapp.initialize -> registerAll -> startSchedules -> lifecycle
+ * whatsapp.start -> registerAll -> startSchedules -> lifecycle
  * (shutdown / manejadores de proceso).
+ *
+ * Fase A5: se llama `whatsapp.start()` (el método del contrato MessagingPort,
+ * ver server/messaging/port.js) y NO `whatsapp.initialize()` — ese último
+ * solo existe como alias interno de wwebjs.js; los adaptadores 'fake' y
+ * 'baileys' (server/messaging/adapters/*.js) no lo implementan.
  */
 
 require('dotenv').config();
@@ -91,7 +96,7 @@ async function start() {
     });
 
     // Inicializar WhatsApp en segundo plano (no bloquea el arranque de Express)
-    whatsapp.initialize().catch(err => {
+    whatsapp.start().catch(err => {
         log.error({ err }, '❌ WhatsApp no pudo inicializar');
     });
 
