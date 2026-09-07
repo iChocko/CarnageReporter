@@ -17,19 +17,15 @@ cd "$(dirname "$0")"
 echo "📦 Instalando dependencias en el directorio 'client'..."
 cd client
 npm install
-cd ..
 
-# 2. Crear directorio de distribución
-mkdir -p dist
-
-# 3. Generar el ejecutable usando pkg
+# 2. Generar el ejecutable usando @yao-pkg/pkg (fork mantenido de pkg, node22)
 echo "🔨 Compilando ejecutable para Windows (.exe)..."
-# Usamos el script de construcción definido en el package.json de la raíz o lo ejecutamos directo
-npx pkg client/carnage_client.js --targets node18-win-x64 --output dist/CarnageReporter.exe
+npm run build
+cd ..
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║             ✅ CONSTRUCCIÓN COMPLETADA                   ║"
-echo "║  Archivo: dist/CarnageReporter.exe                       ║"
+echo "║  Archivo: client/dist/CarnageReporter.exe                ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo "🚀 Ya puedes compartir el archivo .exe con tus amigos."

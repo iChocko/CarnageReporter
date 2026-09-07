@@ -6,24 +6,22 @@
   "scripts": {
     "start": "node carnage_client.js",
     "test": "node --test test/*.test.js",
-    "build": "pkg carnage_client.js --targets node18-win-x64 --output dist/CarnageClient.exe"
+    "build": "pkg carnage_client.js --targets node22-win-x64 --output dist/CarnageReporter.exe"
   },
   "dependencies": {
-    "axios": "^1.13.4",
     "chokidar": "^3.5.3",
-    "dotenv": "^17.2.3",
     "fast-xml-parser": "^4.3.2"
   },
   "devDependencies": {
-    "pkg": "^5.8.1"
+    "@yao-pkg/pkg": "^6.22.0"
   },
   "pkg": {
-    "assets": [
-      ".env"
-    ],
     "targets": [
-      "node18-win-x64"
+      "node22-win-x64"
     ],
-    "outputPath": "dist"
+    "outputPath": "dist",
+    "assets": [
+      "test/fixtures/mpcarnagereport_2v2.xml"
+    ]
   }
 }
