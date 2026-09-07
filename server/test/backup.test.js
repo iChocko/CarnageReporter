@@ -1,7 +1,8 @@
 /**
- * Tests de jobs/backup.js: empaquetado local (.tar.gz de output/*.json +
- * authDir), poda de backups viejos y la segunda copia en Supabase (con un
- * fake que no toca la red).
+ * Tests de jobs/backup.js: empaquetado local (.tar.gz de output/*.json,
+ * authDir opt-in con exclusión de cachés de Chromium), poda de backups
+ * viejos, la segunda copia en Supabase (con un fake que no toca la red) y
+ * que un tar fallido no tumbe la subida a Supabase.
  */
 
 const { test } = require('node:test');
@@ -37,7 +38,7 @@ test('backupFileName: formato state-YYYYMMDD-HHmm.tar.gz', () => {
     assert.strictEqual(backupFileName(ts), 'state-20260105-0907.tar.gz');
 });
 
-test('runBackup: empaqueta output/*.json + authDir, y sube cada JSON a Supabase', async () => {
+test('runBackup: por default NO incluye authDir en el tar (perfil de Chromium pesado)', async () => {
     const { outputDir, authDir } = makeTree();
     fs.mkdirSync(path.join(authDir, 'session'), { recursive: true });
     fs.writeFileSync(path.join(outputDir, 'whatsapp_roster.json'), JSON.stringify({ links: [] }));
@@ -60,12 +61,63 @@ test('runBackup: empaqueta output/*.json + authDir, y sube cada JSON a Supabase'
     assert.deepStrictEqual(namesUploaded, ['forfeits.json', 'whatsapp_roster.json']);
     assert.deepStrictEqual(supabase.calls[0].content, JSON.parse(fs.readFileSync(path.join(outputDir, `${supabase.calls[0].name}`), 'utf-8')));
 
-    // El .tar.gz debe contener los JSON y el directorio de sesión, no el PNG.
+    // El .tar.gz debe contener solo los JSON, sin el directorio de sesión.
     const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-extract-'));
     await tar.extract({ file: result.archivePath, cwd: extractDir });
     const extractedOutput = fs.readdirSync(path.join(extractDir, 'output')).sort();
     assert.deepStrictEqual(extractedOutput, ['forfeits.json', 'whatsapp_roster.json']);
+    assert.ok(!fs.existsSync(path.join(extractDir, '.wwebjs_auth')));
+});
+
+test('runBackup: includeAuthDir=true incluye la sesión pero excluye Cache/', async () => {
+    const { outputDir, authDir } = makeTree();
+    fs.mkdirSync(path.join(authDir, 'session'), { recursive: true });
+    fs.mkdirSync(path.join(authDir, 'session', 'Cache'), { recursive: true });
+    fs.writeFileSync(path.join(outputDir, 'whatsapp_roster.json'), JSON.stringify({ links: [] }));
+    fs.writeFileSync(path.join(authDir, 'session', 'creds.json'), '{}');
+    fs.writeFileSync(path.join(authDir, 'session', 'Cache', 'data_1'), Buffer.from([0]));
+
+    const supabase = fakeSupabase();
+    const now = Date.parse('2026-03-10T08:00:00Z');
+    const result = await runBackup({ outputDir, authDir, supabase, now, includeAuthDir: true });
+
+    assert.ok(fs.existsSync(result.archivePath));
+    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-extract-'));
+    await tar.extract({ file: result.archivePath, cwd: extractDir });
     assert.ok(fs.existsSync(path.join(extractDir, '.wwebjs_auth', 'session', 'creds.json')));
+    assert.ok(!fs.existsSync(path.join(extractDir, '.wwebjs_auth', 'session', 'Cache')));
+});
+
+test('runBackup: si el tar local truena, la subida a Supabase ya hecha sigue contando', async () => {
+    const { outputDir, authDir } = makeTree();
+    fs.writeFileSync(path.join(outputDir, 'a.json'), JSON.stringify({ ok: 1 }));
+    fs.writeFileSync(path.join(outputDir, 'b.json'), JSON.stringify({ ok: 2 }));
+
+    const supabase = fakeSupabase();
+    const createArchive = async () => {
+        throw new Error('tar boom (disco lleno / archivo bloqueado)');
+    };
+    const result = await runBackup({ outputDir, authDir, supabase, now: Date.now(), createArchive });
+
+    assert.strictEqual(result.jsonFiles, 2);
+    assert.strictEqual(result.uploaded, 2); // la copia en Supabase no se vio afectada
+    assert.strictEqual(result.archivePath, null); // el tar sí falló
+});
+
+test('runBackup: authDir fuera de dirname(outputDir) se omite del tar con advertencia, no truena', async () => {
+    const { outputDir } = makeTree();
+    fs.writeFileSync(path.join(outputDir, 'a.json'), JSON.stringify({ ok: 1 }));
+    // authDir en un temp dir completamente distinto -> path.relative empieza con "..".
+    const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-outside-auth-'));
+    fs.writeFileSync(path.join(authDir, 'creds.json'), '{}');
+
+    const supabase = fakeSupabase();
+    const result = await runBackup({ outputDir, authDir, supabase, now: Date.now(), includeAuthDir: true });
+
+    assert.ok(fs.existsSync(result.archivePath));
+    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-extract-'));
+    await tar.extract({ file: result.archivePath, cwd: extractDir });
+    assert.deepStrictEqual(fs.readdirSync(path.join(extractDir, 'output')), ['a.json']);
 });
 
 test('runBackup: sin JSON ni authDir -> no truena, archivePath null', async () => {

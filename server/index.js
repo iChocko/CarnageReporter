@@ -1932,7 +1932,12 @@ async function start() {
     // Más mantenimiento diario (Fase A0): backup de estado y limpieza de PNGs.
     startSchedules(whatsapp, {
         sendWeeklySaldos,
-        runBackup: () => runBackup({ outputDir: OUTPUT_DIR, authDir: whatsapp.authPath, supabase }),
+        runBackup: () => runBackup({
+            outputDir: OUTPUT_DIR,
+            authDir: whatsapp.authPath,
+            supabase,
+            includeAuthDir: process.env.BACKUP_INCLUDE_AUTH === 'true',
+        }),
         runCleanup: () => runCleanup({ outputDir: OUTPUT_DIR }),
     });
 }
