@@ -7,6 +7,9 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { buildCaptionParts } = require('../utils/matchSummary');
+const { logger } = require('../logger');
+
+const log = logger.child({ mod: 'discord' });
 
 class DiscordService {
     constructor(webhookUrl) {
@@ -19,7 +22,7 @@ class DiscordService {
      */
     setWebhookUrl(url) {
         this.webhookUrl = url;
-        console.log(`💬 Discord webhook actualizado`);
+        log.info('💬 Discord webhook actualizado');
     }
 
     /**
@@ -33,7 +36,7 @@ class DiscordService {
 
     async sendImage(imagePath, gameData, players) {
         if (!this.webhookUrl) {
-            console.log('⚠️  Discord webhook no configurado');
+            log.warn('⚠️  Discord webhook no configurado');
             return false;
         }
 
@@ -66,16 +69,16 @@ class DiscordService {
             return new Promise((resolve) => {
                 const req = https.request(options, (res) => {
                     if (res.statusCode >= 200 && res.statusCode < 300) {
-                        console.log('📤 Imagen enviada a Discord!');
+                        log.info('📤 Imagen enviada a Discord!');
                         resolve(true);
                     } else {
-                        console.error(`❌ Discord falló con status ${res.statusCode}`);
+                        log.error(`❌ Discord falló con status ${res.statusCode}`);
                         this.sendFallbackText(gameData, players).then(resolve);
                     }
                 });
 
                 req.on('error', (e) => {
-                    console.error('❌ Error enviando a Discord:', e.message);
+                    log.error({ err: e }, '❌ Error enviando a Discord');
                     this.sendFallbackText(gameData, players).then(resolve);
                 });
 
@@ -83,7 +86,7 @@ class DiscordService {
                 req.end();
             });
         } catch (error) {
-            console.error('❌ Error en sendImage:', error.message);
+            log.error({ err: error }, '❌ Error en sendImage');
             return this.sendFallbackText(gameData, players);
         }
     }
@@ -120,11 +123,11 @@ class DiscordService {
 
         return new Promise((resolve) => {
             const req = https.request(options, () => {
-                console.log('📤 Tabla de texto enviada a Discord (Fallback)');
+                log.info('📤 Tabla de texto enviada a Discord (Fallback)');
                 resolve(true);
             });
             req.on('error', (e) => {
-                console.error('❌ Error enviando fallback:', e.message);
+                log.error({ err: e }, '❌ Error enviando fallback');
                 resolve(false);
             });
             req.write(payload);

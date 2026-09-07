@@ -12,6 +12,9 @@
 
 const path = require('path');
 const fs = require('fs');
+const { logger } = require('../logger');
+
+const log = logger.child({ mod: 'whatsapp' });
 
 class WhatsAppService {
     constructor() {
@@ -44,7 +47,7 @@ class WhatsAppService {
         this.sessionLostAlerted = false; // un aviso por episodio, no por cada QR (se regenera cada ~30s)
 
         if (!this.enabled) {
-            console.log('📴 WhatsApp deshabilitado (WHATSAPP_ENABLED != true)');
+            log.info('📴 WhatsApp deshabilitado (WHATSAPP_ENABLED != true)');
         }
     }
 
@@ -67,7 +70,7 @@ class WhatsAppService {
 
         for (const p of possiblePaths) {
             if (fs.existsSync(p)) {
-                console.log(`🌐 WhatsApp usando Chromium: ${p}`);
+                log.info(`🌐 WhatsApp usando Chromium: ${p}`);
                 return p;
             }
         }
@@ -111,7 +114,7 @@ class WhatsAppService {
         if (!this.alertHandler) return;
         Promise.resolve()
             .then(() => this.alertHandler(text))
-            .catch(err => console.error('⚠️  No se pudo enviar el aviso de WhatsApp:', err.message));
+            .catch(err => log.error({ err }, '⚠️  No se pudo enviar el aviso de WhatsApp'));
     }
 
     getRetryDelay(attempt) {
@@ -130,7 +133,7 @@ class WhatsAppService {
         this.isRestarting = false;
         this.initRetryCount++;
         const delay = this.getRetryDelay(this.initRetryCount);
-        console.log(`🔁 Reintentando conexión de WhatsApp en ${delay / 1000}s (intento ${this.initRetryCount})...`);
+        log.info(`🔁 Reintentando conexión de WhatsApp en ${delay / 1000}s (intento ${this.initRetryCount})...`);
         setTimeout(() => this.restart(), delay);
     }
 
@@ -140,12 +143,12 @@ class WhatsAppService {
         try {
             const state = await this.client.getState();
             if (state !== 'CONNECTED') {
-                console.log(`⚠️  Estado de WhatsApp: ${state} (esperado: CONNECTED)`);
+                log.warn(`⚠️  Estado de WhatsApp: ${state} (esperado: CONNECTED)`);
                 return false;
             }
             return true;
         } catch (error) {
-            console.log(`⚠️  Verificación de conexión WhatsApp falló: ${error.message}`);
+            log.warn({ err: error }, '⚠️  Verificación de conexión WhatsApp falló');
             return false;
         }
     }
@@ -158,7 +161,7 @@ class WhatsAppService {
         const qrcodeTerminal = require('qrcode-terminal');
 
         if (this.client) {
-            console.log('⚠️  WhatsApp ya inicializado, destruyendo sesión anterior...');
+            log.warn('⚠️  WhatsApp ya inicializado, destruyendo sesión anterior...');
             await this.destroy();
         }
 
@@ -195,12 +198,16 @@ class WhatsAppService {
             this.client.on('qr', (qr) => {
                 this.currentQR = qr;
                 this.status = 'waiting_qr';
+                // El QR debe llegar a `docker logs` como texto plano (dibujo ASCII
+                // escaneable), no envuelto en JSON como el resto de los logs.
+                /* eslint-disable no-console */
                 console.log('\n╔════════════════════════════════════════════╗');
                 console.log('║     ESCANEA ESTE CÓDIGO QR CON WHATSAPP    ║');
                 console.log('║     (Solo necesitas hacerlo UNA VEZ)       ║');
                 console.log('╚════════════════════════════════════════════╝');
                 console.log('También disponible en: GET /api/admin/whatsapp/qr\n');
                 qrcodeTerminal.generate(qr, { small: true });
+                /* eslint-enable no-console */
                 if (!this.sessionLostAlerted) {
                     this.sessionLostAlerted = true;
                     this.notifyAlert('🔴 **WhatsApp del bot sin sesión**: pide escanear el QR de nuevo. ' +
@@ -210,7 +217,7 @@ class WhatsAppService {
             });
 
             this.client.on('authenticated', () => {
-                console.log('✅ WhatsApp autenticado');
+                log.info('✅ WhatsApp autenticado');
                 this.currentQR = null;
             });
 
@@ -220,7 +227,7 @@ class WhatsAppService {
                 this.currentQR = null;
                 this.isRestarting = false;
                 this.initRetryCount = 0;
-                console.log('📱 WhatsApp listo.');
+                log.info('📱 WhatsApp listo.');
                 if (this.sessionLostAlerted) {
                     this.sessionLostAlerted = false;
                     this.notifyAlert('🟢 WhatsApp del bot vinculado de nuevo: los envíos al grupo se reanudan.');
@@ -235,18 +242,18 @@ class WhatsAppService {
             });
 
             this.client.on('auth_failure', (msg) => {
-                console.error('❌ Error de autenticación WhatsApp:', msg);
+                log.error({ authMsg: msg }, '❌ Error de autenticación WhatsApp');
                 this.ready = false;
                 this.status = 'disconnected';
                 resolve();
             });
 
             this.client.on('disconnected', (reason) => {
-                console.log('⚠️  WhatsApp desconectado:', reason);
+                log.warn({ reason }, '⚠️  WhatsApp desconectado');
                 this.ready = false;
                 this.status = 'disconnected';
                 if (!this.isRestarting) {
-                    console.log('🔄 Intentando reconectar en 5s...');
+                    log.info('🔄 Intentando reconectar en 5s...');
                     setTimeout(() => this.restart(), 5000);
                 }
             });
@@ -256,12 +263,12 @@ class WhatsAppService {
             // bot reaccione a sus propias respuestas.
             this.client.on('message_create', (msg) => {
                 this.handleIncomingMessage(msg).catch(err =>
-                    console.error('❌ Error atendiendo comando WhatsApp:', err.message)
+                    log.error({ err }, '❌ Error atendiendo comando WhatsApp')
                 );
             });
 
             this.client.initialize().catch((error) => {
-                console.error('❌ Error inicializando WhatsApp:', error.message);
+                log.error({ err: error }, '❌ Error inicializando WhatsApp');
                 this.status = 'disconnected';
                 this.scheduleReconnect();
                 resolve();
@@ -270,7 +277,7 @@ class WhatsAppService {
             // Timeout de seguridad: no bloquear el arranque del servidor
             setTimeout(() => {
                 if (!this.ready && !this.isRestarting) {
-                    console.log(`⚠️  WhatsApp timeout (${this.initTimeoutMs / 1000}s) - el servidor sigue sin WhatsApp`);
+                    log.warn(`⚠️  WhatsApp timeout (${this.initTimeoutMs / 1000}s) - el servidor sigue sin WhatsApp`);
                     this.scheduleReconnect();
                     resolve();
                 }
@@ -281,7 +288,7 @@ class WhatsAppService {
     async restart() {
         if (!this.enabled || this.isRestarting) return;
         this.isRestarting = true;
-        console.log('🔄 Reiniciando servicio de WhatsApp...');
+        log.info('🔄 Reiniciando servicio de WhatsApp...');
         this.ready = false;
         this.stopKeepAlive();
         await this.destroy();
@@ -297,16 +304,16 @@ class WhatsAppService {
             try {
                 const state = await this.client.getState();
                 if (state !== 'CONNECTED') {
-                    console.log(`⚠️  Keep-alive: Estado inesperado (${state}), reiniciando...`);
+                    log.warn(`⚠️  Keep-alive: Estado inesperado (${state}), reiniciando...`);
                     this.restart();
                 }
             } catch (error) {
-                console.log(`⚠️  Keep-alive falló: ${error.message}, reiniciando...`);
+                log.warn({ err: error }, '⚠️  Keep-alive falló, reiniciando...');
                 this.restart();
             }
         }, this.keepAliveIntervalMs);
 
-        console.log(`💓 Keep-alive de WhatsApp iniciado (cada ${this.keepAliveIntervalMs / 60000} min)`);
+        log.info(`💓 Keep-alive de WhatsApp iniciado (cada ${this.keepAliveIntervalMs / 60000} min)`);
     }
 
     stopKeepAlive() {
@@ -335,12 +342,12 @@ class WhatsAppService {
 
         const isConnected = await this.ensureConnection();
         if (!isConnected) {
-            console.log('⚠️  WhatsApp no está listo para enviar imagen');
+            log.warn('⚠️  WhatsApp no está listo para enviar imagen');
             return false;
         }
 
         if (!chatId) {
-            console.log('⚠️  sendImage sin chatId destino');
+            log.warn('⚠️  sendImage sin chatId destino');
             return false;
         }
 
@@ -348,28 +355,28 @@ class WhatsAppService {
 
         for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
             try {
-                console.log(`📱 Enviando imagen a WhatsApp (${chatId})... Intento ${attempt}/${this.maxRetries}`);
+                log.info(`📱 Enviando imagen a WhatsApp (${chatId})... Intento ${attempt}/${this.maxRetries}`);
                 const media = MessageMedia.fromFilePath(imagePath);
                 await this.client.sendMessage(chatId, media, { caption });
-                console.log('📤 Imagen enviada a WhatsApp!');
+                log.info('📤 Imagen enviada a WhatsApp!');
                 return true;
             } catch (error) {
-                console.error(`❌ Intento ${attempt}/${this.maxRetries} fallido: ${error.message}`);
+                log.error({ err: error }, `❌ Intento ${attempt}/${this.maxRetries} fallido`);
 
                 if (attempt >= this.maxRetries) {
                     if (error.message.includes('detached Frame') || error.message.includes('Session closed')) {
-                        console.log('⚠️  Error crítico persistente, reiniciando WhatsApp...');
+                        log.warn('⚠️  Error crítico persistente, reiniciando WhatsApp...');
                         this.restart();
                     }
                     return false;
                 }
 
                 const retryDelay = this.getRetryDelay(attempt);
-                console.log(`   ⏳ Reintentando en ${retryDelay / 1000}s...`);
+                log.info(`   ⏳ Reintentando en ${retryDelay / 1000}s...`);
                 await new Promise(resolve => setTimeout(resolve, retryDelay));
 
                 if (!(await this.ensureConnection())) {
-                    console.log('⚠️  Conexión perdida durante reintentos, abortando...');
+                    log.warn('⚠️  Conexión perdida durante reintentos, abortando...');
                     return false;
                 }
             }
@@ -394,7 +401,7 @@ class WhatsAppService {
             await this.client.sendMessage(chatId, text, options);
             return true;
         } catch (error) {
-            console.error('❌ Error enviando mensaje WhatsApp:', error.message);
+            log.error({ err: error }, '❌ Error enviando mensaje WhatsApp');
             return false;
         }
     }
@@ -434,7 +441,7 @@ class WhatsAppService {
                 pn: p.pn ? String(p.pn) : undefined,
             }));
         } catch (error) {
-            console.log(`⚠️  resolveLidPn falló: ${error.message}`);
+            log.warn({ err: error }, '⚠️  resolveLidPn falló');
             return [];
         }
     }
@@ -499,7 +506,7 @@ class WhatsAppService {
      */
     registerCommand(trigger, handler) {
         this.commands.set(trigger.toLowerCase(), handler);
-        console.log(`💬 Comando WhatsApp registrado: ${trigger}`);
+        log.info(`💬 Comando WhatsApp registrado: ${trigger}`);
     }
 
     async handleIncomingMessage(msg) {
@@ -518,7 +525,7 @@ class WhatsAppService {
         if (!handler) return;
         const args = body.slice(firstWord.length).trim();
 
-        console.log(`📨 Comando WhatsApp '${firstWord}' recibido en grupo ${format}`);
+        log.info(`📨 Comando WhatsApp '${firstWord}' recibido en grupo ${format}`);
         // mentionedIds puede traer strings o objetos Wid según el build de
         // WhatsApp Web (la propia librería se cuida de ambos en getMentions).
         const mentionedIds = (msg.mentionedIds || []).map(m =>
@@ -541,7 +548,7 @@ class WhatsAppService {
                 : null;
             if (text) {
                 await this.client.sendMessage(msgChat, text, mentions ? { mentions } : undefined);
-                console.log(`📤 Respuesta de ${firstWord} enviada a ${format}${mentions ? ` (${mentions.length} menciones)` : ''}`);
+                log.info(`📤 Respuesta de ${firstWord} enviada a ${format}${mentions ? ` (${mentions.length} menciones)` : ''}`);
             }
         }
     }
@@ -587,7 +594,7 @@ class WhatsAppService {
                     participantsCount: group.participants?.length || 0
                 }));
         } catch (error) {
-            console.error('❌ Error listando grupos:', error.message);
+            log.error({ err: error }, '❌ Error listando grupos');
             return [];
         }
     }
@@ -620,7 +627,7 @@ class WhatsAppService {
             const chats = await this.client.getChats();
             groups = chats.filter(chat => chat.isGroup);
         } catch (error) {
-            console.error('❌ Error obteniendo chats (los grupos quedan con el ID configurado):', error.message);
+            log.error({ err: error }, '❌ Error obteniendo chats (los grupos quedan con el ID configurado)');
             return;
         }
 
@@ -636,16 +643,16 @@ class WhatsAppService {
                 const id = match.id._serialized;
                 this.resolvedGroups[format] = { id, name: match.name };
                 this.chatIdToFormat[id] = format;
-                console.log(`📱 Grupo ${format}: ${match.name} (${id})`);
+                log.info(`📱 Grupo ${format}: ${match.name} (${id})`);
             } else {
-                console.log(`⚠️  Grupo ${format} no encontrado (id/nombre configurado: ${cfg.id || cfg.name})`);
+                log.warn(`⚠️  Grupo ${format} no encontrado (id/nombre configurado: ${cfg.id || cfg.name})`);
             }
         }
 
         if (Object.keys(this.resolvedGroups).length === 0) {
-            console.log('⚠️  Ningún grupo de WhatsApp configurado/encontrado.');
-            console.log('   Grupos disponibles:');
-            groups.forEach(g => console.log(`   - ${g.name}: ${g.id._serialized}`));
+            log.warn('⚠️  Ningún grupo de WhatsApp configurado/encontrado.');
+            log.warn('   Grupos disponibles:');
+            groups.forEach(g => log.warn(`   - ${g.name}: ${g.id._serialized}`));
         }
     }
 
@@ -654,9 +661,9 @@ class WhatsAppService {
         if (this.client) {
             try {
                 await this.client.destroy();
-                console.log('👋 WhatsApp cerrado');
+                log.info('👋 WhatsApp cerrado');
             } catch (error) {
-                console.error('Error cerrando WhatsApp:', error.message);
+                log.error({ err: error }, 'Error cerrando WhatsApp');
             }
             this.client = null;
         }

@@ -14,6 +14,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ mod: 'state' });
 
 /**
  * Lee y parsea un JSON; tolerante a archivo faltante o corrupto.
@@ -28,14 +31,14 @@ function readJson(file, fallback) {
         raw = fs.readFileSync(file, 'utf-8');
     } catch (err) {
         if (err.code !== 'ENOENT') {
-            console.warn(`⚠️  jsonStore: no se pudo leer ${file}: ${err.message}`);
+            log.warn({ err }, `⚠️  jsonStore: no se pudo leer ${file}`);
         }
         return fallback;
     }
     try {
         return JSON.parse(raw);
     } catch (err) {
-        console.warn(`⚠️  jsonStore: ${file} tiene JSON inválido, se ignora (${err.message})`);
+        log.warn({ err }, `⚠️  jsonStore: ${file} tiene JSON inválido, se ignora`);
         return fallback;
     }
 }

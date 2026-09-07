@@ -4,6 +4,9 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
+const { logger } = require('../logger');
+
+const log = logger.child({ mod: 'supabase' });
 
 class SupabaseService {
     constructor() {
@@ -14,9 +17,9 @@ class SupabaseService {
 
         if (this.supabaseUrl && this.supabaseKey) {
             this.client = createClient(this.supabaseUrl, this.supabaseKey);
-            console.log('✅ Supabase inicializado');
+            log.info('✅ Supabase inicializado');
         } else {
-            console.log('⚠️  Supabase no configurado');
+            log.warn('⚠️  Supabase no configurado');
         }
     }
 
@@ -37,12 +40,12 @@ class SupabaseService {
 
             if (error && error.code !== 'PGRST116') {
                 // PGRST116 = no rows found (es esperado)
-                console.error('Error verificando duplicado:', error.message);
+                log.error({ err: error }, 'Error verificando duplicado');
             }
 
             return !!data;
         } catch (error) {
-            console.error('Error en gameExists:', error.message);
+            log.error({ err: error }, 'Error en gameExists');
             return false;
         }
     }
@@ -63,7 +66,7 @@ class SupabaseService {
      */
     async saveGame(gameData, players, meta = {}) {
         if (!this.client) {
-            console.log('⚠️  Supabase no disponible, saltando guardado');
+            log.warn('⚠️  Supabase no disponible, saltando guardado');
             return false;
         }
 
@@ -165,7 +168,7 @@ class SupabaseService {
         }
 
         this.processedCount++;
-        console.log(`✅ Juego ${gameData.gameUniqueId} guardado en Supabase${isVoided ? ` (ANULADO: ${voidReason})` : ''}`);
+        log.info(`✅ Juego ${gameData.gameUniqueId} guardado en Supabase${isVoided ? ` (ANULADO: ${voidReason})` : ''}`);
         return true;
     }
 
@@ -201,7 +204,7 @@ class SupabaseService {
 
             return stats;
         } catch (error) {
-            console.error('Error obteniendo stats:', error.message);
+            log.error({ err: error }, 'Error obteniendo stats');
             return null;
         }
     }
@@ -223,7 +226,7 @@ class SupabaseService {
             if (error) throw error;
             return data;
         } catch (error) {
-            console.error('Error obteniendo juegos recientes:', error.message);
+            log.error({ err: error }, 'Error obteniendo juegos recientes');
             return [];
         }
     }
@@ -356,7 +359,7 @@ class SupabaseService {
      */
     async saveStateBackup(name, takenAt, content) {
         if (!this.client) {
-            console.log(`⚠️  Supabase no disponible, backup de estado omitido (${name})`);
+            log.warn(`⚠️  Supabase no disponible, backup de estado omitido (${name})`);
             return false;
         }
 
@@ -366,12 +369,12 @@ class SupabaseService {
                 .upsert({ name, taken_at: takenAt, content }, { onConflict: 'name,taken_at' });
 
             if (error) {
-                console.error(`❌ Error subiendo backup de ${name}:`, error.message);
+                log.error({ err: error }, `❌ Error subiendo backup de ${name}`);
                 return false;
             }
             return true;
         } catch (error) {
-            console.error(`❌ Error subiendo backup de ${name}:`, error.message);
+            log.error({ err: error }, `❌ Error subiendo backup de ${name}`);
             return false;
         }
     }

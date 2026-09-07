@@ -10,6 +10,9 @@ const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { logger } = require('../logger');
+
+const log = logger.child({ mod: 'renderer' });
 
 // Paleta de equipos estilo Halo 3 (convención del proyecto: 0=Blue, 1=Red)
 const TEAM_PALETTE = {
@@ -62,6 +65,9 @@ class RendererService {
 
         // Detectar Chromium
         this.executablePath = this.getChromiumPath();
+
+        // Timestamp ISO del último PNG generado con éxito (para /api/health)
+        this.lastOkAt = null;
     }
 
     /**
@@ -78,7 +84,7 @@ class RendererService {
 
         for (const p of possiblePaths) {
             if (fs.existsSync(p)) {
-                console.log(`🌐 Chromium detectado: ${p}`);
+                log.info(`🌐 Chromium detectado: ${p}`);
                 return p;
             }
         }
@@ -414,11 +420,12 @@ class RendererService {
                 type: 'png'
             });
 
-            console.log(`📸 PNG generado: ${outputPath}`);
+            this.lastOkAt = new Date().toISOString();
+            log.info(`📸 PNG generado: ${outputPath}`);
             return outputPath;
 
         } catch (error) {
-            console.error('❌ Error generando PNG:', error.message);
+            log.error({ err: error }, '❌ Error generando PNG');
             throw error;
         } finally {
             // SIEMPRE cerrar el browser para liberar recursos

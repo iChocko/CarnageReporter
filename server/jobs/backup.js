@@ -33,6 +33,9 @@
 const fs = require('fs');
 const path = require('path');
 const tar = require('tar');
+const { logger } = require('../logger');
+
+const log = logger.child({ mod: 'backup' });
 
 const BACKUP_SUBDIR = 'backups';
 const ARCHIVE_NAME_RE = /^state-\d{8}-\d{4}\.tar\.gz$/;
@@ -121,7 +124,7 @@ async function runBackup({
             const ok = await supabase.saveStateBackup(file, takenAt, content);
             if (ok) uploaded++;
         } catch (err) {
-            console.error(`⚠️  backup: no se pudo subir ${file} a Supabase: ${err.message}`);
+            log.error({ err }, `⚠️  backup: no se pudo subir ${file} a Supabase`);
         }
     }
 
@@ -137,7 +140,7 @@ async function runBackup({
     if (hasAuthDir) {
         const relAuth = path.relative(base, authDir);
         if (relAuth.startsWith('..')) {
-            console.warn(`⚠️  backup: authDir (${authDir}) queda fuera de ${base}, tar no puede incluir rutas fuera de su cwd; se omite`);
+            log.warn(`⚠️  backup: authDir (${authDir}) queda fuera de ${base}, tar no puede incluir rutas fuera de su cwd; se omite`);
             hasAuthDir = false;
         } else {
             entries.push(relAuth);
@@ -155,11 +158,11 @@ async function runBackup({
             const archiver = createArchive || ((opts, ents) => tar.create(opts, ents));
             await archiver(tarOptions, entries);
         } catch (err) {
-            console.error(`⚠️  backup: no se pudo crear el tar local: ${err.message}`);
+            log.error({ err }, '⚠️  backup: no se pudo crear el tar local');
             archivePath = null;
         }
     } else {
-        console.warn('⚠️  backup: nada que empaquetar (sin JSON de estado ni sesión de WhatsApp)');
+        log.warn('⚠️  backup: nada que empaquetar (sin JSON de estado ni sesión de WhatsApp)');
     }
 
     // 2b. Podar backups locales más viejos que keepDays (solo si el tar de
