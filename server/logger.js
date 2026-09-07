@@ -23,8 +23,20 @@
 
 const pino = require('pino');
 
+// Secretos que NUNCA deben quedar en los logs: la API key del cliente y la
+// admin key viajan en headers y pino-http serializa `req.headers` completo.
+const REDACT_PATHS = [
+    'req.headers["x-api-key"]',
+    'req.headers["x-admin-key"]',
+    'req.headers.authorization',
+    'req.headers.cookie',
+    'headers["x-api-key"]',
+    'headers["x-admin-key"]',
+];
+
 const logger = pino({
     level: process.env.LOG_LEVEL || 'info',
+    redact: { paths: REDACT_PATHS, censor: '[redactado]' },
 });
 
 /**

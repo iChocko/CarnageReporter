@@ -69,10 +69,22 @@ function createApp(ctx) {
     // dashboard (JS/CSS/imágenes) ni el catch-all del SPA. /api/health se
     // excluye del auto-log: el healthcheck de Docker le pega cada 30s y no
     // aporta nada ver esa línea una y otra vez.
+    // Serializador mínimo del request: sin volcar todos los headers (ahí van
+    // x-api-key / x-admin-key; el logger raíz además los redacta por si acaso).
+    const LOGGED_HEADERS = ['user-agent', 'content-length', 'x-install-id', 'x-gamertag-hint'];
     app.use('/api', pinoHttp({
         logger: log,
         autoLogging: {
             ignore: (req) => req.originalUrl === '/api/health',
+        },
+        serializers: {
+            req: (req) => {
+                const headers = {};
+                for (const h of LOGGED_HEADERS) {
+                    if (req.headers && req.headers[h] !== undefined) headers[h] = req.headers[h];
+                }
+                return { id: req.id, method: req.method, url: req.url, remoteAddress: req.remoteAddress, headers };
+            },
         },
     }));
 
