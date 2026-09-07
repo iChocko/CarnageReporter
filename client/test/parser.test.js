@@ -11,7 +11,7 @@ const os = require('os');
 const path = require('path');
 
 const {
-    parseXML, parseTimestampFromFilename, extractMapCodeFromFilmName, findMapCodeFromFilms
+    parseXML, parseTimestampFromFilename, extractMapCodeFromFilmName, findMapCodeFromFilms, toBool
 } = require('../src/parser');
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
@@ -42,6 +42,11 @@ test('mapea gameData y jugadores correctamente', () => {
     assert.strictEqual(gameData.gameUniqueId, '2v2-fixture-0001');
     assert.strictEqual(gameData.gameTypeName, 'SLAYER');
     assert.strictEqual(gameData.partySize, 2);
+    // fast-xml-parser coerce "true"/"false" a booleanos reales: hay que
+    // verificar que isMatchmaking/isTeamsEnabled queden en el valor correcto,
+    // no siempre en false por comparar contra el string 'true'.
+    assert.strictEqual(gameData.isTeamsEnabled, true);
+    assert.strictEqual(gameData.isMatchmaking, false);
     assert.strictEqual(players.length, 4);
 
     const alpha = players.find(p => p.gamertag === 'PlayerAlpha');
@@ -55,6 +60,7 @@ test('mapea gameData y jugadores correctamente', () => {
     assert.strictEqual(alpha.secondsPlayed, 610);
     assert.strictEqual(alpha.completedGame, 1);
     assert.strictEqual(alpha.killsWeapon, 20);
+    assert.strictEqual(alpha.isGuest, false);
 });
 
 test('solo cuenta medallas con conteo > 0', () => {
@@ -103,6 +109,10 @@ test('campos ausentes en el XML no truenan y caen a sus defaults', () => {
     assert.strictEqual(players[0].kills, 0);
     assert.strictEqual(players[0].completedGame, null); // mCompletedGame ausente -> null, no 0
     assert.deepStrictEqual(players[0].medals, []);
+    // El servidor anula la partida con reason=last_match_incomplete cuando
+    // esto es true: debe llegar en true de verdad, no siempre false por
+    // comparar contra el string 'true' (fast-xml-parser ya lo da booleano).
+    assert.strictEqual(gameData.lastMatchIncomplete, true);
 });
 
 console.log('\n— código de mapa desde el film de autosave (parseXML) —');
@@ -180,4 +190,19 @@ test('sin patrón de fecha en el nombre -> usa la hora actual', () => {
     const ts = parseTimestampFromFilename('mpcarnagereport.xml');
     const after = Date.now();
     assert.ok(ts.getTime() >= before && ts.getTime() <= after);
+});
+
+console.log('\n— toBool —');
+
+test('toBool acepta booleano real, string y numérico, en ambos sentidos', () => {
+    assert.strictEqual(toBool(true), true);
+    assert.strictEqual(toBool('true'), true);
+    assert.strictEqual(toBool(1), true);
+    assert.strictEqual(toBool('1'), true);
+    assert.strictEqual(toBool(false), false);
+    assert.strictEqual(toBool('false'), false);
+    assert.strictEqual(toBool(0), false);
+    assert.strictEqual(toBool('0'), false);
+    assert.strictEqual(toBool(undefined), false);
+    assert.strictEqual(toBool(null), false);
 });

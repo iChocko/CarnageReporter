@@ -5,6 +5,12 @@ const path = require('path');
 const { XMLParser } = require('fast-xml-parser');
 const MAPS = require('./maps');
 
+// fast-xml-parser >=4.4 coerce el texto "true"/"false" a booleanos reales,
+// así que las comparaciones `=== 'true'` que antes funcionaban (cuando el
+// valor llegaba como string) ahora son siempre false. toBool acepta ambas
+// formas para no depender de la versión/configuración del parser.
+const toBool = v => v === true || v === 'true' || v === 1 || v === '1';
+
 function getMapName(filename, gameData = {}) {
     const fn = filename.toLowerCase();
     for (const [key, val] of Object.entries(MAPS)) {
@@ -82,13 +88,13 @@ function parseXML(filePath) {
     const gameData = {
         gameUniqueId: root.GameUniqueId?.GameUniqueId || 'unknown',
         gameEnum: parseInt(root.GameEnum?.mGameEnum || 0),
-        isMatchmaking: root.IsMatchmaking?.IsMatchmaking === 'true',
-        isTeamsEnabled: root.IsTeamsEnabled?.IsTeamsEnabled === 'true',
+        isMatchmaking: toBool(root.IsMatchmaking?.IsMatchmaking),
+        isTeamsEnabled: toBool(root.IsTeamsEnabled?.IsTeamsEnabled),
         hopperName: hopperName,
         gameTypeName: root.GameTypeName?.GameTypeName || 'Slayer',
         timestamp: parseTimestampFromFilename(path.basename(filePath)),
         // v2: flags de completitud de la partida
-        lastMatchIncomplete: root.mLastMatchIncomplete?.mLastMatchIncomplete === 'true',
+        lastMatchIncomplete: toBool(root.mLastMatchIncomplete?.mLastMatchIncomplete),
         partySize: parseInt(root.mPartySize?.mPartySize || 0),
     };
 
@@ -144,7 +150,7 @@ function parseXML(filePath) {
             killsGrenade: parseInt(p.mKillsGrenade || 0),
             killsMelee: parseInt(p.mKillsMelee || 0),
             killsOther: parseInt(p.mKillsOther || 0),
-            isGuest: p.isGuest === 'true',
+            isGuest: toBool(p.isGuest),
             medals: medals
         };
     });
@@ -161,5 +167,6 @@ module.exports = {
     extractMapCodeFromFilmName,
     findMapCodeFromFilms,
     parseTimestampFromFilename,
+    toBool,
     FILM_MAX_AGE_MS
 };
