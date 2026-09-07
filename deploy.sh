@@ -75,7 +75,7 @@ echo "🚀 Conectando a $SSH_TARGET..."
 scp -o StrictHostKeyChecking=accept-new /tmp/carnage-docker-deploy.tar.gz "$SSH_TARGET:/tmp/"
 
 # FASE 2: Desplegar en el VPS
-ssh -o StrictHostKeyChecking=accept-new "$SSH_TARGET" "HOST_PORT=$HOST_PORT bash -s" << 'ENDSSH'
+ssh -o StrictHostKeyChecking=accept-new "$SSH_TARGET" "HOST_PORT=$HOST_PORT VITE_STRIPE_PUBLISHABLE_KEY=$VITE_STRIPE_PUBLISHABLE_KEY bash -s" << 'ENDSSH'
 set -e
 mkdir -p /root/carnage-reporter-docker
 cd /root/carnage-reporter-docker
