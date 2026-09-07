@@ -1,9 +1,18 @@
 /**
- * Tubería de POST /api/report (Fase A2 — movida tal cual desde index.js).
+ * Tubería de POST /api/report (Fase A2 — movida tal cual desde index.js;
+ * Fase A4 — "guardar primero + outbox persistente": `saveGame` se movió
+ * ANTES de render/publicar, y con `OUTBOX_ENABLED=true` la publicación se
+ * encola en vez de mandarse aquí mismo).
  *
- * `processReport(input, ctx)` hace los pasos 1-9 en el MISMO orden y con los
- * MISMOS textos de log que antes; la ruta (server/http/routes/report.js)
- * solo hace auth/rate-limit/candado en memoria y llama aquí.
+ * El orden de negocio (validar -> duplicados -> mapa/formato -> evaluar ->
+ * GUARDAR -> render -> publicar -> anuncio de ronda) es el mismo tanto con
+ * el outbox prendido como apagado; lo único que cambia es SI publicar/
+ * anunciar pasa aquí mismo (bloqueante) o se encola para que el outbox
+ * worker (server/messaging/outbox.js) lo haga por su cuenta. Los textos y
+ * el orden relativo de cada log se conservan tal cual estaban.
+ *
+ * La ruta (server/http/routes/report.js) solo hace auth/rate-limit/candado
+ * en memoria y llama aquí.
  */
 
 'use strict';
@@ -16,12 +25,52 @@ const { classifyFormat } = require('../utils/format');
 const { resolveMap } = require('../utils/maps');
 const { currentOrLastSession, formatLiveRoundUpdate } = require('../utils/sessions');
 const { getRondasGames } = require('../domain/rondas');
+const { publishRow } = require('../messaging/outboxPublish');
 
 const reportLog = logger.child({ mod: 'report' });
 
 // Desfase máximo de reloj (Fase B3) que se tolera sin corregir: por debajo
 // de esto no vale la pena tocar el timestamp (jitter normal de red/NTP).
 const CLOCK_SKEW_THRESHOLD_MS = 2 * 60 * 1000;
+
+/** Envío directo de la imagen a Discord (2v2 -> `discord`, 4v4 -> `discord4v4`). Mismo log que siempre. */
+async function sendDiscordImageDirect(svc, { pngPath, gameData, players, label }) {
+    const ok = await svc.sendImage(pngPath, gameData, players);
+    reportLog.info(`   ${ok ? '✅' : '❌'} Discord${label}: ${ok ? 'Enviado' : 'Fallido'}`);
+    return ok ? 'sent' : 'failed';
+}
+
+/** Envío directo de la imagen a WhatsApp. Mismo log/comportamiento que el camino clásico. */
+async function sendWhatsappImageDirect(whatsapp, { pngPath, waCaption, chatId, format }) {
+    if (!whatsapp.isReady()) {
+        if (process.env.WHATSAPP_ENABLED === 'true') {
+            reportLog.warn(`   ⚠️  WhatsApp (${format}): omitido, servicio en estado '${whatsapp.getStatus().status}'`);
+        }
+        return 'failed';
+    }
+    const waResult = await whatsapp.sendImage(pngPath, waCaption, chatId);
+    reportLog.info(`   ${waResult ? '✅' : '❌'} WhatsApp (${format}): ${waResult ? 'Enviado' : 'Fallido'}`);
+    return waResult ? 'sent' : 'failed';
+}
+
+/** Envío directo del anuncio de marcador de ronda (2v2). Mismo log/try-catch que el camino clásico. */
+async function sendRoundUpdateDirect(ctx) {
+    const { whatsapp } = ctx;
+    try {
+        if (!whatsapp.isReady()) return 'skipped';
+        const chatId = whatsapp.groupIdFor('2v2');
+        if (!chatId) return 'skipped';
+        const rondasGames = await getRondasGames(ctx);
+        const update = formatLiveRoundUpdate(currentOrLastSession(rondasGames));
+        if (!update) return 'sent'; // nada que anunciar ahora mismo: no es un fallo
+        const okRonda = await whatsapp.sendMessage(update, chatId);
+        reportLog.info(`   ${okRonda ? '✅' : '❌'} WhatsApp (marcador ronda): ${okRonda ? 'Enviado' : 'Fallido'}`);
+        return okRonda ? 'sent' : 'failed';
+    } catch (e) {
+        reportLog.warn({ err: e }, '   ⚠️  Marcador de ronda falló');
+        return 'failed';
+    }
+}
 
 /**
  * @param {{ gameData: object, players: object[], filename?: string, schemaVersion: number, clientVersion: string|null, installId?: string|null, clientSentAt?: string|null }} input
@@ -31,6 +80,7 @@ const CLOCK_SKEW_THRESHOLD_MS = 2 * 60 * 1000;
 async function processReport({ gameData, players, filename, schemaVersion, clientVersion, installId, clientSentAt }, ctx) {
     const { supabase, renderer, discord, discord4v4, whatsapp, alerts, outputDir, gamesCache } = ctx;
     const gameId = gameData.gameUniqueId;
+    const outboxEnabled = !!(ctx.config?.OUTBOX_ENABLED && ctx.outboxStore);
 
     // Fase B3: los clientes v3 mandan clientSentAt (hora UTC real de su
     // reloj al momento de enviar) además del timestamp de la partida (que
@@ -63,10 +113,12 @@ async function processReport({ gameData, players, filename, schemaVersion, clien
         gameData.timestamp = new Date().toISOString();
     }
 
-    // Si el guardado en Supabase (paso 8) ya se completó y algo truena
-    // DESPUÉS, la partida queda persistida pero el cliente nunca recibió
+    // Si el guardado en Supabase ya se completó y algo truena DESPUÉS (render
+    // o publicar), la partida queda persistida pero el cliente nunca recibió
     // confirmación: estado inconsistente que amerita una alerta a Discord
-    // (server/alerts.js), no solo un log.
+    // (server/alerts.js), no solo un log. Con save-first (Fase A4) el juego
+    // sigue disponible para reintentar la publicación vía
+    // POST /api/admin/games/:id/republish.
     let gameSaved = false;
 
     try {
@@ -117,26 +169,51 @@ async function processReport({ gameData, players, filename, schemaVersion, clien
             };
         }
 
-        // 6. Generar PNG
+        // 6. Guardar en Supabase PRIMERO (Fase A4 — "guardar primero"): si esto
+        //    truena, responde 500 y NADA se publicó (nada que reintentar).
+        await supabase.saveGame(gameData, players, saveMeta);
+        gameSaved = true;
+        gamesCache.invalidateAll();
+
+        // 7. Generar PNG
         reportLog.info(`🎨 Generando imagen ${format} para partida ${gameId} (${gameData.mapName})...`);
         const pngPath = path.join(outputDir, `match_${gameId}.png`);
         await renderer.generatePNG(gameData, players, pngPath);
 
-        // 7. Publicar según formato:
+        // 8. Publicar según formato:
         //    2v2 -> Discord(Retas H3) + WhatsApp(Retas H3)
         //    4v4 -> Discord(validación) + WhatsApp(Torneos Halo 3)
-        if (format === '2v2') {
-            const dsResult = await discord.sendImage(pngPath, gameData, players);
-            reportLog.info(`   ${dsResult ? '✅' : '❌'} Discord: ${dsResult ? 'Enviado' : 'Fallido'}`);
+        const publish = {};
+
+        if (format === '2v2' || format === '4v4') {
+            const svc = format === '2v2' ? discord : discord4v4;
+            const label = format === '4v4' ? ' (4v4)' : '';
+            if (outboxEnabled) {
+                publish.discord = await publishRow(ctx, {
+                    kind: 'game_image', channel: format === '2v2' ? 'discord' : 'discord4v4',
+                    dedupe_key: `game_image:${format === '2v2' ? 'discord' : 'discord4v4'}:${gameId}`,
+                    payload: { gameId, imagePath: pngPath, format, gameData, players },
+                }, () => sendDiscordImageDirect(svc, { pngPath, gameData, players, label }));
+            } else {
+                await sendDiscordImageDirect(svc, { pngPath, gameData, players, label });
+            }
         }
 
-        if (format === '4v4') {
-            const ds4Result = await discord4v4.sendImage(pngPath, gameData, players);
-            reportLog.info(`   ${ds4Result ? '✅' : '❌'} Discord (4v4): ${ds4Result ? 'Enviado' : 'Fallido'}`);
-        }
-
-        if (whatsapp.isReady()) {
-            const chatId = whatsapp.groupIdFor(format);
+        const chatId = whatsapp.groupIdFor(format);
+        if (outboxEnabled) {
+            if (!chatId) {
+                publish.whatsapp = 'skipped';
+                reportLog.warn(`   ⚠️  Sin grupo de WhatsApp configurado para ${format}`);
+            } else {
+                const { winnerLine, mapLine, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
+                const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
+                publish.whatsapp = await publishRow(ctx, {
+                    kind: 'game_image', channel: 'whatsapp',
+                    dedupe_key: `game_image:whatsapp:${gameId}`,
+                    payload: { gameId, imagePath: pngPath, caption: waCaption, format },
+                }, () => sendWhatsappImageDirect(whatsapp, { pngPath, waCaption, chatId, format }));
+            }
+        } else if (whatsapp.isReady()) {
             if (chatId) {
                 const { winnerLine, mapLine, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
                 const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
@@ -151,32 +228,27 @@ async function processReport({ gameData, players, filename, schemaVersion, clien
             reportLog.warn(`   ⚠️  WhatsApp (${format}): omitido, servicio en estado '${whatsapp.getStatus().status}'`);
         }
 
-        // 8. Guardar en Supabase
-        await supabase.saveGame(gameData, players, saveMeta);
-        gameSaved = true;
-        gamesCache.invalidateAll();
         reportLog.info(`✅ Juego ${gameId} (${format}) procesado completamente`);
 
         // 9. Anuncio automático del marcador de la ronda (Bo3) en el grupo 2v2:
         //    cómo va la ronda en curso, o su cierre si alguien llegó a 2.
-        if (format === '2v2' && whatsapp.isReady()) {
-            const chatId = whatsapp.groupIdFor('2v2');
-            if (chatId) {
-                try {
-                    const rondasGames = await getRondasGames(ctx);
-                    const update = formatLiveRoundUpdate(currentOrLastSession(rondasGames));
-                    if (update) {
-                        const okRonda = await whatsapp.sendMessage(update, chatId);
-                        reportLog.info(`   ${okRonda ? '✅' : '❌'} WhatsApp (marcador ronda): ${okRonda ? 'Enviado' : 'Fallido'}`);
-                    }
-                } catch (e) {
-                    // El marcador es un extra: si falla, la partida ya quedó publicada y guardada
-                    reportLog.warn({ err: e }, '   ⚠️  Marcador de ronda falló');
+        if (format === '2v2') {
+            if (outboxEnabled) {
+                const roundChatId = whatsapp.groupIdFor('2v2');
+                if (roundChatId) {
+                    await publishRow(ctx, {
+                        kind: 'round_update', channel: 'whatsapp',
+                        payload: { format: '2v2' },
+                    }, () => sendRoundUpdateDirect(ctx));
                 }
+            } else {
+                await sendRoundUpdateDirect(ctx);
             }
         }
 
-        return { status: 'processed', gameId, format, message: 'Reporte procesado' };
+        const result = { status: 'processed', gameId, format, message: 'Reporte procesado' };
+        if (outboxEnabled) result.publish = publish;
+        return result;
 
     } catch (error) {
         reportLog.error({ err: error, gameId }, `❌ Error procesando ${gameId}`);

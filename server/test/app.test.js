@@ -233,7 +233,7 @@ test('POST /api/report con payload inválido -> 400', async () => {
     });
 });
 
-test('POST /api/report camino feliz: processed, saveGame y sendImage en orden', async () => {
+test('POST /api/report camino feliz: processed, saveGame ANTES de publicar (Fase A4)', async () => {
     const supabase = makeFakeSupabase();
     const whatsapp = makeFakeWhatsapp({
         isReady() { return true; },
@@ -265,7 +265,10 @@ test('POST /api/report camino feliz: processed, saveGame y sendImage en orden', 
         assert.strictEqual(supabase.calls.saveGame.length, 1);
         assert.strictEqual(whatsapp.calls.sendImage.length, 1);
         assert.strictEqual(discord.calls.length, 1);
-        assert.deepStrictEqual(order, ['discord.sendImage', 'whatsapp.sendImage', 'supabase.saveGame']);
+        // Fase A4 — "guardar primero": saveGame ahora corre ANTES de publicar
+        // (antes era al final); si el render o la publicación truenan después,
+        // la partida ya quedó persistida y es recuperable vía /republish.
+        assert.deepStrictEqual(order, ['supabase.saveGame', 'discord.sendImage', 'whatsapp.sendImage']);
     });
 });
 
