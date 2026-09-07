@@ -3,7 +3,6 @@
   "version": "3.0.0",
   "description": "Halo 3 MCC Stats Tracker - Monitors matches, generates PNGs, sends to Discord, uploads to Supabase",
   "main": "client/carnage_client.js",
-  "bin": "client/carnage_client.js",
   "scripts": {
     "start": "node client/carnage_client.js",
     "start:client": "node client/carnage_client.js",
@@ -33,14 +32,5 @@
     "eslint": "^9.39.1",
     "@eslint/js": "^9.39.1",
     "globals": "^16.5.0"
-  },
-  "pkg": {
-    "assets": [
-      "assets/match_summary.html",
-      "node_modules/puppeteer/.local-chromium/**/*"
-    ],
-    "targets": [
-      "node18-win-x64"
-    ]
   }
 }

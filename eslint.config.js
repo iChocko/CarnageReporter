@@ -5,6 +5,8 @@
  *
  * Cubre server/, client/, tests/ y scripts/ (Node/CommonJS). El dashboard
  * tiene su propio eslint.config.js (React/browser) y se ignora aquí.
+ * scripts/legacy/ también se ignora: son scripts sueltos sin mantenimiento
+ * (ver scripts/legacy/README.md), no vale la pena pulir código muerto.
  */
 
 const js = require('@eslint/js');
@@ -17,6 +19,7 @@ module.exports = [
             'dashboard/**',
             '**/dist/**',
             'server/output/**',
+            'scripts/legacy/**',
         ],
     },
     {
