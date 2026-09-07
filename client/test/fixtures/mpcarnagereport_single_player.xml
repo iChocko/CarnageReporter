@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MultiplayerCarnageReport>
+    <GameUniqueId><GameUniqueId>solo-fixture-0001</GameUniqueId></GameUniqueId>
+    <GameEnum><mGameEnum>1</mGameEnum></GameEnum>
+    <IsMatchmaking><IsMatchmaking>false</IsMatchmaking></IsMatchmaking>
+    <IsTeamsEnabled><IsTeamsEnabled>false</IsTeamsEnabled></IsTeamsEnabled>
+    <HopperName><HopperName>Unknown</HopperName></HopperName>
+    <GameTypeName><GameTypeName>SLAYER</GameTypeName></GameTypeName>
+    <MapName><MapName>Unknown</MapName></MapName>
+    <mLastMatchIncomplete><mLastMatchIncomplete>false</mLastMatchIncomplete></mLastMatchIncomplete>
+    <mPartySize><mPartySize>1</mPartySize></mPartySize>
+    <Players>
+        <Player>
+            <mXboxUserId>xuid-solo</mXboxUserId>
+            <mGamertagText>LoneWolf</mGamertagText>
+            <ClantagText></ClantagText>
+            <ServiceId>svc-solo</ServiceId>
+            <mTeamId>0</mTeamId>
+            <Score>30</Score>
+            <mStanding>1</mStanding>
+            <mKills>30</mKills>
+            <mDeaths>5</mDeaths>
+            <mAssists>0</mAssists>
+            <mBetrayals>0</mBetrayals>
+            <mSuicides>0</mSuicides>
+            <mMostKillsInARow>8</mMostKillsInARow>
+            <mSecondsPlayed>480</mSecondsPlayed>
+            <mSecondsAlive>470</mSecondsAlive>
+            <mCompletedGame>1</mCompletedGame>
+            <mKillsWeapon>25</mKillsWeapon>
+            <mKillsGrenade>4</mKillsGrenade>
+            <mKillsMelee>1</mKillsMelee>
+            <mKillsOther>0</mKillsOther>
+            <isGuest>false</isGuest>
+            <MedalsCount>
+                <Medal><mId>7</mId><mCount>2</mCount></Medal>
+            </MedalsCount>
+        </Player>
+    </Players>
+</MultiplayerCarnageReport>

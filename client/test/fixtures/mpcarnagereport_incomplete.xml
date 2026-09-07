@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MultiplayerCarnageReport>
+    <GameUniqueId><GameUniqueId>incomplete-fixture-0001</GameUniqueId></GameUniqueId>
+    <mLastMatchIncomplete><mLastMatchIncomplete>true</mLastMatchIncomplete></mLastMatchIncomplete>
+    <Players>
+        <Player>
+            <mGamertagText>Ghost</mGamertagText>
+            <mTeamId>0</mTeamId>
+        </Player>
+    </Players>
+</MultiplayerCarnageReport>
