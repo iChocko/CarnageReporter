@@ -2,7 +2,7 @@
 FROM node:22-slim AS dashboard-build
 WORKDIR /app/dashboard
 COPY dashboard/package*.json ./
-RUN npm install
+RUN npm ci
 COPY dashboard/ ./
 RUN npm run build
 
@@ -57,7 +57,7 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 # Copiar archivos del servidor
 COPY server/package*.json ./server/
 WORKDIR /app/server
-RUN npm install --production
+RUN npm ci --omit=dev
 
 # Copiar el build del dashboard
 COPY --from=dashboard-build /app/dashboard/dist /app/dashboard/dist
