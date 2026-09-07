@@ -8,6 +8,10 @@ import { RankingsView } from './views/RankingsView'
 import { PartidasView } from './views/PartidasView'
 import { H2HView } from './views/H2HView'
 import { PerfilView } from './views/PerfilView'
+import { RondasView } from './views/RondasView'
+import { SaldosView } from './views/SaldosView'
+import { RosterView } from './views/RosterView'
+import { AdminView } from './views/AdminView'
 import { DISCORD_URL, GITHUB_URL, PAYPAL_URL } from './lib/links'
 
 const StripePaymentModal = lazy(() =>
@@ -33,11 +37,17 @@ const App = () => {
         {route.view === 'perfil' && (
           <PerfilView format={format} gamertag={route.param} navigate={route.navigate} />
         )}
+        {route.view === 'rondas' && <RondasView navigate={route.navigate} />}
+        {route.view === 'saldos' && <SaldosView navigate={route.navigate} />}
+        {route.view === 'roster' && <RosterView format={format} navigate={route.navigate} />}
+        {route.view === 'admin' && <AdminView />}
       </section>
 
       <footer className="site">
         <span>Carnage Reporter · H3 MCC</span>
         <span>
+          <button onClick={() => route.navigate('/roster')}>Roster</button>
+          {' · '}
           <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer">Discord</a>
           {' · '}
           <a href={PAYPAL_URL} target="_blank" rel="noopener noreferrer">PayPal</a>

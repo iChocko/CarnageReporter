@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 
-// Vistas implementadas hoy. /rondas, /saldos, /roster y /admin quedan
-// reservadas para la Fase C2: cualquier ruta que no esté aquí cae a
-// rankings, así que agregarlas después es cuestión de sumarlas a la lista
-// y a App.jsx — no hace falta tocar este router.
-const KNOWN_VIEWS = ['rankings', 'partidas', 'h2h', 'perfil']
+// Vistas implementadas. /admin es admin-lite: solo se llega por URL directa,
+// nunca aparece en Tabs (ver components/Tabs.jsx). Cualquier ruta que no
+// esté aquí cae a rankings.
+const KNOWN_VIEWS = ['rankings', 'partidas', 'h2h', 'perfil', 'rondas', 'saldos', 'roster', 'admin']
 
 function parsePath(pathname) {
   const [seg, param] = pathname.split('/').filter(Boolean)
