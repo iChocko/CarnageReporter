@@ -17,12 +17,24 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Verificar que el tag coincide con client/package.json
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version=$(node -p "require('./client/package.json').version")
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::El tag $GITHUB_REF_NAME (version $tag_version) no coincide con client/package.json (version $pkg_version)."
+            exit 1
+          fi
+          echo "Tag $GITHUB_REF_NAME coincide con client/package.json ($pkg_version)."
 
       - name: Install dependencies
-        run: |
-          cd client
-          npm install
+        run: npm ci
+        working-directory: client
 
       - name: Inject API key (build-time config)
         shell: bash
@@ -34,17 +46,23 @@ jobs:
           echo "module.exports = { apiKey: '${{ secrets.CARNAGE_API_KEY }}' };" > client/config.gen.js
 
       - name: Build executable
-        run: |
-          npx pkg client/carnage_client.js --targets node18-win-x64 --output dist/CarnageReporter.exe
+        run: npm run build
+        working-directory: client
 
       # (El paso de metadatos con rcedit se retiró: colgaba el runner. Se
       #  reintroducirá junto con la firma de SignPath, ya probado.)
+
+      - name: Smoke test del ejecutable
+        shell: bash
+        run: |
+          ./client/dist/CarnageReporter.exe --version
+          ./client/dist/CarnageReporter.exe --selftest
 
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/CarnageReporter.exe
+          files: client/dist/CarnageReporter.exe
           draft: false
           prerelease: false
           generate_release_notes: true
