@@ -68,6 +68,7 @@ header.site {
 .brand .sub { font-size: 14px; letter-spacing: 2px; color: var(--steel-dim); text-transform: uppercase; margin-top: 2px; }
 .head-right { text-align: right; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; }
 .head-right a { text-decoration: none; }
+.head-right .discord-link { margin-top: 8px; display: inline-block; }
 
 /* Selector de formato 2v2 / 4v4 */
 .format-toggle { display: inline-flex; border: 1px solid var(--line); }
@@ -303,12 +304,31 @@ tbody tr.clickable:focus-visible { outline: 2px solid var(--blue-light); outline
   color: var(--steel-dim); font-size: 15px; letter-spacing: 1px;
 }
 .empty-state .big { font-size: 26px; margin-bottom: 8px; }
-.loading {
-  display: flex; align-items: center; justify-content: center;
-  min-height: 50vh; color: var(--steel-dim);
-  font-size: 14px; letter-spacing: 3px; text-transform: uppercase;
-}
 .error-note { color: var(--red-light); font-size: 13px; letter-spacing: 1px; padding: 8px 0; }
+.error-state { text-align: center; padding: 24px 16px; }
+.error-state .btn-steel { margin-top: 6px; }
+
+.server-banner {
+  background: rgba(201, 79, 79, 0.15); border: 1px solid var(--red);
+  color: var(--red-light); text-align: center;
+  padding: 8px 14px; margin: 0 0 14px; font-size: 12.5px;
+  letter-spacing: 1px; text-transform: uppercase;
+}
+
+/* ---------- Skeletons (estado de carga) ---------- */
+@keyframes skel-pulse { 0%, 100% { opacity: .35; } 50% { opacity: .7; } }
+.skel-row, .skel-card, .skel-bar {
+  background: rgba(90, 120, 150, 0.14);
+  animation: skel-pulse 1.4s ease-in-out infinite;
+}
+.skel-table { display: flex; flex-direction: column; gap: 8px; }
+.skel-table .skel-row { height: 34px; }
+.skel-cards { display: flex; flex-direction: column; gap: 12px; }
+.skel-cards .skel-card { height: 84px; }
+.skel-hero .skel-bar { height: 46px; margin-bottom: 10px; }
+.skel-hero .skel-bar.wide { height: 64px; }
+.skel-lines { display: flex; flex-direction: column; gap: 8px; }
+.skel-lines .skel-bar { height: 18px; max-width: 60%; }
 
 /* ---------- Footer ---------- */
 footer.site {
