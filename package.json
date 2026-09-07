@@ -8,7 +8,7 @@
     "start:client": "node client/carnage_client.js",
     "test": "npm --prefix server test && npm --prefix client test",
     "lint": "eslint .",
-    "build": "pkg client/carnage_client.js --targets node18-win-x64 --output dist/CarnageReporter.exe"
+    "build": "npm --prefix client run build"
   },
   "keywords": [
     "halo",
@@ -18,17 +18,7 @@
   ],
   "author": "iChocko",
   "license": "ISC",
-  "dependencies": {
-    "@supabase/supabase-js": "^2.91.1",
-    "archiver": "^7.0.1",
-    "chokidar": "^3.5.3",
-    "dotenv": "^17.2.3",
-    "fast-xml-parser": "^4.3.2",
-    "puppeteer": "^21.0.0",
-    "unzipper": "^0.12.3"
-  },
   "devDependencies": {
-    "pkg": "^5.8.1",
     "eslint": "^9.39.1",
     "@eslint/js": "^9.39.1",
     "globals": "^16.5.0"
