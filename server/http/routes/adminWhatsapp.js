@@ -20,9 +20,17 @@ const { buildEquiposReply } = require('../../domain/equipos');
 const { MAX_TAG_LEN } = require('../../commands/mentions');
 const { WEEKLY_MESSAGE } = require('../../jobs/scheduler');
 const { identityFromJid, identityKeys } = require('../../messaging/jid');
+const { enqueueOrDirect } = require('../../messaging/outboxPublish');
 
 const JID_SHAPE = /^\d{5,20}@(c\.us|lid)$/;
 const ID_KEY_SHAPE = /^(pn|lid):\d{4,20}$/;
+
+/** Envío directo de texto (outbox apagado, o fallback si la tabla no está disponible). */
+async function sendTextDirect(ctx, chatId, text, opts) {
+    if (!ctx.whatsapp.isReady()) return { sent: false };
+    const ok = await ctx.whatsapp.sendMessage(text, chatId, opts);
+    return { sent: ok };
+}
 
 function createAdminWhatsappRouter(ctx) {
     const router = express.Router();
@@ -64,14 +72,27 @@ function createAdminWhatsappRouter(ctx) {
 
     /**
      * Dispara AHORA el mensaje semanal (para probar sin esperar al lunes).
+     * Con OUTBOX_ENABLED se encola en vez de exigir `isReady()` de inmediato
+     * (Fase A4); si la tabla outbox no está disponible, cae a envío directo.
      * POST /api/admin/whatsapp/test-weekly
      */
     router.post('/api/admin/whatsapp/test-weekly', adminAuth, asyncHandler(async (req, res) => {
-        if (!ctx.whatsapp.isReady()) {
+        const outboxEnabled = !!(ctx.config?.OUTBOX_ENABLED && ctx.outboxStore);
+        if (!outboxEnabled && !ctx.whatsapp.isReady()) {
             return res.status(503).json({ error: 'WhatsApp no está listo' });
         }
         const chatId = ctx.whatsapp.groupIdFor('2v2');
         if (!chatId) return res.status(503).json({ error: 'Sin grupo 2v2 configurado' });
+
+        if (outboxEnabled) {
+            const result = await enqueueOrDirect(ctx, {
+                kind: 'text', channel: 'whatsapp', target: chatId,
+                payload: { text: WEEKLY_MESSAGE, chatId },
+            }, () => sendTextDirect(ctx, chatId, WEEKLY_MESSAGE));
+            if (result.queued) return res.json({ status: 'queued', id: result.id, message: WEEKLY_MESSAGE });
+            return res.json({ status: result.sent ? 'sent' : 'failed', message: WEEKLY_MESSAGE });
+        }
+
         const ok = await ctx.whatsapp.sendMessage(WEEKLY_MESSAGE, chatId);
         res.json({ status: ok ? 'sent' : 'failed', message: WEEKLY_MESSAGE });
     }));
@@ -147,6 +168,8 @@ function createAdminWhatsappRouter(ctx) {
 
     /**
      * Anuncio operativo al grupo (avisos de nuevas versiones del cliente, etc.).
+     * Con OUTBOX_ENABLED se encola (Fase A4) en vez de exigir `isReady()` de
+     * inmediato; si la tabla outbox no está disponible, cae a envío directo.
      * POST /api/admin/whatsapp/announce  Body: { text, format? ('2v2'|'4v4') }
      */
     router.post('/api/admin/whatsapp/announce', adminAuth, asyncHandler(async (req, res) => {
@@ -156,10 +179,22 @@ function createAdminWhatsappRouter(ctx) {
         // El bot procesa sus propios mensajes (message_create): un anuncio que
         // empiece con "!" dispararía un comando en bucle.
         if (text.startsWith('!')) return res.status(400).json({ error: 'El anuncio no puede empezar con "!"' });
-        if (!ctx.whatsapp.isReady()) return res.status(503).json({ error: 'WhatsApp no está listo' });
+
         const format = req.body?.format === '4v4' ? '4v4' : '2v2';
+        const outboxEnabled = !!(ctx.config?.OUTBOX_ENABLED && ctx.outboxStore);
+        if (!outboxEnabled && !ctx.whatsapp.isReady()) return res.status(503).json({ error: 'WhatsApp no está listo' });
         const chatId = ctx.whatsapp.groupIdFor(format);
         if (!chatId) return res.status(503).json({ error: `Sin grupo ${format} configurado` });
+
+        if (outboxEnabled) {
+            const result = await enqueueOrDirect(ctx, {
+                kind: 'text', channel: 'whatsapp', target: chatId,
+                payload: { text, chatId },
+            }, () => sendTextDirect(ctx, chatId, text, { waitUntilMsgSent: true }));
+            if (result.queued) return res.json({ queued: true, id: result.id, format });
+            return res.json({ sent: result.sent, format });
+        }
+
         const ok = await ctx.whatsapp.sendMessage(text, chatId, { waitUntilMsgSent: true });
         res.json({ sent: ok, format });
     }));
