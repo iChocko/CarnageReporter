@@ -1,0 +1,50 @@
+# Plantilla de un contenedor PILOTO para probar el transporte Baileys
+# (Fase A5, ver docs/baileys-migration.md) SIN tocar el contenedor de
+# producción (carnage-dashboard) ni compartir nada con él.
+#
+# Diferencias clave contra el docker-compose.yml que deploy.sh genera para
+# producción (ver deploy.sh):
+#   - Ningún puerto publicado (`ports:` ausente): el piloto no atiende
+#     tráfico de reportes real, solo se usa para pairear y probar comandos
+#     de Baileys a mano contra el grupo de prueba (WHATSAPP_GROUP_ID_TEST).
+#   - Volúmenes PROPIOS (`server/output` y el auth dir), nunca los mismos
+#     paths que monta producción — compartir el auth dir de WhatsApp entre
+#     dos procesos corrompe la sesión de los dos.
+#   - `container_name` y `.env` propios, para no pisar nada de producción.
+#
+# Uso (en el VPS, junto al /root/carnage-reporter-docker/ de producción):
+#
+#   mkdir -p /root/carnage-reporter-pilot
+#   cp scripts/docker-compose.pilot.yml /root/carnage-reporter-pilot/docker-compose.yml
+#   cp /root/carnage-reporter-docker/.env /root/carnage-reporter-pilot/.env
+#   # editar /root/carnage-reporter-pilot/.env: ver docs/baileys-migration.md
+#   #   (WHATSAPP_TRANSPORT=baileys, WHATSAPP_PILOT=true,
+#   #    WHATSAPP_GROUP_ID_TEST=<id del grupo de prueba>, OUTBOX_ENABLED=false)
+#   cd /root/carnage-reporter-pilot
+#   docker compose up -d
+#   docker logs -f carnage-pilot   # el QR sale aquí en ASCII (o GET /api/admin/whatsapp/qr
+#                                  # desde DENTRO del contenedor/red del VPS: sin puerto
+#                                  # publicado, no es accesible desde fuera)
+#
+# Para bajar el piloto sin afectar producción: `docker compose down` en
+# /root/carnage-reporter-pilot (o `docker rm -f carnage-pilot`).
+
+services:
+  carnage-pilot:
+    image: carnage-reporter:latest # la MISMA imagen que ya construyó deploy.sh
+    container_name: carnage-pilot
+    restart: unless-stopped
+    stop_grace_period: 20s
+    # Sin `ports:` a propósito — el piloto nunca debe ser alcanzable desde
+    # internet. Si necesitas pegarle a /api/admin/whatsapp/qr?transport=...
+    # hazlo con `docker exec` o un túnel SSH puntual, nunca publicando el puerto.
+    env_file:
+      - ./.env
+    volumes:
+      - ./output:/app/server/output
+      - ./baileys_pilot_auth:/app/server/.wwebjs_auth
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
