@@ -6,9 +6,8 @@ const path = require('path');
 const chokidar = require('chokidar');
 
 const { IS_PKG, BASE_DIR } = require('./paths');
-const { parseXML } = require('./parser');
-const { sendReport } = require('./sender');
-const { STATS } = require('./statusServer');
+const spool = require('./spool');
+const { drain } = require('./reporter');
 
 function getMCCTempPath() {
     const windowsPath = path.join(os.homedir(), 'AppData', 'LocalLow', 'MCC', 'Temporary');
@@ -36,68 +35,24 @@ function getMCCTempPath() {
     return localPath;
 }
 
-// ============== PROCESAMIENTO ==============
+// ============== PROCESAMIENTO (Fase B3: watcher + spool) ==============
+// El watcher ya NO envía nada él mismo: solo mete el XML a la cola en disco
+// (spool.intake) y dispara un drain. Toda la lógica de reintento/backoff/
+// dedupe vive en reporter.js y spool.js, sobrevive a un reinicio del proceso.
 
-const processedFiles = new Set();
+const STARTUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-async function processXMLFile(filePath, config, version) {
-    const filename = path.basename(filePath);
-
-    if (processedFiles.has(filename)) return;
-    if (!filename.includes('mpcarnagereport') && !filename.includes('asq_')) return;
-    if (filename.includes('test_trigger')) return;
-
-    console.log(`\n📦 Nueva partida registrada: ${filename}`);
-    processedFiles.add(filename);
-
-    try {
-        const { gameData, players } = parseXML(filePath);
-        console.log(`   🔸 Mapa: ${gameData.mapName} | Jugadores: ${players.length}`);
-
-        console.log(`   🔹 Enviando estadísticas al servidor...`);
-        const result = await sendReport(config, gameData, players, filename, version);
-
-        if (result.kind === 'retry') {
-            console.log(`   🔄 Reintentando envío...`);
-            processedFiles.delete(filename);
-            setTimeout(() => processXMLFile(filePath, config, version), 5000);
-            return;
-        }
-
-        const body = result.body || {};
-        if (body.status === 'processed') {
-            STATS.reportsSent++;
-            STATS.lastReportAt = Date.now();
-            console.log(`   ✅ Datos guardados correctamente.`);
-        } else if (body.status === 'duplicate') {
-            console.log(`   ⏭️  Esta partida ya estaba en el sistema.`);
-        } else if (body.status === 'voided') {
-            console.log(`   🚫 Partida anulada (${body.reason}): no cuenta para stats.`);
-        } else if (body.status === 'skipped') {
-            console.log(`   ⏭️  Partida de matchmaking ignorada (solo se registran customs 2v2).`);
-        } else {
-            console.log(`   ⚠️  Servidor: ${body.message || body.error || result.status}`);
-        }
-
-        try {
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-            }
-            setTimeout(() => processedFiles.delete(filename), 5000);
-        } catch {
-            setTimeout(() => processedFiles.delete(filename), 10000);
-        }
-
-    } catch (error) {
-        console.error(`   ❌ Error: ${error.message}`);
-    }
+function isCarnageReportFile(filename) {
+    return filename.includes('mpcarnagereport') || filename.includes('asq_');
 }
 
 function startWatcher(config, version) {
     const watchDir = getMCCTempPath();
+    let ready = false;
+
     const watcher = chokidar.watch(path.join(watchDir, '*.xml'), {
         persistent: true,
-        ignoreInitial: true,
+        ignoreInitial: false,
         usePolling: true,
         interval: 2000,
         awaitWriteFinish: {
@@ -106,9 +61,37 @@ function startWatcher(config, version) {
         }
     });
 
-    const handler = (filePath) => processXMLFile(filePath, config, version);
-    watcher.on('add', handler);
-    watcher.on('change', handler);
+    const handleEvent = (filePath) => {
+        const filename = path.basename(filePath);
+        if (!isCarnageReportFile(filename)) return;
+        if (filename.includes('test_trigger')) return;
+
+        if (!ready) {
+            // Arranque (ignoreInitial:false trae también lo que ya estaba en
+            // la carpeta): un XML viejo que MCC no borró, o que quedó de una
+            // instalación anterior del cliente, no se toma de golpe.
+            let stat;
+            try {
+                stat = fs.statSync(filePath);
+            } catch {
+                return; // ya no existe, evento obsoleto
+            }
+            if (Date.now() - stat.mtimeMs > STARTUP_MAX_AGE_MS) {
+                console.log(`   ⏭️  Ignorando XML viejo del arranque (>7 días): ${filename}`);
+                return;
+            }
+        }
+
+        const name = spool.intake(filePath);
+        if (name) {
+            console.log(`\n📦 Nueva partida en la cola de envío: ${filename}`);
+        }
+        drain({ config, version }).catch(err => console.error('Error al drenar la cola de reportes:', err));
+    };
+
+    watcher.on('add', handleEvent);
+    watcher.on('change', handleEvent);
+    watcher.on('ready', () => { ready = true; });
     watcher.on('error', (error) => console.error('❌ Error en el sistema de monitoreo:', error));
 
     process.on('SIGINT', () => {
@@ -119,4 +102,4 @@ function startWatcher(config, version) {
     return watcher;
 }
 
-module.exports = { startWatcher, getMCCTempPath, processXMLFile };
+module.exports = { startWatcher, getMCCTempPath, isCarnageReportFile };
