@@ -36,7 +36,7 @@ function loadRoster(dir) {
         const data = JSON.parse(fs.readFileSync(rosterFilePath(dir), 'utf-8'));
         if (!data || !Array.isArray(data.links)) return emptyRoster();
         return { version: data.version || 1, links: data.links.filter(l => l && Array.isArray(l.jids) && l.gamertag) };
-    } catch (e) {
+    } catch {
         return emptyRoster();
     }
 }

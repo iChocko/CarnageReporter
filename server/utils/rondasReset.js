@@ -24,7 +24,7 @@ function getResetTs(dir) {
     try {
         const data = JSON.parse(fs.readFileSync(resetFilePath(dir), 'utf-8'));
         return Number.isFinite(data.resetTs) ? data.resetTs : null;
-    } catch (e) {
+    } catch {
         return null;
     }
 }

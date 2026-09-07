@@ -13,7 +13,6 @@ const readline = require('readline');
 
 const VERSION = '1.6.0';
 const GITHUB_REPO = 'iChocko/CarnageReporter';
-const EXE_NAME = 'CarnageReporter.exe';
 const DISCORD_URL = 'https://discord.gg/yD6nGZ3KQX';
 
 const CONFIG = {
@@ -76,7 +75,7 @@ const STATUS_PORT = 47613; // candado de instancia única + estado local
 function loadSettings(file = SETTINGS_FILE) {
     try {
         return JSON.parse(fs.readFileSync(file, 'utf-8'));
-    } catch (e) {
+    } catch {
         return {};
     }
 }
@@ -85,7 +84,7 @@ function saveSettings(patch, file = SETTINGS_FILE) {
     const merged = { ...loadSettings(file), ...patch };
     try {
         fs.writeFileSync(file, JSON.stringify(merged, null, 2));
-    } catch (e) { }
+    } catch { /* preferencia no crítica: si no se pudo guardar, se reintenta la próxima vez */ }
     return merged;
 }
 
@@ -103,11 +102,11 @@ function setupFileLogging() {
         try {
             if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > LOG_MAX_BYTES) {
                 const old = path.join(BASE_DIR, 'carnage_client.old.log');
-                try { fs.unlinkSync(old); } catch (e) { }
+                try { fs.unlinkSync(old); } catch { /* no había log viejo que rotar */ }
                 fs.renameSync(LOG_FILE, old);
             }
             fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}]${prefix} ${text}\n`);
-        } catch (e) { }
+        } catch { /* logging a archivo es best-effort, nunca debe tronar el cliente */ }
     };
     console.log = (...args) => emit('', args);
     console.error = (...args) => emit(' [ERROR]', args);
@@ -147,7 +146,7 @@ function queryRunningInstance() {
         const req = http.get({ host: '127.0.0.1', port: STATUS_PORT, path: '/', timeout: 1500 }, (res) => {
             let data = '';
             res.on('data', c => data += c);
-            res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { resolve(null); } });
+            res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
         });
         req.on('error', () => resolve(null));
         req.on('timeout', () => { req.destroy(); resolve(null); });
@@ -184,7 +183,7 @@ function enableAutostart() {
     if (process.platform !== 'win32') return false;
     try {
         fs.writeFileSync(VBS_FILE, buildVbsContent(process.execPath, IS_PKG ? null : __filename));
-    } catch (e) {
+    } catch {
         return false;
     }
     const r = spawnSync('reg', [
@@ -197,7 +196,7 @@ function enableAutostart() {
 function disableAutostart() {
     if (process.platform !== 'win32') return false;
     const r = spawnSync('reg', ['delete', RUN_KEY, '/v', RUN_VALUE, '/f'], { windowsHide: true });
-    try { fs.unlinkSync(VBS_FILE); } catch (e) { }
+    try { fs.unlinkSync(VBS_FILE); } catch { /* no había .vbs que borrar */ }
     return r.status === 0;
 }
 
@@ -216,7 +215,7 @@ function resolveConfig() {
         const gen = require('./config.gen.js');
         if (gen.apiKey) CONFIG.apiKey = gen.apiKey;
         if (gen.serverUrl) CONFIG.serverUrl = gen.serverUrl;
-    } catch (e) { }
+    } catch { /* no existe config.gen.js en desarrollo (solo lo genera el CI) */ }
 
     // 2. config.json junto al ejecutable (o al cwd en modo desarrollo):
     //    permite rotar la key o apuntar a otro servidor sin recompilar
@@ -295,7 +294,7 @@ function findMapCodeFromFilms(xmlDir) {
         if (candidates.length === 0) return null;
         if (Date.now() - candidates[0].mtime > FILM_MAX_AGE_MS) return null;
         return extractMapCodeFromFilmName(candidates[0].name);
-    } catch (e) {
+    } catch {
         return null;
     }
 }
@@ -313,7 +312,7 @@ function getMCCTempPath() {
         if (!fs.existsSync(windowsPath)) {
             try {
                 fs.mkdirSync(windowsPath, { recursive: true });
-            } catch (e) { }
+            } catch { /* si falla, el fs.existsSync de abajo lo detecta y sigue con otra ruta */ }
         }
         if (fs.existsSync(windowsPath)) {
             return windowsPath;
@@ -464,13 +463,13 @@ async function sendToServer(gameData, players, filename) {
                 try {
                     const response = JSON.parse(data);
                     resolve(response);
-                } catch (e) {
+                } catch {
                     resolve({ status: 'error', message: data });
                 }
             });
         });
 
-        req.on('error', (e) => {
+        req.on('error', () => {
             reject(new Error(`Sin conexión con el servidor`));
         });
 
@@ -524,7 +523,7 @@ async function processXMLFile(filePath) {
                 fs.unlinkSync(filePath);
             }
             setTimeout(() => processedFiles.delete(filename), 5000);
-        } catch (e) {
+        } catch {
             setTimeout(() => processedFiles.delete(filename), 10000);
         }
 
@@ -603,7 +602,7 @@ async function checkForUpdates() {
             // .vbs de autoarranque); en manual se reabre la consola normal.
             let relaunch = `start "" "${currentExe}"`;
             if (IS_BACKGROUND) {
-                try { fs.writeFileSync(VBS_FILE, buildVbsContent(currentExe)); } catch (e) { }
+                try { fs.writeFileSync(VBS_FILE, buildVbsContent(currentExe)); } catch { /* si falla, el relanzamiento cae al start "" normal */ }
                 relaunch = `start "" wscript.exe "${VBS_FILE}"`;
             }
 
@@ -663,7 +662,7 @@ async function verifyServerConnection() {
             req.setTimeout(5000, () => { req.destroy(); reject(); });
         });
         console.log('✅ Conexión con el servidor establecida.');
-    } catch (error) {
+    } catch {
         console.log('⚠️  Servidor fuera de línea. Se intentará reconectar al jugar.');
     }
 }

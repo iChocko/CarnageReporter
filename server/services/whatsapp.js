@@ -89,10 +89,10 @@ class WhatsAppService {
                     if (item.isDirectory()) {
                         cleanDirectory(fullPath);
                     } else if (lockPatterns.some(pattern => item.name.includes(pattern))) {
-                        try { fs.unlinkSync(fullPath); } catch (err) { }
+                        try { fs.unlinkSync(fullPath); } catch { /* archivo de lock ya liberado o inexistente */ }
                     }
                 }
-            } catch (err) { }
+            } catch { /* directorio no accesible: se ignora, no es crítico */ }
         };
 
         cleanDirectory(this.authPath);
@@ -454,7 +454,7 @@ class WhatsAppService {
                 name: contact?.name || null,
                 number: contact?.number || null,
             };
-        } catch (error) {
+        } catch {
             return {};
         }
     }
@@ -479,7 +479,7 @@ class WhatsAppService {
                 const contact = await this.client.getContactById(jid);
                 entry.nombre = contact?.pushname || contact?.name || null;
                 entry.numero = contact?.number || null;
-            } catch (e) { /* sin contacto: solo el JID */ }
+            } catch { /* sin contacto: solo el JID */ }
             const [pair] = await this.resolveLidPn([jid]);
             if (pair) {
                 entry.jidLid = pair.lid || (jid.endsWith('@lid') ? jid : undefined);

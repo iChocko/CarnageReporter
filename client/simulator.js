@@ -200,7 +200,7 @@ class MCCClient {
                                 console.log('   ⚠️  Respuesta inesperada:', response);
                                 resolve(false);
                             }
-                        } catch (e) {
+                        } catch {
                             console.log('   ⚠️  Error parseando respuesta');
                             resolve(false);
                         }

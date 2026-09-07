@@ -111,7 +111,7 @@ function getLastCorteTs(dir) {
     try {
         const data = JSON.parse(fs.readFileSync(path.join(dir, CORTE_FILE), 'utf-8'));
         return Number.isFinite(data.lastCorteTs) ? data.lastCorteTs : null;
-    } catch (e) {
+    } catch {
         return null;
     }
 }

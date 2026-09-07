@@ -17,7 +17,7 @@ const PLAYER_POOL = [
 /**
  * Genera stats aleatorias pero realistas para un jugador
  */
-function generatePlayerStats(isWinner, teamSize) {
+function generatePlayerStats(isWinner, _teamSize) {
     const baseKills = isWinner ?
         Math.floor(Math.random() * 15) + 10 :
         Math.floor(Math.random() * 12) + 5;

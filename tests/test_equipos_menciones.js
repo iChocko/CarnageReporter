@@ -10,7 +10,7 @@ const os = require('os');
 const path = require('path');
 
 const roster = require('../server/utils/roster');
-const { computeDuoRecords, aggregatePlayers } = require('../server/utils/records');
+const { computeDuoRecords } = require('../server/utils/records');
 const teams = require('../server/utils/teams');
 
 let passed = 0;

@@ -1055,7 +1055,7 @@ async function resolveSenderTag(senderId) {
 }
 
 /** Comando !soy <gamertag>: autoregistro número ↔ gamertag. */
-async function handleSoyCommand({ format, args, senderId }) {
+async function handleSoyCommand({ args, senderId }) {
     const input = sanitizeCaptionText(args || '').trim();
 
     if (!input) {
@@ -1651,7 +1651,6 @@ app.get('/api/stats/leaderboard', async (req, res) => {
         };
         const MIN_GAMES = clampInt(req.query.minGames ?? process.env.LEADERBOARD_MIN_GAMES, 5, 0, 1000);
         const limit = clampInt(req.query.limit, 20, 1, 100);
-        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
         // Agregar jugadores y récord V-D-E desde las partidas del formato pedido
         const allGames = await supabase.getAllValidGamesWithPlayers(reqFormat(req));

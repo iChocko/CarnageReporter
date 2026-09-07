@@ -43,7 +43,7 @@ function loadAjustes(dir) {
             a.games.every(g => g && Number.isFinite(Date.parse(g.timestamp)) && Array.isArray(g.players))
         );
         return { version: data.version || 1, ajustes: valid };
-    } catch (e) {
+    } catch {
         return emptyAjustes();
     }
 }

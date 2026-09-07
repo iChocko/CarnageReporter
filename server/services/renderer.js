@@ -425,7 +425,7 @@ class RendererService {
             if (browser) {
                 try {
                     await browser.close();
-                } catch (e) {
+                } catch {
                     // Ignorar errores al cerrar
                 }
             }

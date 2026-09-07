@@ -17,7 +17,7 @@ const { formatCDMXDateTime } = require('./cdmxTime');
 function sanitizeCaptionText(str) {
     return String(str == null ? '' : str)
         .replace(/[\r\n\t]+/g, ' ')
-        .replace(/[*_~`<>|@#\[\]()]/g, '')
+        .replace(/[*_~`<>|@#[\]()]/g, '')
         .trim();
 }
 

@@ -34,7 +34,7 @@ function loadAnuladas(dir) {
             Number.isFinite(Date.parse(a.annulledAt))
         );
         return { version: data.version || 1, anuladas: valid };
-    } catch (e) {
+    } catch {
         return emptyAnuladas();
     }
 }

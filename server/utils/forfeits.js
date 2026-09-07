@@ -38,7 +38,7 @@ function loadForfeits(dir) {
             (f.loserSide === 0 || f.loserSide === 1)
         );
         return { version: data.version || 1, forfeits: valid };
-    } catch (e) {
+    } catch {
         return emptyForfeits();
     }
 }
