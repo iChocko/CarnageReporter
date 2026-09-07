@@ -65,7 +65,7 @@ echo "📦 Preparando archivos para deployment..."
 # Empaquetar todo el repositorio para construirlo en el VPS.
 # CRÍTICO: excluir .env* — si el repo local tiene un .env de desarrollo,
 # NUNCA debe viajar al VPS y sobreescribir el .env de producción real.
-tar --exclude=.git --exclude=node_modules --exclude=dashboard/node_modules \
+tar --exclude=.git --exclude='.claude' --exclude='client/dist' --exclude='dist' --exclude=node_modules --exclude=dashboard/node_modules \
     --exclude=.env --exclude=.env.local --exclude=.env.deploy --exclude='.env.*' \
     -czf /tmp/carnage-docker-deploy.tar.gz .
 
