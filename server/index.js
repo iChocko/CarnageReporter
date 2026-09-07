@@ -1917,12 +1917,12 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 /**
- * Errores no atrapados por nada más (promesa rechazada sin .catch, excepción
- * síncrona fuera de cualquier try/catch): se loggean como fatales, se manda
- * una alerta a Discord (server/alerts.js) y el proceso sale con código 1
- * tras una pausa breve para darle tiempo a esa alerta de salir antes de que
- * el proceso muera. Docker con `restart: always` levanta el contenedor de
- * nuevo.
+ * uncaughtException: una excepción síncrona escapó de cualquier try/catch, así
+ * que el estado del proceso queda indeterminado (Node mismo lo recomienda:
+ * no es seguro seguir corriendo). Se loggea como fatal, se manda una alerta a
+ * Discord (server/alerts.js) y el proceso sale con código 1 tras una pausa
+ * breve para darle tiempo a esa alerta de salir antes de que el proceso
+ * muera. Docker con `restart: always` levanta el contenedor de nuevo.
  */
 function fatal(kind, err) {
     log.fatal({ err }, `💀 ${kind} no manejado — el proceso va a salir`);
@@ -1930,8 +1930,18 @@ function fatal(kind, err) {
         .finally(() => setTimeout(() => process.exit(1), 2000));
 }
 
+// unhandledRejection: whatsapp-web.js + Puppeteer sueltan promesas rechazadas
+// sin manejar con frecuencia durante reconexiones/reinicios de sesión
+// ("Protocol error: Target closed", "Execution context was destroyed",
+// "Session closed") sin que el proceso quede en mal estado — a diferencia de
+// uncaughtException, aquí el resto del programa sigue siendo confiable. Salir
+// del proceso por cada una de esas fugas conocidas convertiría un log inocuo
+// en un bucle de reinicios con 1-2 min de caída de WhatsApp cada vez, así que
+// solo se loggea y se alerta (con cooldown de dedupe) sin tumbar el proceso.
 process.on('unhandledRejection', (reason) => {
-    fatal('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+    log.error({ err }, '⚠️  promesa rechazada sin manejar');
+    alerts.alert('warn', `unhandledRejection: ${err.message || err}`, { key: 'process:unhandledRejection' });
 });
 process.on('uncaughtException', (err) => {
     fatal('uncaughtException', err);
