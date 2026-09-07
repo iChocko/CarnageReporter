@@ -75,8 +75,9 @@ test('no se "actualiza" a la misma versión ni a una vieja', () => {
     assert.strictEqual(isNewerVersion('1.5.0', '1.6.0'), false);
 });
 
-test('la VERSION del cliente es la 1.6.0 del modo automático', () => {
-    assert.strictEqual(VERSION, '1.6.0');
+test('la VERSION del cliente coincide con client/package.json', () => {
+    const { version } = require('../package.json');
+    assert.strictEqual(VERSION, version);
 });
 
 console.log('\n— DATA_DIR: settings.js y autostart.js apuntan ahí, no a BASE_DIR —');

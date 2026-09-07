@@ -6,7 +6,7 @@ const paths = require('../paths');
 const { resolveConfig } = require('../config');
 const { loadSettings, saveSettings, ensureInstallId } = require('../settings');
 const { enableAutostart, disableAutostart, launchBackgroundInstance } = require('../autostart');
-const { checkForUpdates } = require('../updater');
+const { checkForUpdates, readUpdateState, rollbackUpdate } = require('../updater');
 const { startStatusServer, queryRunningInstance, shutdownRunningInstance, drainRunningInstance } = require('../statusServer');
 const { startWatcher } = require('../watcher');
 const { verifyServerConnection } = require('../sender');
@@ -43,6 +43,16 @@ function fmtAgo(ts) {
     if (min < 60) return `hace ${min} min`;
     const h = Math.round(min / 60);
     return h < 24 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`;
+}
+
+/**
+ * Igual que fmtAgo pero para el "at" ISO de update-state.json (Fase B5),
+ * redondeado a días como pide el hint "Actualizado a vX hace N días".
+ */
+function fmtDaysAgo(iso) {
+    const days = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 86400000));
+    if (days === 0) return 'hoy';
+    return days === 1 ? 'hace 1 día' : `hace ${days} días`;
 }
 
 /**
@@ -97,12 +107,16 @@ async function interactiveMenu(inst, config, version, entryScript) {
     console.log(`   Bitácora: ${LOG_FILE}\n`);
 
     for (; ;) {
+        const updateState = readUpdateState();
         console.log('¿Qué quieres hacer?');
         console.log('  [1] Actualizar estado');
         console.log('  [2] Desactivar el modo automático');
         console.log('  [3] Salir');
         console.log('  [4] Reintentar envíos pendientes ahora');
         console.log('  [5] Buscar actualización');
+        if (updateState) {
+            console.log(`  [R] Revertir (actualizado a v${updateState.to} ${fmtDaysAgo(updateState.at)})`);
+        }
         const opt = await ask('Opción: ');
 
         if (opt === '1') {
@@ -138,6 +152,12 @@ async function interactiveMenu(inst, config, version, entryScript) {
             console.log('\n⚠️  Buscando actualización: si hay una nueva versión, puede fallar al');
             console.log('   reemplazar el .exe mientras el modo automático sigue corriendo.');
             await checkForUpdates(version);
+        } else if (opt.toLowerCase() === 'r' && updateState) {
+            const sure = await askYesNo(`\n¿Revertir a la versión anterior a v${updateState.to}? Esto reinicia la app (S/N): `);
+            if (!sure) { console.log(''); continue; }
+            console.log('\n↩️  Revirtiendo...');
+            rollbackUpdate();
+            return; // rollbackUpdate() cierra el proceso; no debería llegarse aquí
         } else {
             console.log('   Opción no válida.\n');
         }
@@ -168,6 +188,10 @@ async function runManualWatch(settings, config, version, entryScript) {
     const failed = spool.countFailed();
     if (pending > 0 || failed > 0) {
         console.log(`   Pendientes: ${pending} · Fallidas: ${failed} (usa el flag --drain-now para reintentar sin abrir el juego)`);
+    }
+    const updateState = readUpdateState();
+    if (updateState) {
+        console.log(`   Actualizado a v${updateState.to} ${fmtDaysAgo(updateState.at)} · usa el flag --rollback para revertir.`);
     }
     if (settings.autostart === 'no') {
         console.log('\n💡 ¿Cansado de abrirme a mano? Escribe A y Enter para activar el modo automático.');

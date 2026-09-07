@@ -23,6 +23,7 @@ function parseArgs(argv) {
         enableAutostart: argv.includes('--enable-autostart'),
         disableAutostart: argv.includes('--disable-autostart'),
         drainNow: argv.includes('--drain-now'),
+        rollback: argv.includes('--rollback'),
     };
 }
 
@@ -84,6 +85,15 @@ async function main(entryScript, argv = process.argv.slice(2)) {
     if (flags.disableAutostart) {
         const ok = autostart.disableAutostart();
         console.log(ok ? 'Arranque automático desactivado.' : 'No se pudo desactivar el arranque automático.');
+        return ok ? 0 : 1;
+    }
+
+    if (flags.rollback) {
+        const { rollbackUpdate } = require('./updater');
+        const ok = rollbackUpdate();
+        // rollbackUpdate() llama a process.exit(0) en el caso feliz (para que
+        // el .bat pueda reemplazar el .exe en uso); solo se llega aquí si
+        // falló (no había CarnageReporter.prev.exe que restaurar).
         return ok ? 0 : 1;
     }
 
