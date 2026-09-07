@@ -15,9 +15,11 @@ const log = logger.child({ mod: 'http' });
  * @param {{ alert: function }} opts.alerts
  * @param {() => import('http').Server|null} opts.getHttpServer
  * @param {() => {stopAll: function}|null} opts.getSchedulerHandle
+ * @param {() => {stop: function}|null} [opts.getOutboxWorker] - Fase A4;
+ *   null/undefined si OUTBOX_ENABLED=false (nada que detener)
  * @returns {{ shutdown: function, registerProcessHandlers: function }}
  */
-function createLifecycle({ whatsapp, alerts, getHttpServer, getSchedulerHandle }) {
+function createLifecycle({ whatsapp, alerts, getHttpServer, getSchedulerHandle, getOutboxWorker }) {
     let shuttingDown = false;
 
     /**
@@ -47,6 +49,11 @@ function createLifecycle({ whatsapp, alerts, getHttpServer, getSchedulerHandle }
             }
             const schedulerHandle = getSchedulerHandle();
             if (schedulerHandle) schedulerHandle.stopAll();
+            // El outbox worker se detiene ANTES que WhatsApp: si sigue corriendo
+            // mientras whatsapp.stop() destruye la sesión, un envío en vuelo
+            // fallaría con un error confuso en vez del 'not_ready' esperado.
+            const outboxWorker = getOutboxWorker?.();
+            if (outboxWorker) await outboxWorker.stop();
             await whatsapp.stop();
             log.info('👋 Servidor cerrado limpiamente');
             clearTimeout(hardDeadline);

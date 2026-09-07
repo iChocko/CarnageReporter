@@ -219,3 +219,48 @@ ALTER TABLE public.games ADD COLUMN IF NOT EXISTS client_sent_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_games_reported_by_install
     ON public.games (reported_by_install) WHERE reported_by_install IS NOT NULL;
+
+-- ============================================================
+-- MIGRACIÓN A4 (Fase A4 — "guardar primero + outbox persistente")
+-- ============================================================
+-- Aplicar A MANO en el SQL Editor de Supabase. NO se ejecuta sola: nada en
+-- el código de esta fase la corre automáticamente, y el servidor debe seguir
+-- funcionando (cayendo a publicación directa) si esta tabla todavía no
+-- existe — ver server/messaging/outboxStore.js#OutboxUnavailableError.
+--
+-- Cola persistente de envíos (imágenes de partida a Discord/WhatsApp, el
+-- anuncio del marcador de ronda, los mensajes de saldos/anuncios). Detrás de
+-- OUTBOX_ENABLED=false por default (.env.example): server/report/pipeline.js
+-- guarda la partida en Supabase PRIMERO y, con el outbox prendido, encola la
+-- publicación en vez de mandarla ahí mismo — así un Discord/WhatsApp caído
+-- ya no pierde el reporte, solo lo retrasa (server/messaging/outbox.js).
+--
+--   status: 'pending' (por enviar/reintentar) | 'sending' (worker en vuelo,
+--     ver recoverStuck()) | 'sent' (confirmado) | 'dead' (agotó los intentos
+--     o el error era permanente; server/alerts.js avisa con key 'outbox:dead').
+--   dedupe_key: evita duplicados al reintentar el mismo encolado (ej.
+--     "game_image:discord:<gameId>", "saldos:<cutTs>"); UNIQUE, NULLABLE
+--     (no todo necesita dedupe).
+--   payload: jsonb con lo que el worker necesita para mandar SIN volver a
+--     tocar Supabase (ver el JSDoc de createOutboxWorker en outbox.js).
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.outbox (
+    id BIGSERIAL PRIMARY KEY,
+    kind TEXT NOT NULL,                    -- 'game_image' | 'round_update' | 'text'
+    channel TEXT NOT NULL,                 -- 'discord' | 'discord4v4' | 'whatsapp'
+    target TEXT,                           -- chatId/webhook destino, informativo
+    dedupe_key TEXT UNIQUE,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_error TEXT,
+    provider_message_id TEXT,
+    acked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    sent_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbox_status_next_attempt
+    ON public.outbox (status, next_attempt_at);

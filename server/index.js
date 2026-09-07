@@ -95,6 +95,15 @@ async function start() {
         log.error({ err }, '❌ WhatsApp no pudo inicializar');
     });
 
+    // Outbox worker (Fase A4), solo si OUTBOX_ENABLED=true. Arranca aparte de
+    // WhatsApp: recoverStuck()/el polling no dependen de que la sesión esté
+    // lista (SendError('not_ready') se maneja sin contar intento).
+    if (ctx.outboxWorker) {
+        ctx.outboxWorker.start().catch(err => {
+            log.error({ err }, '❌ Outbox worker no pudo arrancar');
+        });
+    }
+
     // Comandos del grupo de WhatsApp (server/commands/index.js)
     registerAll(whatsapp, ctx);
 
@@ -120,6 +129,7 @@ const lifecycle = createLifecycle({
     alerts,
     getHttpServer: () => httpServer,
     getSchedulerHandle: () => schedulerHandle,
+    getOutboxWorker: () => ctx.outboxWorker,
 });
 lifecycle.registerProcessHandlers();
 

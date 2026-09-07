@@ -55,6 +55,16 @@ function loadConfig(env = process.env) {
         // Versión mínima de cliente aceptada (semver "x.y.z"); sin configurar,
         // no se rechaza ningún cliente por versión.
         CLIENT_MIN_VERSION: env.CLIENT_MIN_VERSION || null,
+        // Fase A4 — "guardar primero + outbox persistente" (server/messaging/
+        // outboxStore.js, outbox.js). Apagado por default: la tabla `outbox`
+        // se aplica A MANO (ver supabase_schema.sql, bloque "migración A4")
+        // y el código debe seguir funcionando si todavía no existe.
+        OUTBOX_ENABLED: env.OUTBOX_ENABLED === 'true',
+        // Intervalo (ms) del polling del worker de outbox.
+        OUTBOX_POLL_MS: Number(env.OUTBOX_POLL_MS) > 0 ? Number(env.OUTBOX_POLL_MS) : 5000,
+        // Intentos antes de marcar una fila como 'dead' (backoff exponencial
+        // 5s·2^intentos, tope 15 min).
+        OUTBOX_MAX_ATTEMPTS: Number(env.OUTBOX_MAX_ATTEMPTS) > 0 ? Number(env.OUTBOX_MAX_ATTEMPTS) : 8,
     });
 }
 
