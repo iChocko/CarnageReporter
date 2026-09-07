@@ -91,6 +91,16 @@ fi
 # (el tar ya lo excluye, pero esto protege incluso si esa exclusión se rompe).
 cp /root/carnage-reporter-docker/.env /tmp/carnage-env-backup
 
+# Limpiar el código anterior ANTES de extraer: el tar no borra archivos que
+# el repo ya eliminó (p.ej. dashboard/postcss.config.js) y quedan zombis que
+# rompen el build. Se conservan SOLO los datos persistentes: .env (+ sus
+# backups), wwebjs_auth/, server/output/ y el docker-compose.yml.
+echo "🧹 Limpiando código anterior (se conservan .env, wwebjs_auth, server/output)..."
+find . -mindepth 1 -maxdepth 1 ! -name '.env' ! -name '.env.bak.*' ! -name 'wwebjs_auth' ! -name 'server' ! -name 'docker-compose.yml' -exec rm -rf {} +
+if [ -d server ]; then
+    find ./server -mindepth 1 -maxdepth 1 ! -name 'output' ! -name '.wwebjs_auth' -exec rm -rf {} +
+fi
+
 # Extraer archivos
 echo "📦 Extrayendo archivos..."
 tar -xzf /tmp/carnage-docker-deploy.tar.gz
