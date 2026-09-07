@@ -22,6 +22,11 @@ config.json
 client/settings.json
 client/carnage_autostart.vbs
 
+# Clave privada de firma de releases (Fase B5) — NUNCA se sube al repo, solo
+# vive como el secret RELEASE_SIGNING_KEY en GitHub Actions.
+release-signing.key
+*.key
+
 # Build Artifacts
 dist/
 build/
