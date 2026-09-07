@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: ['**']   # los tags pre-fase-* no deben disparar corridas duplicadas
   pull_request:
 
 jobs:
