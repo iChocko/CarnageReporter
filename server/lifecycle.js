@@ -55,6 +55,10 @@ function createLifecycle({ whatsapp, alerts, getHttpServer, getSchedulerHandle, 
             const outboxWorker = getOutboxWorker?.();
             if (outboxWorker) await outboxWorker.stop();
             await whatsapp.stop();
+            // Fase A5 — shadow transport (adapters/shadow.js): solo existe si
+            // WHATSAPP_SHADOW_TRANSPORT está configurado; se detiene también
+            // para no dejar un socket de Baileys colgado tras el apagado.
+            if (whatsapp.shadow) await whatsapp.shadow.stop();
             log.info('👋 Servidor cerrado limpiamente');
             clearTimeout(hardDeadline);
             logger.flush();

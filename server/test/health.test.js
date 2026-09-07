@@ -188,6 +188,34 @@ test('expone los jobs del scheduler y el lastOkAt del renderer tal cual', async 
     assert.strictEqual(res.body.checks.renderer.lastOkAt, '2026-01-01T00:00:00.000Z');
 });
 
+test('sin whatsapp.shadow, checks.whatsappShadow no aparece', async () => {
+    const health = createHealthCheck(baseDeps());
+    const res = fakeRes();
+    await health.handler({}, res);
+    assert.strictEqual(res.body.checks.whatsappShadow, undefined);
+});
+
+test('con whatsapp.shadow (Fase A5), checks.whatsappShadow refleja su estado sin afectar el status general', async () => {
+    const whatsapp = fakeWhatsapp({ enabled: false }); // primario apagado: no debe importar para el shadow
+    whatsapp.shadow = { getStatus: () => ({ status: 'ready', transport: 'baileys' }) };
+    const health = createHealthCheck(baseDeps({ whatsapp }));
+    const res = fakeRes();
+    await health.handler({}, res);
+
+    assert.strictEqual(res.body.status, 'ok');
+    assert.deepStrictEqual(res.body.checks.whatsappShadow, { state: 'ready', transport: 'baileys' });
+});
+
+test('checks.whatsappShadow también entiende el shape completo del contrato ({state}, no {status})', async () => {
+    const whatsapp = fakeWhatsapp();
+    whatsapp.shadow = { getStatus: () => ({ state: 'waiting_pairing', transport: 'fake' }) };
+    const health = createHealthCheck(baseDeps({ whatsapp }));
+    const res = fakeRes();
+    await health.handler({}, res);
+
+    assert.deepStrictEqual(res.body.checks.whatsappShadow, { state: 'waiting_pairing', transport: 'fake' });
+});
+
 test('outputFreeMb se calcula desde statfs cuando el runtime lo soporta', async () => {
     const health = createHealthCheck(baseDeps({
         statfs: () => ({ bavail: 1000, bsize: 1024 * 1024 }), // 1000 bloques de 1MB

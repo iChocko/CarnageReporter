@@ -38,8 +38,22 @@ function loadConfig(env = process.env) {
         WHATSAPP_ADMIN_IDS: env.WHATSAPP_ADMIN_IDS || '',
         WHATSAPP_ADMINS_FROM_GROUP: env.WHATSAPP_ADMINS_FROM_GROUP === 'true',
         WHATSAPP_ENABLED: env.WHATSAPP_ENABLED,
+        // 'wwebjs' (default, producción hoy) | 'fake' (tests) | 'baileys' (Fase A5)
         WHATSAPP_TRANSPORT: env.WHATSAPP_TRANSPORT || 'wwebjs',
+        // Segundo transporte en paralelo, modo solo-lectura (adapters/shadow.js):
+        // '' (default, sin shadow) | 'fake' | 'baileys'.
         WHATSAPP_SHADOW_TRANSPORT: env.WHATSAPP_SHADOW_TRANSPORT || '',
+        // Fase A5 — subcarpeta de sesión del adaptador de Baileys dentro de
+        // WHATSAPP_AUTH_DIR (default 'baileys'; la instancia shadow SIEMPRE
+        // usa 'baileys-shadow', sin importar esta variable, ver
+        // messaging/index.js y messaging/adapters/baileys.js).
+        WHATSAPP_BAILEYS_AUTH_DIR: env.WHATSAPP_BAILEYS_AUTH_DIR || '',
+        // Fase A5 — piloto de Baileys: si es "true" y WHATSAPP_GROUP_ID_TEST
+        // está definido, ESE grupo de prueba se mapea a formato '2v2' en vez
+        // de WHATSAPP_GROUP_ID (pensado para un contenedor piloto aparte con
+        // su propio volumen de auth/output, ver docs/baileys-migration.md).
+        WHATSAPP_PILOT: env.WHATSAPP_PILOT === 'true',
+        WHATSAPP_GROUP_ID_TEST: env.WHATSAPP_GROUP_ID_TEST || '',
         // Ventana de vigencia de un comando entrante (segundos). Un mensaje
         // más viejo se ignora sin correr el handler: evita que el historial
         // reproducido tras una reconexión dispare un "!rondas reset" viejo.

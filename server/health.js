@@ -120,6 +120,22 @@ function createHealthCheck({
             outbox: outboxCheck,
         };
 
+        // Fase A5 — shadow transport (server/messaging/adapters/shadow.js):
+        // `whatsapp.shadow` solo existe si WHATSAPP_SHADOW_TRANSPORT está
+        // configurado; nunca cuenta para el `status` general (es de solo
+        // observación, no debe poder tumbar el health check).
+        if (whatsapp.shadow) {
+            // El shape de getStatus() del shadow depende de su transporte
+            // interno: 'fake' devuelve el shape completo del contrato
+            // (`.state`), 'baileys' el shape legado (`.status`) — ver
+            // adapters/shadow.js (delega tal cual al puerto envuelto).
+            const shadowStatus = whatsapp.shadow.getStatus();
+            checks.whatsappShadow = {
+                state: shadowStatus.status || shadowStatus.state || 'unknown',
+                transport: shadowStatus.transport || null,
+            };
+        }
+
         let status = 'ok';
         if (!supabaseCheck.ok) status = 'down';
         else if (whatsapp.enabled && whatsappState !== 'ready') status = 'degraded';

@@ -32,6 +32,23 @@ async function sendTextDirect(ctx, chatId, text, opts) {
     return { sent: ok };
 }
 
+/**
+ * Resuelve a qué MessagingPort apunta un request admin de WhatsApp:
+ * `?transport=shadow` -> ctx.whatsapp.shadow (Fase A5, si está configurado
+ * con WHATSAPP_SHADOW_TRANSPORT); cualquier otro valor (o ausente) -> el
+ * puerto primario de siempre. 404 explícito si se pide shadow y no hay.
+ */
+function resolveTransportPort(ctx, req, res) {
+    if (req.query?.transport === 'shadow') {
+        if (!ctx.whatsapp.shadow) {
+            res.status(404).json({ error: 'No hay transporte shadow configurado (WHATSAPP_SHADOW_TRANSPORT)' });
+            return null;
+        }
+        return ctx.whatsapp.shadow;
+    }
+    return ctx.whatsapp;
+}
+
 function createAdminWhatsappRouter(ctx) {
     const router = express.Router();
     const adminAuth = adminAuthMiddleware(ctx.config);
@@ -39,10 +56,13 @@ function createAdminWhatsappRouter(ctx) {
     /**
      * QR de pairing como imagen PNG (abrir en el navegador y escanear).
      * 204 si no hay QR pendiente (ya emparejado o servicio apagado).
+     * `?transport=shadow` (Fase A5) apunta al transporte en sombra.
      * GET /api/admin/whatsapp/qr
      */
     router.get('/api/admin/whatsapp/qr', adminAuth, asyncHandler(async (req, res) => {
-        const qr = ctx.whatsapp.getQR();
+        const port = resolveTransportPort(ctx, req, res);
+        if (!port) return;
+        const qr = port.getQR();
         if (!qr) {
             return res.status(204).end();
         }
@@ -54,12 +74,36 @@ function createAdminWhatsappRouter(ctx) {
     }));
 
     /**
-     * Estado del servicio de WhatsApp.
+     * Estado del servicio de WhatsApp. `?transport=shadow` (Fase A5) apunta
+     * al transporte en sombra (ver WHATSAPP_SHADOW_TRANSPORT).
      * GET /api/admin/whatsapp/status
      */
     router.get('/api/admin/whatsapp/status', adminAuth, (req, res) => {
-        res.json(ctx.whatsapp.getStatus());
+        const port = resolveTransportPort(ctx, req, res);
+        if (!port) return;
+        res.json(port.getStatus());
     });
+
+    /**
+     * Pide un pairing code (emparejar por número en vez de escanear QR).
+     * `?transport=shadow` en el body (Fase A5) apunta al transporte en sombra.
+     * POST /api/admin/whatsapp/pairing-code  Body: { phone, transport? }
+     */
+    router.post('/api/admin/whatsapp/pairing-code', adminAuth, asyncHandler(async (req, res) => {
+        const phone = String(req.body?.phone || '').replace(/\D/g, '');
+        if (!phone) return res.status(400).json({ error: 'Falta phone (dígitos del número, con lada país)' });
+        const wantsShadow = req.body?.transport === 'shadow';
+        if (wantsShadow && !ctx.whatsapp.shadow) {
+            return res.status(404).json({ error: 'No hay transporte shadow configurado (WHATSAPP_SHADOW_TRANSPORT)' });
+        }
+        const port = wantsShadow ? ctx.whatsapp.shadow : ctx.whatsapp;
+        try {
+            const pairingCode = await port.requestPairingCode(phone);
+            res.json({ pairingCode });
+        } catch (err) {
+            res.status(409).json({ error: err.message || 'No se pudo pedir el pairing code' });
+        }
+    }));
 
     /**
      * Lista de grupos disponibles (para obtener el WHATSAPP_GROUP_ID).
