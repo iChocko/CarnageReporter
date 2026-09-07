@@ -2,11 +2,14 @@
 
 const fs = require('fs');
 const path = require('path');
-const { BASE_DIR } = require('./paths');
+const crypto = require('crypto');
+const { DATA_DIR, ensureDataDir } = require('./paths');
 
-// ============== PREFERENCIAS (settings.json junto al exe) ==============
+// ============== PREFERENCIAS (settings.json en DATA_DIR) ==============
+// Hasta v1.6 vivía junto al exe; desde v1.7 vive en DATA_DIR (ver paths.js).
+// main.js migra una copia del settings.json legado al primer arranque.
 
-const SETTINGS_FILE = path.join(BASE_DIR, 'settings.json');
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 
 function loadSettings(file = SETTINGS_FILE) {
     try {
@@ -19,9 +22,24 @@ function loadSettings(file = SETTINGS_FILE) {
 function saveSettings(patch, file = SETTINGS_FILE) {
     const merged = { ...loadSettings(file), ...patch };
     try {
+        ensureDataDir(path.dirname(file));
         fs.writeFileSync(file, JSON.stringify(merged, null, 2));
     } catch { /* preferencia no crítica: si no se pudo guardar, se reintenta la próxima vez */ }
     return merged;
 }
 
-module.exports = { loadSettings, saveSettings, SETTINGS_FILE };
+/**
+ * Identidad de esta instalación (Fase B3): un UUID generado una sola vez y
+ * persistido en settings.json, mandado al servidor como X-Install-Id. Sirve
+ * para poder revocar una instalación puntual (ej. reportes corruptos desde
+ * una copia pirata/mal configurada) sin tocar la API key compartida.
+ */
+function ensureInstallId(file = SETTINGS_FILE) {
+    const settings = loadSettings(file);
+    if (settings.installId) return settings.installId;
+    const installId = crypto.randomUUID();
+    saveSettings({ installId }, file);
+    return installId;
+}
+
+module.exports = { loadSettings, saveSettings, ensureInstallId, SETTINGS_FILE };

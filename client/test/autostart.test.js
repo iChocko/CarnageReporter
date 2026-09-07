@@ -13,6 +13,9 @@ const path = require('path');
 const {
     buildVbsContent, isNewerVersion, loadSettings, saveSettings, VERSION
 } = require('../carnage_client');
+const { migrateLegacyFile } = require('../src/paths');
+const { VBS_FILE } = require('../src/autostart');
+const { SETTINGS_FILE } = require('../src/settings');
 
 console.log('\n— buildVbsContent (.vbs de arranque invisible) —');
 
@@ -74,5 +77,73 @@ test('no se "actualiza" a la misma versión ni a una vieja', () => {
 
 test('la VERSION del cliente es la 1.6.0 del modo automático', () => {
     assert.strictEqual(VERSION, '1.6.0');
+});
+
+console.log('\n— DATA_DIR: settings.js y autostart.js apuntan ahí, no a BASE_DIR —');
+
+test('SETTINGS_FILE y VBS_FILE viven en DATA_DIR (paths.js), no junto al exe', () => {
+    const { DATA_DIR } = require('../src/paths');
+    assert.strictEqual(path.dirname(SETTINGS_FILE), DATA_DIR);
+    assert.strictEqual(path.dirname(VBS_FILE), DATA_DIR);
+});
+
+console.log('\n— migrateLegacyFile (Fase B3: settings.json / .vbs legados) —');
+
+function makeDirs() {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'carnage-base-'));
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'carnage-data-'));
+    return { baseDir, dataDir };
+}
+
+test('copia el archivo legado de BASE_DIR a DATA_DIR sin borrar el original', () => {
+    const { baseDir, dataDir } = makeDirs();
+    fs.writeFileSync(path.join(baseDir, 'settings.json'), '{"autostart":"on"}');
+
+    const migrated = migrateLegacyFile('settings.json', baseDir, dataDir);
+
+    assert.strictEqual(migrated, true);
+    assert.ok(fs.existsSync(path.join(baseDir, 'settings.json')), 'el archivo viejo debe seguir ahí');
+    assert.ok(fs.existsSync(path.join(dataDir, 'settings.json')), 'debe existir la copia nueva');
+    assert.strictEqual(
+        fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf-8'),
+        fs.readFileSync(path.join(baseDir, 'settings.json'), 'utf-8')
+    );
+});
+
+test('no hace nada si ya existe una copia en DATA_DIR (no la pisa)', () => {
+    const { baseDir, dataDir } = makeDirs();
+    fs.writeFileSync(path.join(baseDir, 'settings.json'), '{"autostart":"on"}');
+    fs.writeFileSync(path.join(dataDir, 'settings.json'), '{"autostart":"no","installId":"ya-tenia"}');
+
+    const migrated = migrateLegacyFile('settings.json', baseDir, dataDir);
+
+    assert.strictEqual(migrated, false);
+    assert.ok(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf-8').includes('ya-tenia'));
+});
+
+test('no hace nada si no había archivo legado que migrar', () => {
+    const { baseDir, dataDir } = makeDirs();
+    assert.strictEqual(migrateLegacyFile('settings.json', baseDir, dataDir), false);
+    assert.ok(!fs.existsSync(path.join(dataDir, 'settings.json')));
+});
+
+test('carnage_autostart.vbs también se migra (copia): el Run key viejo sigue apuntando al original', () => {
+    const { baseDir, dataDir } = makeDirs();
+    const vbsContent = buildVbsContent('C:\\vieja\\ruta.exe');
+    fs.writeFileSync(path.join(baseDir, 'carnage_autostart.vbs'), vbsContent);
+
+    const migrated = migrateLegacyFile('carnage_autostart.vbs', baseDir, dataDir);
+
+    assert.strictEqual(migrated, true);
+    // El .vbs original (al que ya apunta el Run key de una instalación vieja)
+    // sigue intacto: la migración es una copia, no un movimiento.
+    assert.strictEqual(fs.readFileSync(path.join(baseDir, 'carnage_autostart.vbs'), 'utf-8'), vbsContent);
+    assert.strictEqual(fs.readFileSync(path.join(dataDir, 'carnage_autostart.vbs'), 'utf-8'), vbsContent);
+});
+
+test('si BASE_DIR y DATA_DIR son la misma carpeta (sin LOCALAPPDATA), no hay nada que migrar', () => {
+    const { baseDir } = makeDirs();
+    fs.writeFileSync(path.join(baseDir, 'settings.json'), '{}');
+    assert.strictEqual(migrateLegacyFile('settings.json', baseDir, baseDir), false);
 });
 

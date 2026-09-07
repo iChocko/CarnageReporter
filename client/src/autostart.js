@@ -3,14 +3,19 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
-const { IS_PKG, BASE_DIR } = require('./paths');
+const { IS_PKG, BASE_DIR, DATA_DIR } = require('./paths');
 
 // ============== ARRANQUE AUTOMÁTICO CON WINDOWS ==============
 // La clave Run de HKCU (no pide admin) apunta a wscript + un .vbs de una
 // línea que lanza el exe SIN ventana. Apuntar la clave directo al exe
 // mostraría un consolazo negro en cada arranque de Windows.
+//
+// Desde v1.7 el .vbs se genera en DATA_DIR (ver paths.js) en vez de junto al
+// exe; main.js migra una copia del .vbs legado de BASE_DIR al arrancar, pero
+// el Run key de una instalación vieja sigue apuntando a esa copia legada
+// hasta que enableAutostart() lo vuelve a registrar (lo que apunta aquí).
 
-const VBS_FILE = path.join(BASE_DIR, 'carnage_autostart.vbs');
+const VBS_FILE = path.join(DATA_DIR, 'carnage_autostart.vbs');
 const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const RUN_VALUE = 'CarnageReporter';
 
@@ -30,6 +35,7 @@ function buildVbsContent(exePath, scriptPath = null) {
 function enableAutostart(scriptPath = null) {
     if (process.platform !== 'win32') return false;
     try {
+        fs.mkdirSync(path.dirname(VBS_FILE), { recursive: true });
         fs.writeFileSync(VBS_FILE, buildVbsContent(process.execPath, IS_PKG ? null : scriptPath));
     } catch {
         return false;
