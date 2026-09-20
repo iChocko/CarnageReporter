@@ -74,9 +74,7 @@ class SupabaseService {
                 mapCode = null, format = null, installId = null, clientSentAt = null } = meta;
 
         // 1. Insertar el juego (upsert para evitar duplicados)
-        const { error: gameError } = await this.client
-            .from('games')
-            .upsert({
+        const gameRow = {
                 game_unique_id: gameData.gameUniqueId,
                 game_enum: gameData.gameEnum,
                 is_matchmaking: gameData.isMatchmaking,
@@ -101,7 +99,23 @@ class SupabaseService {
                 reported_by_install: installId,
                 client_sent_at: (clientSentAt && Number.isFinite(new Date(clientSentAt).getTime()))
                     ? new Date(clientSentAt).toISOString() : null
-            }, { onConflict: 'game_unique_id' });
+        };
+
+        let { error: gameError } = await this.client
+            .from('games')
+            .upsert(gameRow, { onConflict: 'game_unique_id' });
+
+        // Hotfix: si la migración B3 aún no se aplicó en Supabase (PostgREST
+        // no conoce reported_by_install / client_sent_at), reintentar sin esas
+        // columnas para no perder la partida ni su publicación.
+        if (gameError && /reported_by_install|client_sent_at/.test(gameError.message || '')) {
+            log.warn(`⚠️  Migración B3 pendiente en Supabase (${gameError.message}); guardando sin columnas B3`);
+            delete gameRow.reported_by_install;
+            delete gameRow.client_sent_at;
+            ({ error: gameError } = await this.client
+                .from('games')
+                .upsert(gameRow, { onConflict: 'game_unique_id' }));
+        }
 
         if (gameError) {
             throw new Error(`Error guardando juego: ${gameError.message}`);
