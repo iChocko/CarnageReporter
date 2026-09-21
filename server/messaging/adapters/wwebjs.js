@@ -401,6 +401,42 @@ class WwebjsPort extends MessagingPort {
         return this._sendImageLegacy(a, b, c);
     }
 
+    /**
+     * Parche para whatsapp-web.js 1.34.7 contra WhatsApp Web >= 2.3000.104x:
+     * el MediaData que devuelve WWebJS.processMediaData trae una propiedad
+     * propia enumerable `__x_id`; WWebJS.sendMessage hace `...mediaOptions`
+     * sobre el mensaje y ese `__x_id` pisa el id del Msg, con lo que TODO
+     * envío con media truena con "Data passed to getter must include an id
+     * property" (el texto sí sale). Se envuelve processMediaData en la página
+     * para volver `__x_id` no enumerable. Idempotente; se revisa en cada envío
+     * porque una recarga de la página borra el parche. Nunca lanza.
+     */
+    async _ensureMediaIdPatch() {
+        try {
+            const page = this.client && this.client.pupPage;
+            if (!page) return;
+            /* global window */
+            await page.evaluate(() => {
+                if (!window.WWebJS || window.WWebJS.__mediaIdPatch3) return;
+                const orig = window.WWebJS.processMediaData;
+                window.WWebJS.processMediaData = async (...args) => {
+                    const md = await orig(...args);
+                    try {
+                        if (md && Object.prototype.hasOwnProperty.call(md, '__x_id')) {
+                            Object.defineProperty(md, '__x_id', {
+                                value: md.__x_id, writable: true, configurable: true, enumerable: false
+                            });
+                        }
+                    } catch { /* best effort */ }
+                    return md;
+                };
+                window.WWebJS.__mediaIdPatch3 = true;
+            });
+        } catch (err) {
+            log.warn({ err }, '⚠️  No se pudo aplicar el parche de media (__x_id)');
+        }
+    }
+
     /** Forma heredada de sendImage: nunca lanza, boolean. */
     async _sendImageLegacy(imagePath, caption, chatId) {
         if (!this.enabled) return false;
@@ -422,6 +458,7 @@ class WwebjsPort extends MessagingPort {
             try {
                 log.info(`📱 Enviando imagen a WhatsApp (${chatId})... Intento ${attempt}/${this.maxRetries}`);
                 const media = MessageMedia.fromFilePath(imagePath);
+                await this._ensureMediaIdPatch();
                 await this.client.sendMessage(chatId, media, { caption });
                 log.info('📤 Imagen enviada a WhatsApp!');
                 return true;
