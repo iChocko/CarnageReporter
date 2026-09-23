@@ -521,7 +521,8 @@ footer.site a:hover, footer.site button:hover { color: var(--blue-light); }
   .hide-sm { display: none; }
   .show-sm { display: inline; }
   .tier.show-sm { display: inline-block; }
-  .sub-line.show-sm { display: block; }
+  /* white-space normal: si aun así no cabe, la fecha baja de renglón en vez de ensanchar la tabla */
+  .sub-line.show-sm { display: block; white-space: normal; letter-spacing: .4px; }
   .cell-name {
     display: inline-block; max-width: 42vw; vertical-align: bottom;
     overflow: hidden; text-overflow: ellipsis;
