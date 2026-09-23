@@ -33,8 +33,8 @@ export const RankingsView = ({ format, navigate }) => {
             <table>
               <thead>
                 <tr>
-                  <th className="c">#</th><th>Jugador</th><th className="c">KD</th>
-                  <th className="c">KDA</th><th className="c">V-D</th><th className="c">Tier</th>
+                  <th className="c">#</th><th>Jugador</th><th className="c hide-sm">KD</th>
+                  <th className="c">KDA</th><th className="c">V-D</th><th className="c hide-sm">Tier</th>
                 </tr>
               </thead>
               <tbody>
@@ -44,13 +44,18 @@ export const RankingsView = ({ format, navigate }) => {
                       onKeyDown={e => e.key === 'Enter' && openProfile(p.gamertag)}>
                     <td className="c rank-col">{p.is_placement ? '—' : i + 1}</td>
                     <td>
-                      <span className="player-name" style={p.is_placement ? { color: 'var(--steel-dim)' } : undefined}>{p.gamertag}</span>
-                      <br /><span className="games-sub">{p.total_games} partidas</span>
+                      <span className="player-name cell-name" style={p.is_placement ? { color: 'var(--steel-dim)' } : undefined}>{p.gamertag}</span>
+                      <br />
+                      <span className="games-sub">
+                        {/* En celular la columna Tier se oculta: el tier va aquí, junto a las partidas */}
+                        <TierBadge tier={p.tier} short className="show-sm tier-inline" />
+                        {p.total_games} partida{p.total_games !== 1 ? 's' : ''}
+                      </span>
                     </td>
-                    <td className="c">{p.overall_kd}</td>
+                    <td className="c hide-sm">{p.overall_kd}</td>
                     <td className={`c ${p.kda >= 1 ? 'kd-pos' : 'kd-neg'}`}>{p.kda}</td>
                     <td className="c">{recordStr(p)}</td>
-                    <td className="c"><TierBadge tier={p.tier} /></td>
+                    <td className="c hide-sm"><TierBadge tier={p.tier} /></td>
                   </tr>
                 ))}
               </tbody>

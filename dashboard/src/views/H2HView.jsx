@@ -78,13 +78,15 @@ export const H2HView = ({ format }) => {
                 <table>
                   <thead>
                     <tr>
-                      <th>Mapa</th><th>Fecha</th><th className="c">Formato</th>
-                      <th className="c">{data.p1}</th><th className="c">{data.p2}</th>
+                      <th>Mapa</th><th className="hide-sm">Fecha</th><th className="c hide-sm">Formato</th>
+                      <th className="c"><span className="cell-name">{data.p1}</span></th>
+                      <th className="c"><span className="cell-name">{data.p2}</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.shared.map(m => {
                       const { dateStr, timeStr } = formatCDMX(m.timestamp)
+                      const relation = m.same_team ? '🤝 Dupla' : '⚔️ Rivales'
                       const cell = p => (
                         <>
                           <span className={`res-${(p.result || 'd').toLowerCase()}`}>{p.result || '—'}</span>
@@ -93,9 +95,15 @@ export const H2HView = ({ format }) => {
                       )
                       return (
                         <tr key={m.game_unique_id}>
-                          <td className="player-name">{m.map_name}</td>
-                          <td>{dateStr} {timeStr}</td>
-                          <td className="c">{m.same_team ? '🤝 Dupla' : '⚔️ Rivales'}</td>
+                          <td>
+                            <span className="player-name">{m.map_name}</span>
+                            {/* En celular fecha y dupla/rivales (solo el ícono, como en las tarjetas de arriba) van bajo el mapa */}
+                            <span className="show-sm sub-line">
+                              {dateStr} {timeStr} · <span title={relation} aria-label={relation}>{m.same_team ? '🤝' : '⚔️'}</span>
+                            </span>
+                          </td>
+                          <td className="hide-sm">{dateStr} {timeStr}</td>
+                          <td className="c hide-sm">{relation}</td>
                           <td className="c">{cell(m.p1)}</td>
                           <td className="c">{cell(m.p2)}</td>
                         </tr>

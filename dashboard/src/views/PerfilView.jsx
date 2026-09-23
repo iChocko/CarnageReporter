@@ -5,11 +5,20 @@ import { ErrorState } from '../components/ErrorState'
 import { Skeleton } from '../components/Skeleton'
 import { formatCDMX } from '../lib/format'
 
-export const PerfilView = ({ format, gamertag, navigate }) => {
+const RESULT = {
+  W: { long: 'Victoria', short: 'V' },
+  L: { long: 'Derrota', short: 'D' },
+  D: { long: 'Empate', short: 'E' },
+}
+
+export const PerfilView =({ format, gamertag, navigate }) => {
   const players = useApi(`/api/stats/players?format=${format}`)
   const profile = useApi(gamertag ? `/api/stats/player/${encodeURIComponent(gamertag)}?format=${format}` : null)
 
   const [query, setQuery] = useState('')
+  // Con un perfil abierto, la lista completa de jugadores se pliega: en el
+  // celular empujaba el perfil varias pantallas hacia abajo.
+  const [showAll, setShowAll] = useState(false)
 
   const filtered = useMemo(() => {
     const playerList = players.data || []
@@ -17,7 +26,14 @@ export const PerfilView = ({ format, gamertag, navigate }) => {
     return q ? playerList.filter(p => p.gamertag.toLowerCase().includes(q)) : playerList
   }, [players.data, query])
 
-  const selectPlayer = (tag) => navigate(`/perfil/${encodeURIComponent(tag)}`)
+  const listOpen = !gamertag || showAll || query.trim() !== ''
+  const totalPlayers = (players.data || []).length
+
+  const selectPlayer = (tag) => {
+    setShowAll(false)
+    setQuery('')
+    navigate(`/perfil/${encodeURIComponent(tag)}`)
+  }
 
   // Coincidencia única en el buscador -> navegar directo a ese perfil.
   // navigate() sincroniza la URL (sistema externo), no estado local, así
@@ -36,12 +52,16 @@ export const PerfilView = ({ format, gamertag, navigate }) => {
                aria-label="Buscar jugador por gamertag" autoComplete="off"
                value={query} onChange={e => setQuery(e.target.value)} />
         <div className="player-chips">
-          {filtered.map(p => (
+          {listOpen ? filtered.map(p => (
             <button key={p.gamertag} className={`pchip ${p.gamertag === gamertag ? 'active' : ''}`}
                     onClick={() => selectPlayer(p.gamertag)}>
               {p.gamertag}
             </button>
-          ))}
+          )) : totalPlayers > 0 && (
+            <button className="pchip" onClick={() => setShowAll(true)}>
+              Ver los {totalPlayers} jugadores
+            </button>
+          )}
         </div>
       </div>
 
@@ -71,17 +91,27 @@ export const PerfilView = ({ format, gamertag, navigate }) => {
           <div className="tablewrap">
             <table>
               <thead>
-                <tr><th>Mapa</th><th>Fecha</th><th className="c">Resultado</th><th className="c">B / M / A</th><th className="c">K/D</th></tr>
+                <tr>
+                  <th>Mapa</th><th className="hide-sm">Fecha</th>
+                  <th className="c"><span className="hide-sm">Resultado</span><span className="show-sm">Res.</span></th>
+                  <th className="c">B / M / A</th><th className="c">K/D</th>
+                </tr>
               </thead>
               <tbody>
                 {profile.data.history.map(h => {
                   const { dateStr, timeStr } = formatCDMX(h.timestamp)
-                  const resTxt = h.result === 'W' ? 'Victoria' : h.result === 'L' ? 'Derrota' : 'Empate'
+                  const res = RESULT[h.result] || RESULT.D
                   return (
                     <tr key={h.game_unique_id}>
-                      <td className="player-name">{h.map_name}</td>
-                      <td>{dateStr} {timeStr}</td>
-                      <td className={`c res-${(h.result || 'd').toLowerCase()}`}>{resTxt}</td>
+                      <td>
+                        <span className="player-name">{h.map_name}</span>
+                        {/* En celular la fecha va bajo el mapa y la columna Fecha se oculta */}
+                        <span className="show-sm sub-line">{dateStr} {timeStr}</span>
+                      </td>
+                      <td className="hide-sm">{dateStr} {timeStr}</td>
+                      <td className={`c res-${(h.result || 'd').toLowerCase()}`}>
+                        <span className="hide-sm">{res.long}</span><span className="show-sm">{res.short}</span>
+                      </td>
                       <td className="c">{h.kills} / {h.deaths} / {h.assists}</td>
                       <td className={`c ${h.kd >= 1 ? 'kd-pos' : 'kd-neg'}`}>{h.kd.toFixed(2)}</td>
                     </tr>

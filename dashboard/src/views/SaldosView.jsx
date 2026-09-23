@@ -39,8 +39,9 @@ export const SaldosView = ({ navigate }) => {
                 <tbody>
                   {data.saldos.map((s, i) => (
                     <tr key={i}>
-                      <td className="player-name">{s.losers.join(' + ')}</td>
-                      <td className="player-name">{s.winners.join(' + ')}</td>
+                      {/* wrap-sm: en celular las parejas largas bajan de renglón en vez de desbordar */}
+                      <td className="player-name wrap-sm">{s.losers.join(' + ')}</td>
+                      <td className="player-name wrap-sm">{s.winners.join(' + ')}</td>
                       <td className="c">{s.rounds}</td>
                       <td className="c">${s.amount}</td>
                     </tr>
