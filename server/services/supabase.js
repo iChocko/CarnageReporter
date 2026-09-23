@@ -8,6 +8,13 @@ const { logger } = require('../logger');
 
 const log = logger.child({ mod: 'supabase' });
 
+// PostgREST (Supabase) corta cualquier select en `max-rows` filas (1000 por
+// default) SIN avisar: responde 200 con solo las primeras 1000. Todo lo que
+// pueda pasar de ese tope se pide por páginas (ver _selectAllPages).
+const PAGE_ROWS = 1000;
+// Partidas por consulta de jugadores: 100 × 8 (4v4) = 800 filas, bajo el tope.
+const PLAYERS_ID_CHUNK = 100;
+
 class SupabaseService {
     constructor() {
         this.supabaseUrl = process.env.SUPABASE_URL;
@@ -250,6 +257,28 @@ class SupabaseService {
     }
 
     /**
+     * Pide TODAS las filas de una consulta, página por página con .range().
+     * `buildQuery()` debe regresar un query builder NUEVO en cada llamada, ya
+     * con un orden estable y con select(..., { count: 'exact' }): el total
+     * que devuelve PostgREST es lo que dice cuándo parar, aunque el proyecto
+     * tuviera un max-rows menor que PAGE_ROWS.
+     * @param {() => object} buildQuery
+     * @returns {Promise<object[]>}
+     */
+    async _selectAllPages(buildQuery) {
+        const rows = [];
+        for (;;) {
+            const { data, error, count } = await buildQuery().range(rows.length, rows.length + PAGE_ROWS - 1);
+            if (error) throw new Error(error.message);
+            const page = data || [];
+            rows.push(...page);
+            const done = page.length === 0
+                || (typeof count === 'number' ? rows.length >= count : page.length < PAGE_ROWS);
+            if (done) return rows;
+        }
+    }
+
+    /**
      * Helper interno: partidas válidas (no anuladas) de un formato, con jugadores
      * anidados, más reciente primero. La columna `format` es el filtro (2v2 incluye
      * solo customs; 4v4 incluye customs y matchmaking).
@@ -258,27 +287,40 @@ class SupabaseService {
     async _gamesWithPlayers({ format, limit } = {}) {
         if (!this.client) return [];
 
-        let query = this.client
-            .from('games')
-            .select('game_unique_id, map_name, game_type_name, timestamp, duration, is_teams_enabled, format')
-            .eq('is_voided', false)
-            .order('timestamp', { ascending: false });
-        if (format) query = query.eq('format', format);
-        if (limit) query = query.limit(limit);
+        const validGames = (opts) => {
+            let query = this.client
+                .from('games')
+                .select('id, game_unique_id, map_name, game_type_name, timestamp, duration, is_teams_enabled, format', opts)
+                .eq('is_voided', false);
+            if (format) query = query.eq('format', format);
+            return query;
+        };
 
-        const { data: games, error: gError } = await query;
-        if (gError) throw new Error(gError.message);
-        if (!games || games.length === 0) return [];
+        let games;
+        if (limit && limit <= PAGE_ROWS) {
+            const { data, error } = await validGames().order('timestamp', { ascending: false }).limit(limit);
+            if (error) throw new Error(error.message);
+            games = data || [];
+        } else {
+            // Todas: se pagina en orden de id (una partida nueva cae al final y no
+            // recorre las páginas ya leídas) y se ordena por fecha aquí.
+            games = await this._selectAllPages(() =>
+                validGames({ count: 'exact' }).order('id', { ascending: true }));
+            games.sort((a, b) => (new Date(b.timestamp) - new Date(a.timestamp)) || (b.id - a.id));
+            if (limit) games = games.slice(0, limit);
+        }
+        if (games.length === 0) return [];
+        games = games.map(({ id: _id, ...g }) => g);
 
         const ids = games.map(g => g.game_unique_id);
         const players = [];
-        for (let i = 0; i < ids.length; i += 200) {
-            const { data, error } = await this.client
+        for (let i = 0; i < ids.length; i += PLAYERS_ID_CHUNK) {
+            const chunk = ids.slice(i, i + PLAYERS_ID_CHUNK);
+            players.push(...await this._selectAllPages(() => this.client
                 .from('players')
-                .select('game_unique_id, gamertag, team_id, score, kills, deaths, assists, most_kills_in_a_row')
-                .in('game_unique_id', ids.slice(i, i + 200));
-            if (error) throw new Error(error.message);
-            players.push(...(data || []));
+                .select('game_unique_id, gamertag, team_id, score, kills, deaths, assists, most_kills_in_a_row', { count: 'exact' })
+                .in('game_unique_id', chunk)
+                .order('id', { ascending: true })));
         }
 
         const byGame = new Map();
