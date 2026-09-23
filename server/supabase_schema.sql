@@ -193,6 +193,11 @@ CREATE TABLE IF NOT EXISTS public.state_backups (
 CREATE INDEX IF NOT EXISTS idx_state_backups_name_taken_at
     ON public.state_backups (name, taken_at DESC);
 
+-- RLS SIN políticas: solo la llave secreta del servidor (service_role, se
+-- salta RLS) puede leer/escribir. Guarda el roster de WhatsApp (números de
+-- teléfono): nunca debe quedar legible con la anon key.
+ALTER TABLE public.state_backups ENABLE ROW LEVEL SECURITY;
+
 -- ============================================================
 -- MIGRACIÓN B3 (Fase B3 — identidad de instalación y hora del cliente)
 -- ============================================================
@@ -264,3 +269,6 @@ CREATE TABLE IF NOT EXISTS public.outbox (
 
 CREATE INDEX IF NOT EXISTS idx_outbox_status_next_attempt
     ON public.outbox (status, next_attempt_at);
+
+-- RLS SIN políticas, igual que state_backups: solo el servidor la usa.
+ALTER TABLE public.outbox ENABLE ROW LEVEL SECURITY;
