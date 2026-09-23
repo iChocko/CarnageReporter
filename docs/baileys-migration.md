@@ -63,7 +63,10 @@ intentara usarlo para enviar).
    un número de WhatsApp, puede ser el mismo bot en otro dispositivo vinculado
    o un número aparte). Dos formas de conseguir el QR:
    - `docker logs -f carnage-dashboard` — el QR sale en ASCII en los logs
-     (buscar el bloque "ESCANEA ESTE CÓDIGO QR (Baileys)").
+     (buscar el bloque "ESCANEA ESTE CÓDIGO QR (Baileys)"). Solo se imprime
+     el PRIMERO de cada episodio sin sesión (p.ej. justo después de
+     `docker restart`) y luego uno cada 30 min, porque Baileys lo rota cada
+     ~20 s y antes llenaba los logs. Si ya caducó, usa el endpoint de abajo.
    - `GET /api/admin/whatsapp/qr?transport=shadow` (con el header
      `X-Admin-Key`) — devuelve el QR como PNG, igual que el endpoint normal
      pero apuntando al transporte sombra.

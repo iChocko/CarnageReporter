@@ -116,6 +116,32 @@ test('un evento connection.update con qr emite "pairing" y pone waiting_pairing'
     await port.stop();
 });
 
+test('el QR ASCII sale una vez por episodio y luego a lo más cada qrPrintIntervalMs', async () => {
+    const { port } = makePort({ socketFactoryOpts: { autoOpen: false }, portOpts: { qrPrintIntervalMs: 60_000 } });
+    const printed = [];
+    port._printQR = (qr) => printed.push(qr);
+    port.start();
+    await tick(3);
+
+    // Baileys rota el QR cada ~20 s: solo el primero llega a la terminal...
+    for (const qr of ['QR-1', 'QR-2', 'QR-3']) port.sock.ev.emit('connection.update', { qr });
+    assert.deepStrictEqual(printed, ['QR-1']);
+    // ...pero el vigente sigue disponible para GET /api/admin/whatsapp/qr
+    assert.strictEqual(port.getQR(), 'QR-3');
+
+    // Pasado el intervalo vuelve a imprimir uno
+    port._lastQrPrintAt -= 60_000;
+    port.sock.ev.emit('connection.update', { qr: 'QR-4' });
+    assert.deepStrictEqual(printed, ['QR-1', 'QR-4']);
+
+    // Al vincularse se reinicia: el primer QR de un episodio nuevo sale de inmediato
+    port.sock.ev.emit('connection.update', { connection: 'open' });
+    await tick(3);
+    port.sock.ev.emit('connection.update', { qr: 'QR-5' });
+    assert.deepStrictEqual(printed, ['QR-1', 'QR-4', 'QR-5']);
+    await port.stop();
+});
+
 test('requestPairingCode delega en sock.requestPairingCode y guarda el código', async () => {
     const { port } = makePort({ registered: false, socketFactoryOpts: { autoOpen: false } });
     port.start();

@@ -56,6 +56,10 @@ const REPLACED_RETRY_MS = 5 * 60 * 1000;
 const GROUP_META_TTL_MS = 10 * 60 * 1000;
 const SENT_CACHE_MAX = 200;
 const DEFAULT_SEND_MIN_INTERVAL_MS = 1000; // <=1 msg/s por chat
+// Sin vincular, Baileys rota el QR cada ~20 s para siempre. Imprimirlo entero
+// cada vez llenaba docker logs (~10 MB cada 12 h mientras la sombra esperaba
+// QR), y la rotación de logs borraba el historial útil. Ver _maybePrintQR().
+const DEFAULT_QR_PRINT_INTERVAL_MS = 30 * 60 * 1000;
 
 /** Shape legado de getStatus() (health.js, adminWhatsapp.js) por cada state del contrato. */
 function legacyStatusFromState(state) {
@@ -123,6 +127,8 @@ class BaileysPort extends MessagingPort {
         this.authStateFactory = opts.authStateFactory || null;
         this.fetchVersion = opts.fetchVersion || null;
         this.minSendIntervalMs = Number.isFinite(opts.minSendIntervalMs) ? opts.minSendIntervalMs : DEFAULT_SEND_MIN_INTERVAL_MS;
+        this.qrPrintIntervalMs = Number.isFinite(opts.qrPrintIntervalMs) ? opts.qrPrintIntervalMs : DEFAULT_QR_PRINT_INTERVAL_MS;
+        this._lastQrPrintAt = null; // epoch ms del último QR impreso en la terminal; null = episodio nuevo
 
         this.sock = null;
         this._creds = null;
@@ -354,7 +360,7 @@ class BaileysPort extends MessagingPort {
             this.currentPairing = { qr, expiresAt: Date.now() + 60_000 };
             this._setState('waiting_pairing');
             this.emit('pairing', this.currentPairing);
-            this._printQR(qr);
+            this._maybePrintQR(qr);
             if (!this.sessionLostAlerted) {
                 this.sessionLostAlerted = true;
                 this.notifyAlert('🔴 **WhatsApp del bot (Baileys) sin sesión**: pide escanear el QR de nuevo. ' +
@@ -376,6 +382,19 @@ class BaileysPort extends MessagingPort {
         }
     }
 
+    /**
+     * Imprime el primer QR de cada episodio sin sesión y después a lo más uno
+     * cada qrPrintIntervalMs. Los demás solo actualizan currentPairing: el QR
+     * vigente siempre está en GET /api/admin/whatsapp/qr (?transport=shadow
+     * para la sombra).
+     */
+    _maybePrintQR(qr) {
+        const now = Date.now();
+        if (this._lastQrPrintAt !== null && now - this._lastQrPrintAt < this.qrPrintIntervalMs) return;
+        this._lastQrPrintAt = now;
+        this._printQR(qr);
+    }
+
     /** Imprime el QR en la terminal (ASCII, no envuelto en JSON) — mismo patrón que wwebjs.js. */
     _printQR(qr) {
         const qrcodeTerminal = require('qrcode-terminal');
@@ -393,6 +412,7 @@ class BaileysPort extends MessagingPort {
         this.since = new Date().toISOString();
         this.lastError = null;
         this.currentPairing = null;
+        this._lastQrPrintAt = null; // si se vuelve a perder la sesión, ese primer QR sí se imprime
 
         const u = this.sock.user || {};
         try {
