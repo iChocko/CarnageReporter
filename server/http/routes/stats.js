@@ -20,6 +20,12 @@ function reqFormat(req) {
     return FORMATS.includes(req.query.format) ? req.query.format : '2v2';
 }
 
+// Entero del query acotado a [lo, hi]; `def` si no viene o no es número.
+function clampInt(v, def, lo, hi) {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : def;
+}
+
 function createStatsRouter(ctx) {
     const router = express.Router();
 
@@ -102,10 +108,6 @@ function createStatsRouter(ctx) {
      * Leaderboard con métricas MLG Halo 3
      */
     router.get('/api/stats/leaderboard', asyncHandler(async (req, res) => {
-        const clampInt = (v, def, lo, hi) => {
-            const n = parseInt(v, 10);
-            return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : def;
-        };
         const MIN_GAMES = clampInt(req.query.minGames ?? ctx.config.LEADERBOARD_MIN_GAMES, 5, 0, 1000);
         const limit = clampInt(req.query.limit, 20, 1, 100);
 
@@ -174,9 +176,25 @@ function createStatsRouter(ctx) {
         res.json(mlgLeaderboard.slice(0, limit));
     }));
 
+    /**
+     * Partidas válidas del formato, más reciente primero.
+     * Sin ?limit ni ?offset: las últimas 10 (tarjetas del dashboard), igual
+     * que siempre. Con ?limit/?offset: una página del historial COMPLETO
+     * (pestaña Partidas), sacada del mismo cache que rankings/perfil — no
+     * vuelve a pegarle a Supabase. X-Total-Count dice cuántas hay en total.
+     * GET /api/stats/recent?format=4v4&limit=50&offset=50
+     */
     router.get('/api/stats/recent', asyncHandler(async (req, res) => {
-        const gamesWithPlayers = await ctx.gamesCache.getRecentGamesWithPlayers(10, reqFormat(req));
-        res.json(gamesWithPlayers);
+        const format = reqFormat(req);
+        if (req.query.limit === undefined && req.query.offset === undefined) {
+            res.json(await ctx.gamesCache.getRecentGamesWithPlayers(10, format));
+            return;
+        }
+        const limit = clampInt(req.query.limit, 10, 1, 100);
+        const offset = clampInt(req.query.offset, 0, 0, 1_000_000);
+        const all = await ctx.gamesCache.getAllValidGamesWithPlayers(format);
+        res.set('X-Total-Count', String(all.length));
+        res.json(all.slice(offset, offset + limit));
     }));
 
     /**

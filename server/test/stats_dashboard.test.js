@@ -187,3 +187,43 @@ test('GET /api/stats/roster expone solo gamertag/known/totalGames, nunca JIDs', 
         assert.strictEqual(nuevo.totalGames, 0);
     });
 });
+
+test('GET /api/stats/recent sin limit/offset -> las 10 recientes de siempre (sin X-Total-Count)', async () => {
+    const ctx = buildCtx({ games: [game('L', 0)] });
+    let recentArgs = null;
+    ctx.gamesCache = {
+        ...ctx.gamesCache,
+        getRecentGamesWithPlayers: async (limit, format) => { recentArgs = [limit, format]; return [game('R', 5)]; },
+    };
+    await withServer(ctx, async (baseUrl) => {
+        const res = await fetch(`${baseUrl}/api/stats/recent?format=4v4`);
+        assert.strictEqual(res.status, 200);
+        assert.deepStrictEqual(recentArgs, [10, '4v4']);
+        assert.strictEqual(res.headers.get('x-total-count'), null);
+        const body = await res.json();
+        assert.deepStrictEqual(body.map(g => g.game_unique_id), ['g_5']);
+    });
+});
+
+test('GET /api/stats/recent?limit&offset pagina el historial COMPLETO con X-Total-Count', async () => {
+    const games = Array.from({ length: 25 }, (_, i) => game('L', 24 - i)); // más reciente primero
+    const ctx = buildCtx({ games });
+    await withServer(ctx, async (baseUrl) => {
+        const page = async (qs) => {
+            const res = await fetch(`${baseUrl}/api/stats/recent?format=2v2&${qs}`);
+            assert.strictEqual(res.status, 200);
+            return { total: res.headers.get('x-total-count'), ids: (await res.json()).map(g => g.game_unique_id) };
+        };
+
+        const first = await page('limit=10');
+        assert.strictEqual(first.total, '25');
+        assert.deepStrictEqual(first.ids, games.slice(0, 10).map(g => g.game_unique_id));
+
+        const last = await page('limit=10&offset=20');
+        assert.deepStrictEqual(last.ids, games.slice(20).map(g => g.game_unique_id));
+
+        assert.deepStrictEqual((await page('offset=30')).ids, [], 'offset pasado del final -> []');
+        assert.strictEqual((await page('limit=500')).ids.length, 25, 'limit se acota a 100');
+        assert.strictEqual((await page('limit=abc&offset=-5')).ids.length, 10, 'basura -> defaults');
+    });
+});

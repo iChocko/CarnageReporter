@@ -254,6 +254,16 @@ tbody tr.clickable:focus-visible { outline: 2px solid var(--blue-light); outline
 .mc-foot b { color: var(--gold-soft); letter-spacing: .5px; }
 .mc-foot .dim { color: var(--steel-dim); }
 
+/* ---------- Historial agrupado por reta ---------- */
+.reta + .reta { margin-top: 24px; }
+.reta-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 6px 12px; flex-wrap: wrap;
+  padding: 0 2px 8px; margin-bottom: 12px; border-bottom: 1px solid var(--line);
+}
+.reta-day { font-weight: 700; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; color: var(--gold); }
+.reta-meta { font-size: 12.5px; letter-spacing: 1px; color: var(--steel-dim); font-variant-numeric: tabular-nums; }
+.load-more { display: flex; justify-content: center; margin-top: 20px; }
+
 /* ---------- H2H ---------- */
 .h2h-pickers {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;

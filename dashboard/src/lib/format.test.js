@@ -1,5 +1,34 @@
 import { describe, it, expect } from 'vitest'
-import { formatCDMX, kdOf, kdaOf, recordStr, analyzeMatch } from './format'
+import { formatCDMX, formatDayCDMX, groupSessions, kdOf, kdaOf, recordStr, analyzeMatch } from './format'
+
+describe('formatDayCDMX', () => {
+  it('nombra el día de CDMX aunque en UTC ya sea el siguiente', () => {
+    // 2026-09-23T04:03:00Z = martes 22 de septiembre, 22:03 en CDMX
+    expect(formatDayCDMX('2026-09-23T04:03:00.000Z')).toBe('Martes 22 de septiembre')
+  })
+})
+
+describe('groupSessions', () => {
+  const g = (id, iso, duration = 300) => ({ game_unique_id: id, timestamp: iso, duration })
+
+  it('la reta que cruza la medianoche queda junta; más de 3 h sin partidas la corta', () => {
+    const games = [
+      g('c', '2026-09-23T07:18:00.000Z', 780), // 01:18 CDMX del miércoles
+      g('b', '2026-09-23T05:00:00.000Z'),      // 23:00 del martes
+      g('a', '2026-09-23T04:09:00.000Z', 360), // 22:09 del martes (empezó 22:03)
+      g('z', '2026-09-21T00:45:00.000Z'),      // domingo: otra reta
+    ]
+    const sessions = groupSessions(games)
+    expect(sessions.map(s => s.games.map(x => x.game_unique_id))).toEqual([['c', 'b', 'a'], ['z']])
+    expect(sessions[0].key).toBe('c')
+    expect(sessions[0].endTs).toBe(Date.parse('2026-09-23T07:18:00.000Z'))
+    expect(sessions[0].startTs).toBe(Date.parse('2026-09-23T04:03:00.000Z'))
+  })
+
+  it('sin partidas -> sin retas', () => {
+    expect(groupSessions([])).toEqual([])
+  })
+})
 
 describe('formatCDMX', () => {
   it('convierte un instante fijo a fecha/hora de CDMX (UTC-6 todo el año)', () => {

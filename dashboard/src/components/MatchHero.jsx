@@ -13,7 +13,7 @@ export const MatchHero = ({ game }) => {
       <div className="mh-head">
         <div>
           <div className="map">{game.map_name}</div>
-          <div className="gt">{game.game_type_name} · 2v2</div>
+          <div className="gt">{game.game_type_name}{game.format ? ` · ${game.format}` : ''}</div>
         </div>
         <div className="meta">
           <div><b>{dateStr}</b> {timeStr} hrs</div>

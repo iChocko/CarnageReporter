@@ -11,6 +11,42 @@ export function formatCDMX(timestamp) {
   return { dateStr: `${get('day')}/${get('month')}/${get('year')}`, timeStr: `${get('hour')}:${get('minute')}` }
 }
 
+/** "Martes 22 de septiembre" (día de CDMX) para encabezar una reta. */
+export function formatDayCDMX(timestamp) {
+  const parts = new Intl.DateTimeFormat('es-MX', {
+    timeZone: 'America/Mexico_City', weekday: 'long', day: 'numeric', month: 'long'
+  }).formatToParts(new Date(timestamp))
+  const get = t => (parts.find(p => p.type === t) || {}).value || ''
+  const weekday = get('weekday')
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${get('day')} de ${get('month')}`
+}
+
+// Más de 3 h sin partidas entre una y otra = retas distintas.
+export const SESSION_GAP_MS = 3 * 60 * 60 * 1000
+
+/**
+ * Agrupa partidas (más reciente primero, como llegan de /api/stats/recent)
+ * en retas: la reta sigue mientras no pasen más de `gapMs` entre el final de
+ * una partida y el de la siguiente. Una reta que cruza la medianoche queda
+ * junta. startTs = inicio de su primera partida (fin - duración).
+ * @returns {{ key: string, games: object[], startTs: number, endTs: number }[]}
+ */
+export function groupSessions(games, gapMs = SESSION_GAP_MS) {
+  const sessions = []
+  let current = null
+  for (const g of games) {
+    const endMs = new Date(g.timestamp).getTime()
+    if (!current || current.oldestEndMs - endMs > gapMs) {
+      current = { key: g.game_unique_id, games: [], endTs: endMs, oldestEndMs: endMs, startTs: endMs }
+      sessions.push(current)
+    }
+    current.games.push(g)
+    current.oldestEndMs = endMs
+    current.startTs = endMs - Math.max(0, g.duration || 0) * 1000
+  }
+  return sessions.map(s => ({ key: s.key, games: s.games, startTs: s.startTs, endTs: s.endTs }))
+}
+
 export const kdOf = p => p.deaths > 0 ? (p.kills / p.deaths) : p.kills
 export const kdaOf = p => p.deaths > 0 ? ((p.kills + p.assists) / p.deaths) : (p.kills + p.assists)
 export const fmt2 = n => (Math.round(n * 100) / 100).toFixed(2)
