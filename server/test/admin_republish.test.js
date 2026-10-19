@@ -206,6 +206,37 @@ test('POST .../republish (outbox apagado): re-renderiza y publica DIRECTO', asyn
     });
 });
 
+test('POST .../republish { only: "whatsapp" }: no toca Discord', async () => {
+    const discord = makeFakeDiscord();
+    const whatsapp = makeFakeWhatsapp();
+    const ctx = buildCtx({ discord, whatsapp });
+
+    await withServer(ctx, async (baseUrl) => {
+        const res = await fetch(`${baseUrl}/api/admin/games/${GAME_ROW.game_unique_id}/republish`, {
+            method: 'POST',
+            headers: { 'X-Admin-Key': 'test-admin-key', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ only: 'whatsapp' }),
+        });
+        assert.strictEqual(res.status, 200);
+        const body = await res.json();
+        assert.deepStrictEqual(body.publish, { discord: 'skipped', whatsapp: 'sent' });
+        assert.strictEqual(discord.calls.length, 0);
+        assert.strictEqual(whatsapp.calls.sendImage.length, 1);
+    });
+});
+
+test('POST .../republish con only inválido -> 400', async () => {
+    const ctx = buildCtx();
+    await withServer(ctx, async (baseUrl) => {
+        const res = await fetch(`${baseUrl}/api/admin/games/${GAME_ROW.game_unique_id}/republish`, {
+            method: 'POST',
+            headers: { 'X-Admin-Key': 'test-admin-key', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ only: 'telegram' }),
+        });
+        assert.strictEqual(res.status, 400);
+    });
+});
+
 test('POST .../republish (outbox prendido): encola en vez de publicar directo, idempotente', async () => {
     const discord = makeFakeDiscord();
     const whatsapp = makeFakeWhatsapp();

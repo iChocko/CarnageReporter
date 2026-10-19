@@ -185,9 +185,15 @@ function createAdminGamesRouter(ctx) {
      * Idempotente: usa `dedupe_key = game_image:<canal>:<gameId>`, igual que
      * el pipeline, así que republicar dos veces no manda dos imágenes si el
      * outbox sigue teniendo la fila original pendiente/enviada.
-     * POST /api/admin/games/:id/republish
+     * POST /api/admin/games/:id/republish  Body opcional: { only: 'discord'|'whatsapp' }
+     * `only` publica en un solo canal (p. ej. reenviar a WhatsApp tras una
+     * caída sin duplicar la imagen que Discord sí recibió).
      */
     router.post('/api/admin/games/:id/republish', adminAuth, asyncHandler(async (req, res) => {
+        const only = req.body?.only;
+        if (only !== undefined && only !== 'discord' && only !== 'whatsapp') {
+            return res.status(400).json({ error: "only debe ser 'discord' o 'whatsapp'" });
+        }
         const fullId = await resolveGameId(ctx, req.params.id, res);
         if (!fullId) return;
 
@@ -209,17 +215,21 @@ function createAdminGamesRouter(ctx) {
         const discordChannel = format === '2v2' ? 'discord' : 'discord4v4';
         const publish = {};
 
-        publish.discord = await publishRow(ctx, {
-            kind: 'game_image', channel: discordChannel,
-            dedupe_key: `game_image:${discordChannel}:${fullId}`,
-            payload: { gameId: fullId, imagePath: pngPath, format, gameData, players },
-        }, async () => {
-            const ok = await discordSvc.sendImage(pngPath, gameData, players);
-            return ok ? 'sent' : 'failed';
-        });
+        if (only === 'whatsapp') {
+            publish.discord = 'skipped';
+        } else {
+            publish.discord = await publishRow(ctx, {
+                kind: 'game_image', channel: discordChannel,
+                dedupe_key: `game_image:${discordChannel}:${fullId}`,
+                payload: { gameId: fullId, imagePath: pngPath, format, gameData, players },
+            }, async () => {
+                const ok = await discordSvc.sendImage(pngPath, gameData, players);
+                return ok ? 'sent' : 'failed';
+            });
+        }
 
         const chatId = ctx.whatsapp.groupIdFor(format);
-        if (!chatId) {
+        if (only === 'discord' || !chatId) {
             publish.whatsapp = 'skipped';
         } else {
             const { winnerLine, mapLine, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
