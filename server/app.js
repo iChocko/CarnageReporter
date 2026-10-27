@@ -31,6 +31,7 @@ const { createHealthRouter } = require('./http/routes/health');
 const { createReportRouter } = require('./http/routes/report');
 const { createAdminGamesRouter } = require('./http/routes/adminGames');
 const { createAdminWhatsappRouter } = require('./http/routes/adminWhatsapp');
+const { createAdminTorneoRouter } = require('./http/routes/adminTorneo');
 const { createStatsRouter } = require('./http/routes/stats');
 const { createStripeRouter } = require('./http/routes/stripe');
 
@@ -108,6 +109,7 @@ function createApp(ctx) {
 
     app.use(createAdminGamesRouter(ctx));
     app.use(createAdminWhatsappRouter(ctx));
+    app.use(createAdminTorneoRouter(ctx));
 
     // ============== DASHBOARD STATS ENDPOINTS ==============
 

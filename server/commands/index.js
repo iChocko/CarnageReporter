@@ -16,6 +16,7 @@ const { createAnularHandler } = require('./anular');
 const { createRondasHandler } = require('./rondas');
 const { createMarcadorHandler } = require('./marcador');
 const { createComandosHandler } = require('./comandos');
+const { createTorneoHandler } = require('./torneo');
 
 /**
  * @param {import('../messaging/port').MessagingPort} whatsapp
@@ -53,6 +54,10 @@ function registerAll(whatsapp, ctx) {
     // perdió partidas (exe cerrado). Inyecta partidas de ajuste virtuales
     // que cuentan para marcador y cuenta ($), nunca para stats. Solo admin.
     whatsapp.registerCommand('!marcador', createMarcadorHandler(ctx));
+
+    // Comando del grupo: !torneo -> tabla, series y stats del torneo activo;
+    // los organizadores (admins o `admins` de la config) corrigen desde aquí.
+    whatsapp.registerCommand('!torneo', createTorneoHandler(ctx));
 
     // Comando del grupo: !comandos (alias !ayuda) -> lista de comandos
     whatsapp.registerCommand('!comandos', createComandosHandler(ctx));

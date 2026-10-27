@@ -17,6 +17,7 @@ function buildComandosReply(format) {
         return [
             '*Comandos del bot*',
             ...comunes,
+            '• *!torneo* — tabla del torneo · *!torneo serie 2* · *!torneo stats*',
             '',
             'Solo admin:',
             '• *!vincula @persona <gamertag>* — registra a otra persona',

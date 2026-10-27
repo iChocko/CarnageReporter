@@ -94,7 +94,7 @@ function createOutboxWorker({
         if (kind === 'game_image') {
             if (channel === 'discord' || channel === 'discord4v4') {
                 const svc = channel === 'discord' ? discord : discord4v4;
-                const ok = await svc.sendImage(payload.imagePath, payload.gameData, payload.players);
+                const ok = await svc.sendImage(payload.imagePath, payload.gameData, payload.players, payload.extraLine || null);
                 if (!ok) {
                     throw Object.assign(new Error(`Discord (${channel}) sendImage devolvió false`), { code: 'transient' });
                 }

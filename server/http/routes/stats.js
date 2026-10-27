@@ -14,6 +14,7 @@ const { computeSaldos, getLastCorteTs } = require('../../utils/saldos');
 const { getResetTs } = require('../../utils/rondasReset');
 const { getRondasGames, getSaldosGames } = require('../../domain/rondas');
 const { loadRoster } = require('../../utils/roster');
+const { getTorneoResult } = require('../../domain/torneo');
 
 // Formato pedido en el query (?format=2v2|4v4), default 2v2.
 function reqFormat(req) {
@@ -274,6 +275,22 @@ function createStatsRouter(ctx) {
             totalGames: totalsByTag.get(String(l.gamertag).toLowerCase()) || 0,
         }));
         res.json(roster);
+    }));
+
+    /**
+     * Torneo activo: tabla por equipos, series con sus games y stats
+     * individuales. Las "candidatas" (revisión del admin) no se exponen aquí.
+     * 404 si no hay torneo activo (el dashboard esconde la pestaña).
+     * GET /api/stats/torneo
+     */
+    router.get('/api/stats/torneo', asyncHandler(async (req, res) => {
+        const result = await getTorneoResult(ctx);
+        if (!result) return res.status(404).json({ error: 'No hay torneo activo' });
+        const { candidatas, ...pub } = result;
+        res.json({
+            ...pub,
+            revisar: candidatas.filter(c => c.estado === 'revisar' || c.estado === 'anulada').length,
+        });
     }));
 
     return router;

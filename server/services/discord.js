@@ -25,14 +25,19 @@ class DiscordService {
         return `${url.hostname}${url.pathname.slice(0, 30)}...`;
     }
 
-    async sendImage(imagePath, gameData, players) {
+    /**
+     * @param {string} [extraLine] - línea adicional al final del caption
+     *   (p.ej. el marcador del torneo); ya viene sanitizada.
+     */
+    async sendImage(imagePath, gameData, players, extraLine = null) {
         if (!this.webhookUrl) {
             log.warn('⚠️  Discord webhook no configurado');
             return false;
         }
 
         const { winnerLine, mapLine, dateStr, timeStr, shortId, fullId } = buildCaptionParts(gameData, players);
-        const caption = `**🏆 ${winnerLine}**\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: \`${shortId}\` (${fullId})`;
+        const caption = `**🏆 ${winnerLine}**\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: \`${shortId}\` (${fullId})`
+            + (extraLine ? `\n${extraLine}` : '');
 
         try {
             const boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW';

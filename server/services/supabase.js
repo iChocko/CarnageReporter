@@ -332,6 +332,41 @@ class SupabaseService {
         return games.map(g => ({ ...g, players: byGame.get(g.game_unique_id) || [] }));
     }
 
+    /**
+     * Partidas desde `sinceIso` de CUALQUIER formato, anuladas incluidas, con
+     * jugadores (y `completed_game` para marcar desconexiones). Para el
+     * torneo (domain/torneo.js): una partida anulada por el validador o de
+     * formato raro (suplente que entró a media partida) puede ser oficial si
+     * un admin la fija. La ventana es corta (días), así que no pesa.
+     * @param {string} sinceIso
+     */
+    async getGamesWithPlayersSince(sinceIso) {
+        if (!this.client) return [];
+        const games = await this._selectAllPages(() => this.client
+            .from('games')
+            .select('id, game_unique_id, map_name, game_type_name, timestamp, duration, format, is_voided, void_reason', { count: 'exact' })
+            .gte('timestamp', sinceIso)
+            .order('id', { ascending: true }));
+        if (games.length === 0) return [];
+
+        const ids = games.map(g => g.game_unique_id);
+        const players = [];
+        for (let i = 0; i < ids.length; i += PLAYERS_ID_CHUNK) {
+            const chunk = ids.slice(i, i + PLAYERS_ID_CHUNK);
+            players.push(...await this._selectAllPages(() => this.client
+                .from('players')
+                .select('game_unique_id, gamertag, team_id, score, kills, deaths, assists, most_kills_in_a_row, completed_game', { count: 'exact' })
+                .in('game_unique_id', chunk)
+                .order('id', { ascending: true })));
+        }
+        const byGame = new Map();
+        for (const p of players) {
+            if (!byGame.has(p.game_unique_id)) byGame.set(p.game_unique_id, []);
+            byGame.get(p.game_unique_id).push(p);
+        }
+        return games.map(({ id: _id, ...g }) => ({ ...g, players: byGame.get(g.game_unique_id) || [] }));
+    }
+
     /** TODAS las partidas válidas de un formato (récords, H2H, perfiles, leaderboard). */
     async getAllValidGamesWithPlayers(format) {
         return this._gamesWithPlayers({ format });

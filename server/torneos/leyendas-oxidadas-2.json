@@ -1,0 +1,81 @@
+{
+  "id": "leyendas-oxidadas-2",
+  "nombre": "Leyendas Oxidadas 2.0",
+  "activo": true,
+  "inicio": "2026-10-27T20:30:00-06:00",
+  "fin": null,
+  "bo": 3,
+  "minTitulares": 3,
+  "admins": ["eL T AA O", "SSTomm"],
+  "objetivos": {},
+  "equipos": [
+    {
+      "id": "tomm", "nombre": "Tomm", "color": "#e5484d",
+      "jugadores": [
+        { "nombre": "Tomm", "gamertags": ["SSTomm"], "capitan": true },
+        { "nombre": "Mast3wars", "gamertags": ["M4ST3RWARS"] },
+        { "nombre": "Legit", "gamertags": ["Legitbox"] },
+        { "nombre": "Primal", "gamertags": ["PrimalNewt9929"] }
+      ]
+    },
+    {
+      "id": "zeus", "nombre": "Zeus", "color": "#3e8ef7",
+      "jugadores": [
+        { "nombre": "Zeuz", "gamertags": ["Zeuz Zee"], "capitan": true },
+        { "nombre": "Choko", "gamertags": ["iChocko"] },
+        { "nombre": "Pryme", "gamertags": ["Prymne"] },
+        { "nombre": "Dreams", "gamertags": ["Always iDreaMz"] }
+      ]
+    },
+    {
+      "id": "shine", "nombre": "Shine", "color": "#f5c518",
+      "jugadores": [
+        { "nombre": "Shine", "gamertags": ["iShinedownN"], "capitan": true },
+        { "nombre": "Shady", "gamertags": ["Shady Legacyy"] },
+        { "nombre": "Mecoboy", "gamertags": ["SsMecoboy"] },
+        { "nombre": "Hydracoin", "gamertags": ["hydracoin"] }
+      ]
+    },
+    {
+      "id": "jahyr", "nombre": "Jahyr", "color": "#a855f7",
+      "jugadores": [
+        { "nombre": "Jahir", "gamertags": ["iOut x JaHyyR"], "capitan": true },
+        { "nombre": "HanibaL", "gamertags": ["a Hannibal"] },
+        { "nombre": "William", "gamertags": ["OMG ItZ WilliaM"] },
+        { "nombre": "Jksss", "gamertags": ["Jk sssss"] }
+      ]
+    },
+    {
+      "id": "buda", "nombre": "Buda", "color": "#22c55e",
+      "jugadores": [
+        { "nombre": "Buda", "gamertags": ["lBuda", "Buda AJ"], "capitan": true },
+        { "nombre": "Tao", "gamertags": ["eL T AA O"] },
+        { "nombre": "Deco", "gamertags": ["II BR Deco II"] },
+        { "nombre": "Black Angel", "gamertags": ["BLACK ANGEL9607"] }
+      ]
+    }
+  ],
+  "series": [
+    { "n": 1, "a": "tomm", "b": "zeus", "games": [
+      { "mapa": "The Pit", "modo": "ctf" }, { "mapa": "Heretic", "modo": "slayer" }, { "mapa": "Guardian", "modo": "oddball" } ] },
+    { "n": 2, "a": "tomm", "b": "shine", "games": [
+      { "mapa": "Guardian", "modo": "oddball" }, { "mapa": "Narrows", "modo": "slayer" }, { "mapa": "Onslaught", "modo": "ctf" } ] },
+    { "n": 3, "a": "tomm", "b": "jahyr", "games": [
+      { "mapa": "Heretic", "modo": "ctf" }, { "mapa": "The Pit", "modo": "slayer" }, { "mapa": "Construct", "modo": "koth" } ] },
+    { "n": 4, "a": "tomm", "b": "buda", "games": [
+      { "mapa": "Construct", "modo": "koth" }, { "mapa": "Amplified", "modo": "slayer" }, { "mapa": "Narrows", "modo": "ctf" } ] },
+    { "n": 5, "a": "zeus", "b": "shine", "games": [
+      { "mapa": "Onslaught", "modo": "ctf" }, { "mapa": "Construct", "modo": "slayer" }, { "mapa": "Heretic", "modo": "ctf" } ] },
+    { "n": 6, "a": "zeus", "b": "jahyr", "games": [
+      { "mapa": "Guardian", "modo": "oddball" }, { "mapa": "Amplified", "modo": "slayer" }, { "mapa": "Narrows", "modo": "ctf" } ] },
+    { "n": 7, "a": "zeus", "b": "buda", "games": [
+      { "mapa": "The Pit", "modo": "ctf" }, { "mapa": "Narrows", "modo": "slayer" }, { "mapa": "Construct", "modo": "koth" } ] },
+    { "n": 8, "a": "shine", "b": "jahyr", "games": [
+      { "mapa": "Narrows", "modo": "ctf" }, { "mapa": "Heretic", "modo": "slayer" }, { "mapa": "The Pit", "modo": "ctf" } ] },
+    { "n": 9, "a": "shine", "b": "buda", "games": [
+      { "mapa": "Heretic", "modo": "ctf" }, { "mapa": "The Pit", "modo": "slayer" }, { "mapa": "Onslaught", "modo": "ctf" } ] },
+    { "n": 10, "a": "jahyr", "b": "buda", "games": [
+      { "mapa": "Narrows", "modo": "ctf" }, { "mapa": "Construct", "modo": "slayer" }, { "mapa": "Guardian", "modo": "oddball" } ] }
+  ],
+  "overrides": []
+}

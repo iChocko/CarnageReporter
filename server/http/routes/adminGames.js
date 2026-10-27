@@ -13,6 +13,7 @@ const { MAP_NAMES } = require('../../utils/maps');
 const { FORMATS, classifyFormat } = require('../../utils/format');
 const { buildCaptionParts } = require('../../utils/matchSummary');
 const { publishRow } = require('../../messaging/outboxPublish');
+const { captionLineFor } = require('../../domain/torneo');
 const { logger } = require('../../logger');
 
 const log = logger.child({ mod: 'http' });
@@ -214,6 +215,8 @@ function createAdminGamesRouter(ctx) {
         const discordSvc = format === '2v2' ? ctx.discord : ctx.discord4v4;
         const discordChannel = format === '2v2' ? 'discord' : 'discord4v4';
         const publish = {};
+        const torneoLineWa = format === '4v4' ? await captionLineFor(ctx, fullId, 'whatsapp') : null;
+        const torneoLineDc = format === '4v4' ? await captionLineFor(ctx, fullId, 'discord') : null;
 
         if (only === 'whatsapp') {
             publish.discord = 'skipped';
@@ -221,9 +224,9 @@ function createAdminGamesRouter(ctx) {
             publish.discord = await publishRow(ctx, {
                 kind: 'game_image', channel: discordChannel,
                 dedupe_key: `game_image:${discordChannel}:${fullId}`,
-                payload: { gameId: fullId, imagePath: pngPath, format, gameData, players },
+                payload: { gameId: fullId, imagePath: pngPath, format, gameData, players, extraLine: torneoLineDc },
             }, async () => {
-                const ok = await discordSvc.sendImage(pngPath, gameData, players);
+                const ok = await discordSvc.sendImage(pngPath, gameData, players, torneoLineDc);
                 return ok ? 'sent' : 'failed';
             });
         }
@@ -233,7 +236,8 @@ function createAdminGamesRouter(ctx) {
             publish.whatsapp = 'skipped';
         } else {
             const { winnerLine, mapLine, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
-            const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
+            const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`
+                + (torneoLineWa ? `\n${torneoLineWa}` : '');
             publish.whatsapp = await publishRow(ctx, {
                 kind: 'game_image', channel: 'whatsapp',
                 dedupe_key: `game_image:whatsapp:${fullId}`,

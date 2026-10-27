@@ -26,6 +26,7 @@ const { resolveMap } = require('../utils/maps');
 const { currentOrLastSession, formatLiveRoundUpdate } = require('../utils/sessions');
 const { getRondasGames } = require('../domain/rondas');
 const { publishRow } = require('../messaging/outboxPublish');
+const { captionLineFor } = require('../domain/torneo');
 
 const reportLog = logger.child({ mod: 'report' });
 
@@ -34,8 +35,8 @@ const reportLog = logger.child({ mod: 'report' });
 const CLOCK_SKEW_THRESHOLD_MS = 2 * 60 * 1000;
 
 /** Envío directo de la imagen a Discord (2v2 -> `discord`, 4v4 -> `discord4v4`). Mismo log que siempre. */
-async function sendDiscordImageDirect(svc, { pngPath, gameData, players, label }) {
-    const ok = await svc.sendImage(pngPath, gameData, players);
+async function sendDiscordImageDirect(svc, { pngPath, gameData, players, label, extraLine }) {
+    const ok = await svc.sendImage(pngPath, gameData, players, extraLine || null);
     reportLog.info(`   ${ok ? '✅' : '❌'} Discord${label}: ${ok ? 'Enviado' : 'Fallido'}`);
     return ok ? 'sent' : 'failed';
 }
@@ -185,6 +186,10 @@ async function processReport({ gameData, players, filename, schemaVersion, clien
         //    4v4 -> Discord(validación) + WhatsApp(Torneos Halo 3)
         const publish = {};
 
+        // Torneo activo: línea con serie/game/marcador (solo 4v4; nunca bloquea)
+        const torneoLineWa = format === '4v4' ? await captionLineFor(ctx, gameId, 'whatsapp') : null;
+        const torneoLineDc = format === '4v4' ? await captionLineFor(ctx, gameId, 'discord') : null;
+
         if (format === '2v2' || format === '4v4') {
             const svc = format === '2v2' ? discord : discord4v4;
             const label = format === '4v4' ? ' (4v4)' : '';
@@ -192,10 +197,10 @@ async function processReport({ gameData, players, filename, schemaVersion, clien
                 publish.discord = await publishRow(ctx, {
                     kind: 'game_image', channel: format === '2v2' ? 'discord' : 'discord4v4',
                     dedupe_key: `game_image:${format === '2v2' ? 'discord' : 'discord4v4'}:${gameId}`,
-                    payload: { gameId, imagePath: pngPath, format, gameData, players },
-                }, () => sendDiscordImageDirect(svc, { pngPath, gameData, players, label }));
+                    payload: { gameId, imagePath: pngPath, format, gameData, players, extraLine: torneoLineDc },
+                }, () => sendDiscordImageDirect(svc, { pngPath, gameData, players, label, extraLine: torneoLineDc }));
             } else {
-                await sendDiscordImageDirect(svc, { pngPath, gameData, players, label });
+                await sendDiscordImageDirect(svc, { pngPath, gameData, players, label, extraLine: torneoLineDc });
             }
         }
 
@@ -206,7 +211,8 @@ async function processReport({ gameData, players, filename, schemaVersion, clien
                 reportLog.warn(`   ⚠️  Sin grupo de WhatsApp configurado para ${format}`);
             } else {
                 const { winnerLine, mapLine, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
-                const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
+                const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`
+                    + (torneoLineWa ? `\n${torneoLineWa}` : '');
                 publish.whatsapp = await publishRow(ctx, {
                     kind: 'game_image', channel: 'whatsapp',
                     dedupe_key: `game_image:whatsapp:${gameId}`,
@@ -216,7 +222,8 @@ async function processReport({ gameData, players, filename, schemaVersion, clien
         } else if (whatsapp.isReady()) {
             if (chatId) {
                 const { winnerLine, mapLine, dateStr, timeStr, shortId } = buildCaptionParts(gameData, players);
-                const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`;
+                const waCaption = `🏆 *${winnerLine}*\n${mapLine}\n${dateStr} ${timeStr} hrs (CDMX)\nID: ${shortId}`
+                    + (torneoLineWa ? `\n${torneoLineWa}` : '');
                 const waResult = await whatsapp.sendImage(pngPath, waCaption, chatId);
                 reportLog.info(`   ${waResult ? '✅' : '❌'} WhatsApp (${format}): ${waResult ? 'Enviado' : 'Fallido'}`);
             } else {

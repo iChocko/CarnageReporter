@@ -39,6 +39,8 @@ function createGamesCache({ supabase, ttlMs, now = Date.now }) {
     const validInFlight = new Map(); // format -> Promise
     const recentCache = new Map();   // "limit:format" -> { at, value }
     const recentInFlight = new Map(); // "limit:format" -> Promise
+    const sinceCache = new Map();    // sinceIso -> { at, value }
+    const sinceInFlight = new Map(); // sinceIso -> Promise
 
     function memoize(cache, inFlight, key, fetcher) {
         const cached = cache.get(key);
@@ -72,12 +74,20 @@ function createGamesCache({ supabase, ttlMs, now = Date.now }) {
         return memoize(recentCache, recentInFlight, key, () => supabase.getRecentGamesWithPlayers(limit, format));
     }
 
+    // Torneo: partidas desde el inicio, de cualquier formato y anuladas
+    // incluidas (ver supabase.getGamesWithPlayersSince). Misma invalidación.
+    function getGamesWithPlayersSince(sinceIso) {
+        if (typeof supabase.getGamesWithPlayersSince !== 'function') return Promise.resolve([]);
+        return memoize(sinceCache, sinceInFlight, sinceIso, () => supabase.getGamesWithPlayersSince(sinceIso));
+    }
+
     function invalidateAll() {
         validCache.clear();
         recentCache.clear();
+        sinceCache.clear();
     }
 
-    return { getAllValidGamesWithPlayers, getRecentGamesWithPlayers, invalidateAll };
+    return { getAllValidGamesWithPlayers, getRecentGamesWithPlayers, getGamesWithPlayersSince, invalidateAll };
 }
 
 module.exports = { createGamesCache, DEFAULT_TTL_MS };

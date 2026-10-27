@@ -22,6 +22,7 @@ function buildLocks() {
         withAnularLock: makeLock(),
         withAjusteLock: makeLock(),
         withSaldosLock: makeLock(),
+        withTorneoLock: makeLock(),
     };
 }
 
