@@ -9,8 +9,15 @@ const TABS = [
   ['/perfil', 'perfil', 'Perfil'],
 ]
 
-export const Tabs = ({ view, navigate }) => (
+// La pestaña del torneo solo aparece con un torneo activo; va primero y
+// destacada (en celular ocupa su propio renglón arriba de la grilla 3 x 2).
+export const Tabs = ({ view, navigate, torneoNombre }) => (
   <nav className="tabs" role="tablist" aria-label="Secciones">
+    {torneoNombre && (
+      <button className="tab tab-torneo" role="tab" aria-selected={view === 'torneo'} onClick={() => navigate('/torneo')}>
+        🏆 {torneoNombre}
+      </button>
+    )}
     {TABS.map(([path, id, label]) => (
       <button key={id} className="tab" role="tab" aria-selected={view === id} onClick={() => navigate(path)}>
         {label}

@@ -289,6 +289,9 @@ function createStatsRouter(ctx) {
         const { candidatas, ...pub } = result;
         res.json({
             ...pub,
+            // Detalle (scoreboard) de las partidas jugadas de cada serie
+            partidas: candidatas.filter(c => ['cuenta', 'empate', 'reiniciada'].includes(c.estado))
+                .map(({ noRegistrados: _n, ...c }) => c),
             revisar: candidatas.filter(c => c.estado === 'revisar' || c.estado === 'anulada').length,
         });
     }));

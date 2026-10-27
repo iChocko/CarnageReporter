@@ -1,0 +1,1623 @@
+{
+ "torneo": {
+  "id": "leyendas-oxidadas-2",
+  "nombre": "Leyendas Oxidadas 2.0",
+  "activo": true,
+  "inicio": "2026-10-28T02:30:00.000Z",
+  "fin": null,
+  "bo": 3,
+  "equipos": [
+   {
+    "id": "tomm",
+    "nombre": "Tomm",
+    "color": "#e5484d",
+    "jugadores": [
+     {
+      "nombre": "Tomm",
+      "gamertags": [
+       "SSTomm"
+      ],
+      "capitan": true
+     },
+     {
+      "nombre": "Mast3wars",
+      "gamertags": [
+       "M4ST3RWARS"
+      ],
+      "capitan": false
+     },
+     {
+      "nombre": "Legit",
+      "gamertags": [
+       "Legitbox"
+      ],
+      "capitan": false
+     },
+     {
+      "nombre": "Primal",
+      "gamertags": [
+       "PrimalNewt9929"
+      ],
+      "capitan": false
+     }
+    ]
+   },
+   {
+    "id": "zeus",
+    "nombre": "Zeus",
+    "color": "#3e8ef7",
+    "jugadores": [
+     {
+      "nombre": "Zeuz",
+      "gamertags": [
+       "Zeuz Zee"
+      ],
+      "capitan": true
+     },
+     {
+      "nombre": "Choko",
+      "gamertags": [
+       "iChocko"
+      ],
+      "capitan": false
+     },
+     {
+      "nombre": "Pryme",
+      "gamertags": [
+       "Prymne"
+      ],
+      "capitan": false
+     },
+     {
+      "nombre": "Dreams",
+      "gamertags": [
+       "Always iDreaMz"
+      ],
+      "capitan": false
+     }
+    ]
+   },
+   {
+    "id": "shine",
+    "nombre": "Shine",
+    "color": "#f5c518",
+    "jugadores": [
+     {
+      "nombre": "Shine",
+      "gamertags": [
+       "iShinedownN"
+      ],
+      "capitan": true
+     },
+     {
+      "nombre": "Shady",
+      "gamertags": [
+       "Shady Legacyy"
+      ],
+      "capitan": false
+     },
+     {
+      "nombre": "Mecoboy",
+      "gamertags": [
+       "SsMecoboy"
+      ],
+      "capitan": false
+     },
+     {
+      "nombre": "Hydracoin",
+      "gamertags": [
+       "hydracoin"
+      ],
+      "capitan": false
+     }
+    ]
+   },
+   {
+    "id": "jahyr",
+    "nombre": "Jahyr",
+    "color": "#a855f7",
+    "jugadores": [
+     {
+      "nombre": "Jahir",
+      "gamertags": [
+       "iOut x JaHyyR"
+      ],
+      "capitan": true
+     },
+     {
+      "nombre": "HanibaL",
+      "gamertags": [
+       "a Hannibal"
+      ],
+      "capitan": false
+     },
+     {
+      "nombre": "William",
+      "gamertags": [
+       "OMG ItZ WilliaM"
+      ],
+      "capitan": false
+     },
+     {
+      "nombre": "Jksss",
+      "gamertags": [
+       "Jk sssss"
+      ],
+      "capitan": false
+     }
+    ]
+   },
+   {
+    "id": "buda",
+    "nombre": "Buda",
+    "color": "#22c55e",
+    "jugadores": [
+     {
+      "nombre": "Buda",
+      "gamertags": [
+       "lBuda",
+       "Buda AJ"
+      ],
+      "capitan": true
+     },
+     {
+      "nombre": "Tao",
+      "gamertags": [
+       "eL T AA O"
+      ],
+      "capitan": false
+     },
+     {
+      "nombre": "Deco",
+      "gamertags": [
+       "II BR Deco II"
+      ],
+      "capitan": false
+     },
+     {
+      "nombre": "Black Angel",
+      "gamertags": [
+       "BLACK ANGEL9607"
+      ],
+      "capitan": false
+     }
+    ]
+   }
+  ]
+ },
+ "standings": [
+  {
+   "pos": 1,
+   "id": "tomm",
+   "nombre": "Tomm",
+   "color": "#e5484d",
+   "seriesJugadas": 1,
+   "seriesGanadas": 1,
+   "seriesPerdidas": 0,
+   "seriesPendientes": 3,
+   "seriesCanceladas": 0,
+   "partidasGanadas": 2,
+   "partidasPerdidas": 0,
+   "difPartidas": 2,
+   "kills": 84,
+   "deaths": 64,
+   "assists": 24,
+   "kd": 1.31
+  },
+  {
+   "pos": 2,
+   "id": "buda",
+   "nombre": "Buda",
+   "color": "#22c55e",
+   "seriesJugadas": 0,
+   "seriesGanadas": 0,
+   "seriesPerdidas": 0,
+   "seriesPendientes": 4,
+   "seriesCanceladas": 0,
+   "partidasGanadas": 0,
+   "partidasPerdidas": 0,
+   "difPartidas": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "kd": 0
+  },
+  {
+   "pos": 3,
+   "id": "jahyr",
+   "nombre": "Jahyr",
+   "color": "#a855f7",
+   "seriesJugadas": 0,
+   "seriesGanadas": 0,
+   "seriesPerdidas": 0,
+   "seriesPendientes": 4,
+   "seriesCanceladas": 0,
+   "partidasGanadas": 0,
+   "partidasPerdidas": 0,
+   "difPartidas": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "kd": 0
+  },
+  {
+   "pos": 4,
+   "id": "zeus",
+   "nombre": "Zeus",
+   "color": "#3e8ef7",
+   "seriesJugadas": 0,
+   "seriesGanadas": 0,
+   "seriesPerdidas": 0,
+   "seriesPendientes": 4,
+   "seriesCanceladas": 0,
+   "partidasGanadas": 0,
+   "partidasPerdidas": 0,
+   "difPartidas": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "kd": 0
+  },
+  {
+   "pos": 5,
+   "id": "shine",
+   "nombre": "Shine",
+   "color": "#f5c518",
+   "seriesJugadas": 1,
+   "seriesGanadas": 0,
+   "seriesPerdidas": 1,
+   "seriesPendientes": 3,
+   "seriesCanceladas": 0,
+   "partidasGanadas": 0,
+   "partidasPerdidas": 2,
+   "difPartidas": -2,
+   "kills": 84,
+   "deaths": 64,
+   "assists": 24,
+   "kd": 1.31
+  }
+ ],
+ "series": [
+  {
+   "n": 1,
+   "a": "tomm",
+   "b": "zeus",
+   "estado": "pendiente",
+   "ganador": null,
+   "marcador": {
+    "tomm": 0,
+    "zeus": 0
+   },
+   "wo": null,
+   "games": [
+    {
+     "slot": 1,
+     "mapa": "The Pit",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 2,
+     "mapa": "Heretic",
+     "modo": "slayer",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 3,
+     "mapa": "Guardian",
+     "modo": "oddball",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    }
+   ]
+  },
+  {
+   "n": 2,
+   "a": "tomm",
+   "b": "shine",
+   "estado": "terminada",
+   "ganador": "tomm",
+   "marcador": {
+    "tomm": 2,
+    "shine": 0
+   },
+   "wo": null,
+   "games": [
+    {
+     "slot": 1,
+     "mapa": "Guardian",
+     "modo": "oddball",
+     "ganador": "tomm",
+     "manual": null,
+     "gameId": "aaaa1111-0002",
+     "marcador": {
+      "tomm": 200,
+      "shine": 150
+     },
+     "intentos": [
+      {
+       "gameId": "aaaa1111-0001",
+       "timestamp": "2026-10-28T03:00:00.000Z",
+       "estado": "reiniciada",
+       "ganador": "shine",
+       "marcador": {
+        "tomm": 120,
+        "shine": 200
+       }
+      },
+      {
+       "gameId": "aaaa1111-0002",
+       "timestamp": "2026-10-28T03:14:00.000Z",
+       "estado": "cuenta",
+       "ganador": "tomm",
+       "marcador": {
+        "tomm": 200,
+        "shine": 150
+       }
+      }
+     ]
+    },
+    {
+     "slot": 2,
+     "mapa": "Narrows",
+     "modo": "slayer",
+     "ganador": "tomm",
+     "manual": null,
+     "gameId": "aaaa1111-0003",
+     "marcador": {
+      "tomm": 50,
+      "shine": 41
+     },
+     "intentos": [
+      {
+       "gameId": "aaaa1111-0003",
+       "timestamp": "2026-10-28T03:30:00.000Z",
+       "estado": "cuenta",
+       "ganador": "tomm",
+       "marcador": {
+        "tomm": 50,
+        "shine": 41
+       }
+      }
+     ]
+    },
+    {
+     "slot": 3,
+     "mapa": "Onslaught",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    }
+   ]
+  },
+  {
+   "n": 3,
+   "a": "tomm",
+   "b": "jahyr",
+   "estado": "pendiente",
+   "ganador": null,
+   "marcador": {
+    "tomm": 0,
+    "jahyr": 0
+   },
+   "wo": null,
+   "games": [
+    {
+     "slot": 1,
+     "mapa": "Heretic",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 2,
+     "mapa": "The Pit",
+     "modo": "slayer",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 3,
+     "mapa": "Construct",
+     "modo": "koth",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    }
+   ]
+  },
+  {
+   "n": 4,
+   "a": "tomm",
+   "b": "buda",
+   "estado": "pendiente",
+   "ganador": null,
+   "marcador": {
+    "tomm": 0,
+    "buda": 0
+   },
+   "wo": null,
+   "games": [
+    {
+     "slot": 1,
+     "mapa": "Construct",
+     "modo": "koth",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 2,
+     "mapa": "Amplified",
+     "modo": "slayer",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 3,
+     "mapa": "Narrows",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    }
+   ]
+  },
+  {
+   "n": 5,
+   "a": "zeus",
+   "b": "shine",
+   "estado": "pendiente",
+   "ganador": null,
+   "marcador": {
+    "zeus": 0,
+    "shine": 0
+   },
+   "wo": null,
+   "games": [
+    {
+     "slot": 1,
+     "mapa": "Onslaught",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 2,
+     "mapa": "Construct",
+     "modo": "slayer",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 3,
+     "mapa": "Heretic",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    }
+   ]
+  },
+  {
+   "n": 6,
+   "a": "zeus",
+   "b": "jahyr",
+   "estado": "pendiente",
+   "ganador": null,
+   "marcador": {
+    "zeus": 0,
+    "jahyr": 0
+   },
+   "wo": null,
+   "games": [
+    {
+     "slot": 1,
+     "mapa": "Guardian",
+     "modo": "oddball",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 2,
+     "mapa": "Amplified",
+     "modo": "slayer",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 3,
+     "mapa": "Narrows",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    }
+   ]
+  },
+  {
+   "n": 7,
+   "a": "zeus",
+   "b": "buda",
+   "estado": "pendiente",
+   "ganador": null,
+   "marcador": {
+    "zeus": 0,
+    "buda": 0
+   },
+   "wo": null,
+   "games": [
+    {
+     "slot": 1,
+     "mapa": "The Pit",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 2,
+     "mapa": "Narrows",
+     "modo": "slayer",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 3,
+     "mapa": "Construct",
+     "modo": "koth",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    }
+   ]
+  },
+  {
+   "n": 8,
+   "a": "shine",
+   "b": "jahyr",
+   "estado": "pendiente",
+   "ganador": null,
+   "marcador": {
+    "shine": 0,
+    "jahyr": 0
+   },
+   "wo": null,
+   "games": [
+    {
+     "slot": 1,
+     "mapa": "Narrows",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 2,
+     "mapa": "Heretic",
+     "modo": "slayer",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 3,
+     "mapa": "The Pit",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    }
+   ]
+  },
+  {
+   "n": 9,
+   "a": "shine",
+   "b": "buda",
+   "estado": "pendiente",
+   "ganador": null,
+   "marcador": {
+    "shine": 0,
+    "buda": 0
+   },
+   "wo": null,
+   "games": [
+    {
+     "slot": 1,
+     "mapa": "Heretic",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 2,
+     "mapa": "The Pit",
+     "modo": "slayer",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 3,
+     "mapa": "Onslaught",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    }
+   ]
+  },
+  {
+   "n": 10,
+   "a": "jahyr",
+   "b": "buda",
+   "estado": "pendiente",
+   "ganador": null,
+   "marcador": {
+    "jahyr": 0,
+    "buda": 0
+   },
+   "wo": null,
+   "games": [
+    {
+     "slot": 1,
+     "mapa": "Narrows",
+     "modo": "ctf",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 2,
+     "mapa": "Construct",
+     "modo": "slayer",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    },
+    {
+     "slot": 3,
+     "mapa": "Guardian",
+     "modo": "oddball",
+     "ganador": null,
+     "manual": null,
+     "gameId": null,
+     "marcador": null,
+     "intentos": []
+    }
+   ]
+  }
+ ],
+ "players": [
+  {
+   "nombre": "Shine",
+   "equipo": "shine",
+   "capitan": true,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [
+    "iShinedownN"
+   ],
+   "pj": 2,
+   "ganadas": 0,
+   "perdidas": 2,
+   "empates": 0,
+   "kills": 24,
+   "deaths": 16,
+   "assists": 6,
+   "bestSpree": 4,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Shine",
+   "kd": 1.5,
+   "kda": 1.88,
+   "killsPorPartida": 12
+  },
+  {
+   "nombre": "Tomm",
+   "equipo": "tomm",
+   "capitan": true,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [
+    "SSTomm"
+   ],
+   "pj": 2,
+   "ganadas": 2,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 24,
+   "deaths": 16,
+   "assists": 6,
+   "bestSpree": 4,
+   "mvps": 2,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Tomm",
+   "kd": 1.5,
+   "kda": 1.88,
+   "killsPorPartida": 12
+  },
+  {
+   "nombre": "Mast3wars",
+   "equipo": "tomm",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [
+    "M4ST3RWARS"
+   ],
+   "pj": 2,
+   "ganadas": 2,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 22,
+   "deaths": 16,
+   "assists": 6,
+   "bestSpree": 4,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Tomm",
+   "kd": 1.38,
+   "kda": 1.75,
+   "killsPorPartida": 11
+  },
+  {
+   "nombre": "Shady",
+   "equipo": "shine",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [
+    "Shady Legacyy"
+   ],
+   "pj": 2,
+   "ganadas": 0,
+   "perdidas": 2,
+   "empates": 0,
+   "kills": 22,
+   "deaths": 16,
+   "assists": 6,
+   "bestSpree": 4,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Shine",
+   "kd": 1.38,
+   "kda": 1.75,
+   "killsPorPartida": 11
+  },
+  {
+   "nombre": "Mecoboy",
+   "equipo": "shine",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [
+    "SsMecoboy"
+   ],
+   "pj": 2,
+   "ganadas": 0,
+   "perdidas": 2,
+   "empates": 0,
+   "kills": 20,
+   "deaths": 16,
+   "assists": 6,
+   "bestSpree": 4,
+   "mvps": 0,
+   "dcs": 1,
+   "comoSuplente": 0,
+   "equipoNombre": "Shine",
+   "kd": 1.25,
+   "kda": 1.63,
+   "killsPorPartida": 10
+  },
+  {
+   "nombre": "Legit",
+   "equipo": "tomm",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [
+    "Legitbox"
+   ],
+   "pj": 1,
+   "ganadas": 1,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 10,
+   "deaths": 8,
+   "assists": 3,
+   "bestSpree": 4,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Tomm",
+   "kd": 1.25,
+   "kda": 1.63,
+   "killsPorPartida": 10
+  },
+  {
+   "nombre": "Legit PC",
+   "equipo": "tomm",
+   "capitan": false,
+   "titular": false,
+   "registrado": false,
+   "gamertags": [
+    "Legit PC"
+   ],
+   "pj": 1,
+   "ganadas": 1,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 10,
+   "deaths": 8,
+   "assists": 3,
+   "bestSpree": 4,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 1,
+   "equipoNombre": "Tomm",
+   "kd": 1.25,
+   "kda": 1.63,
+   "killsPorPartida": 10
+  },
+  {
+   "nombre": "Hydracoin",
+   "equipo": "shine",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [
+    "hydracoin"
+   ],
+   "pj": 2,
+   "ganadas": 0,
+   "perdidas": 2,
+   "empates": 0,
+   "kills": 18,
+   "deaths": 16,
+   "assists": 6,
+   "bestSpree": 4,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Shine",
+   "kd": 1.13,
+   "kda": 1.5,
+   "killsPorPartida": 9
+  },
+  {
+   "nombre": "Primal",
+   "equipo": "tomm",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [
+    "PrimalNewt9929"
+   ],
+   "pj": 2,
+   "ganadas": 2,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 18,
+   "deaths": 16,
+   "assists": 6,
+   "bestSpree": 4,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Tomm",
+   "kd": 1.13,
+   "kda": 1.5,
+   "killsPorPartida": 9
+  },
+  {
+   "nombre": "Black Angel",
+   "equipo": "buda",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Buda",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "Buda",
+   "equipo": "buda",
+   "capitan": true,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Buda",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "Choko",
+   "equipo": "zeus",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Zeus",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "Deco",
+   "equipo": "buda",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Buda",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "Dreams",
+   "equipo": "zeus",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Zeus",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "HanibaL",
+   "equipo": "jahyr",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Jahyr",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "Jahir",
+   "equipo": "jahyr",
+   "capitan": true,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Jahyr",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "Jksss",
+   "equipo": "jahyr",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Jahyr",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "Pryme",
+   "equipo": "zeus",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Zeus",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "Tao",
+   "equipo": "buda",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Buda",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "William",
+   "equipo": "jahyr",
+   "capitan": false,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Jahyr",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  },
+  {
+   "nombre": "Zeuz",
+   "equipo": "zeus",
+   "capitan": true,
+   "titular": true,
+   "registrado": true,
+   "gamertags": [],
+   "pj": 0,
+   "ganadas": 0,
+   "perdidas": 0,
+   "empates": 0,
+   "kills": 0,
+   "deaths": 0,
+   "assists": 0,
+   "bestSpree": 0,
+   "mvps": 0,
+   "dcs": 0,
+   "comoSuplente": 0,
+   "equipoNombre": "Zeus",
+   "kd": 0,
+   "kda": 0,
+   "killsPorPartida": 0
+  }
+ ],
+ "partidas": [
+  {
+   "gameId": "aaaa1111-0001",
+   "timestamp": "2026-10-28T03:00:00.000Z",
+   "mapa": "Guardian",
+   "modo": "oddball",
+   "gameType": "HARDCORE BALL",
+   "duration": 600,
+   "anuladaPorValidador": false,
+   "voidReason": null,
+   "serie": 2,
+   "slot": 1,
+   "estado": "reiniciada",
+   "motivo": "Se volvió a jugar el mismo game",
+   "fijada": false,
+   "ganador": "shine",
+   "lados": [
+    {
+     "equipo": "tomm",
+     "puntos": 120,
+     "jugadores": [
+      {
+       "gamertag": "SSTomm",
+       "nombre": "Tomm",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 12,
+       "deaths": 8,
+       "assists": 3,
+       "score": 120
+      },
+      {
+       "gamertag": "M4ST3RWARS",
+       "nombre": "Mast3wars",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 11,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "Legitbox",
+       "nombre": "Legit",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 10,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "PrimalNewt9929",
+       "nombre": "Primal",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 9,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      }
+     ]
+    },
+    {
+     "equipo": "shine",
+     "puntos": 200,
+     "jugadores": [
+      {
+       "gamertag": "iShinedownN",
+       "nombre": "Shine",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 12,
+       "deaths": 8,
+       "assists": 3,
+       "score": 200
+      },
+      {
+       "gamertag": "Shady Legacyy",
+       "nombre": "Shady",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 11,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "SsMecoboy",
+       "nombre": "Mecoboy",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 10,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "hydracoin",
+       "nombre": "Hydracoin",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 9,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      }
+     ]
+    }
+   ],
+   "terminoAntes": false
+  },
+  {
+   "gameId": "aaaa1111-0002",
+   "timestamp": "2026-10-28T03:14:00.000Z",
+   "mapa": "Guardian",
+   "modo": "oddball",
+   "gameType": "HARDCORE BALL",
+   "duration": 600,
+   "anuladaPorValidador": false,
+   "voidReason": null,
+   "serie": 2,
+   "slot": 1,
+   "estado": "cuenta",
+   "motivo": null,
+   "fijada": false,
+   "ganador": "tomm",
+   "lados": [
+    {
+     "equipo": "tomm",
+     "puntos": 200,
+     "jugadores": [
+      {
+       "gamertag": "SSTomm",
+       "nombre": "Tomm",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 12,
+       "deaths": 8,
+       "assists": 3,
+       "score": 200
+      },
+      {
+       "gamertag": "M4ST3RWARS",
+       "nombre": "Mast3wars",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 11,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "Legitbox",
+       "nombre": "Legit",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 10,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "PrimalNewt9929",
+       "nombre": "Primal",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 9,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      }
+     ]
+    },
+    {
+     "equipo": "shine",
+     "puntos": 150,
+     "jugadores": [
+      {
+       "gamertag": "iShinedownN",
+       "nombre": "Shine",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 12,
+       "deaths": 8,
+       "assists": 3,
+       "score": 150
+      },
+      {
+       "gamertag": "Shady Legacyy",
+       "nombre": "Shady",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 11,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "SsMecoboy",
+       "nombre": "Mecoboy",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 10,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "hydracoin",
+       "nombre": "Hydracoin",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 9,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      }
+     ]
+    }
+   ],
+   "terminoAntes": false
+  },
+  {
+   "gameId": "aaaa1111-0003",
+   "timestamp": "2026-10-28T03:30:00.000Z",
+   "mapa": "Narrows",
+   "modo": "slayer",
+   "gameType": "HARDCORE TS",
+   "duration": 600,
+   "anuladaPorValidador": false,
+   "voidReason": null,
+   "serie": 2,
+   "slot": 2,
+   "estado": "cuenta",
+   "motivo": null,
+   "fijada": false,
+   "ganador": "tomm",
+   "lados": [
+    {
+     "equipo": "tomm",
+     "puntos": 50,
+     "jugadores": [
+      {
+       "gamertag": "SSTomm",
+       "nombre": "Tomm",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 12,
+       "deaths": 8,
+       "assists": 3,
+       "score": 50
+      },
+      {
+       "gamertag": "M4ST3RWARS",
+       "nombre": "Mast3wars",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 11,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "Legit PC",
+       "nombre": "Legit PC",
+       "suplente": true,
+       "registrado": false,
+       "dc": false,
+       "kills": 10,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "PrimalNewt9929",
+       "nombre": "Primal",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 9,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      }
+     ]
+    },
+    {
+     "equipo": "shine",
+     "puntos": 41,
+     "jugadores": [
+      {
+       "gamertag": "iShinedownN",
+       "nombre": "Shine",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 12,
+       "deaths": 8,
+       "assists": 3,
+       "score": 41
+      },
+      {
+       "gamertag": "Shady Legacyy",
+       "nombre": "Shady",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 11,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "SsMecoboy",
+       "nombre": "Mecoboy",
+       "suplente": false,
+       "registrado": true,
+       "dc": true,
+       "kills": 10,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      },
+      {
+       "gamertag": "hydracoin",
+       "nombre": "Hydracoin",
+       "suplente": false,
+       "registrado": true,
+       "dc": false,
+       "kills": 9,
+       "deaths": 8,
+       "assists": 3,
+       "score": 0
+      }
+     ]
+    }
+   ],
+   "terminoAntes": false
+  }
+ ],
+ "revisar": 0
+}

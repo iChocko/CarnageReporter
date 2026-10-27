@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 // Vistas implementadas. /admin es admin-lite: solo se llega por URL directa,
 // nunca aparece en Tabs (ver components/Tabs.jsx). Cualquier ruta que no
 // esté aquí cae a rankings.
-const KNOWN_VIEWS = ['rankings', 'partidas', 'h2h', 'perfil', 'rondas', 'saldos', 'roster', 'admin']
+const KNOWN_VIEWS = ['rankings', 'partidas', 'h2h', 'perfil', 'rondas', 'saldos', 'roster', 'admin', 'torneo']
 
 function parsePath(pathname) {
   const [seg, param] = pathname.split('/').filter(Boolean)

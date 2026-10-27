@@ -12,6 +12,8 @@ import { RondasView } from './views/RondasView'
 import { SaldosView } from './views/SaldosView'
 import { RosterView } from './views/RosterView'
 import { AdminView } from './views/AdminView'
+import { TorneoView } from './views/TorneoView'
+import { useApi } from './hooks/useApi'
 import { DISCORD_URL, GITHUB_URL, PAYPAL_URL } from './lib/links'
 
 const StripePaymentModal = lazy(() =>
@@ -23,12 +25,14 @@ const App = () => {
   const route = useRoute()
   const [stripeOpen, setStripeOpen] = useState(false)
   const stripeEnabled = Boolean(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
+  // Torneo activo: decide si aparece la pestaña y alimenta su vista (un solo fetch).
+  const torneo = useApi('/api/stats/torneo')
 
   return (
     <div className="wrap">
       <ServerBanner />
       <Header format={format} onFormatChange={setFormat} />
-      <Tabs view={route.view} navigate={route.navigate} />
+      <Tabs view={route.view} navigate={route.navigate} torneoNombre={torneo.data?.torneo?.nombre} />
 
       <section className="view">
         {route.view === 'rankings' && <RankingsView format={format} navigate={route.navigate} />}
@@ -41,6 +45,7 @@ const App = () => {
         {route.view === 'saldos' && <SaldosView navigate={route.navigate} />}
         {route.view === 'roster' && <RosterView format={format} navigate={route.navigate} />}
         {route.view === 'admin' && <AdminView />}
+        {route.view === 'torneo' && <TorneoView torneo={torneo} />}
       </section>
 
       <footer className="site">

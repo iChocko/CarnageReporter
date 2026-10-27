@@ -4,6 +4,7 @@ import { useAdminApi } from '../hooks/useAdminApi'
 import { ErrorState } from '../components/ErrorState'
 import { Skeleton } from '../components/Skeleton'
 import { formatCDMX } from '../lib/format'
+import { TorneoAdminSection } from './TorneoAdmin'
 
 const ADMIN_KEY_STORAGE = 'cr:adminKey'
 
@@ -212,14 +213,33 @@ export const AdminView = () => {
   }
 
   return (
+    <AdminPanel adminKey={adminKey} onUnauthorized={onUnauthorized} logout={logout} />
+  )
+}
+
+/**
+ * Con TORNEO_ADMIN_KEY (organizadores) solo se muestra el panel del torneo:
+ * las demás secciones responderían 401 y borrarían la clave. El rol sale de
+ * GET /api/admin/torneo, que acepta las dos claves.
+ */
+const AdminPanel = ({ adminKey, onUnauthorized, logout }) => {
+  const torneo = useAdminApi('/api/admin/torneo', adminKey, { onUnauthorized })
+  const role = torneo.data?.role
+
+  return (
     <>
       <div className="secbar">
-        <h2>Admin</h2>
+        <h2>{role === 'torneo' ? 'Admin del torneo' : 'Admin'}</h2>
         <button className="link-note" onClick={logout}>Salir</button>
       </div>
-      <WhatsappSection adminKey={adminKey} onUnauthorized={onUnauthorized} />
-      <GamesSection adminKey={adminKey} onUnauthorized={onUnauthorized} />
-      <RosterSection adminKey={adminKey} onUnauthorized={onUnauthorized} />
+      {role === 'admin' && (
+        <>
+          <WhatsappSection adminKey={adminKey} onUnauthorized={onUnauthorized} />
+          <GamesSection adminKey={adminKey} onUnauthorized={onUnauthorized} />
+          <RosterSection adminKey={adminKey} onUnauthorized={onUnauthorized} />
+        </>
+      )}
+      <TorneoAdminSection api={torneo} adminKey={adminKey} onUnauthorized={onUnauthorized} />
     </>
   )
 }

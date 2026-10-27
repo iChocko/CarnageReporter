@@ -468,6 +468,79 @@ footer.site a, footer.site button {
 }
 footer.site a:hover, footer.site button:hover { color: var(--blue-light); }
 
+/* ---------- Torneo ---------- */
+.tab-torneo { color: var(--gold); border-color: #5a5226; }
+.tab-torneo:hover { color: var(--gold-soft); }
+.tab-torneo[aria-selected="true"] { color: var(--gold); border-top-color: var(--gold); }
+.pchips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.torneo-hint { font-size: 12px; letter-spacing: .5px; margin-top: 10px; }
+.t-tag { display: inline-flex; align-items: center; gap: 6px; }
+.t-tag.strong { font-weight: 700; color: var(--steel-bright); }
+.t-dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+.cap-tag, .sub-tag, .dc-tag {
+  display: inline-block; font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase;
+  padding: 1px 5px; margin: 0 5px; border: 1px solid var(--line); color: var(--steel-dim); vertical-align: middle;
+}
+.cap-tag { margin-left: 0; color: var(--gold); border-color: #5a5226; }
+.dc-tag { color: var(--red-light); border-color: var(--red); }
+.torneo-tabla tbody tr.roster-row td { background: rgba(10, 16, 23, 0.6); padding: 6px 10px 10px; }
+.torneo-roster { display: flex; flex-direction: column; gap: 6px; }
+.tr-player { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; font-size: 13.5px; }
+.tr-player .tr-stats { color: var(--steel-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tr-player .tr-stats b { color: var(--steel); }
+th.sortable { cursor: pointer; user-select: none; }
+th.sorted, td.sorted { color: var(--gold); }
+
+.serie-list { display: flex; flex-direction: column; gap: 12px; }
+.serie-card { border: 1px solid var(--line); background: rgba(16, 24, 33, 0.7); }
+.serie-card.estado-en_curso { border-color: var(--gold); }
+.serie-card.estado-cancelada { opacity: .55; }
+.serie-head {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--line-soft);
+}
+.serie-n { font-size: 22px; font-weight: 700; color: var(--steel-dim); text-align: center; }
+.serie-team { color: var(--steel-dim); }
+.serie-team.right { text-align: right; justify-self: end; }
+.serie-team.leading .t-tag { color: var(--steel-bright); }
+.serie-team:not(.leading) .t-tag.strong { color: var(--steel); }
+.serie-score { font-size: 20px; font-weight: 700; color: var(--steel-bright); font-variant-numeric: tabular-nums; letter-spacing: 2px; }
+.serie-estado { font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase; padding: 2px 8px; border: 1px solid var(--line); color: var(--steel-dim); }
+.serie-estado.e-en_curso { color: var(--gold); border-color: var(--gold); }
+.serie-estado.e-terminada { color: var(--win); border-color: rgba(127, 191, 127, .5); }
+.serie-estado.e-wo { color: var(--red-light); border-color: var(--red); }
+.serie-note { padding: 6px 14px; font-size: 12.5px; color: var(--red-light); }
+.serie-games { display: flex; flex-direction: column; }
+.sg-row {
+  appearance: none; width: 100%; background: none; border: none; border-top: 1px solid var(--line-soft);
+  color: var(--steel); font-size: 13.5px; text-align: left; cursor: pointer;
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) 64px minmax(0, 1.1fr); gap: 10px; align-items: center;
+  padding: 8px 14px;
+}
+.serie-game:first-child .sg-row { border-top: none; }
+.sg-row:disabled { cursor: default; }
+.sg-row:not(:disabled):hover { background: rgba(90, 140, 190, 0.1); }
+.sg-row:focus-visible { outline: 2px solid var(--blue-light); outline-offset: -2px; }
+.sg-slot { color: var(--steel-dim); font-weight: 700; }
+.sg-map { color: var(--steel-bright); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-modo { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--steel-dim); }
+.sg-res { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; font-weight: 700; }
+.sg-detail { padding: 4px 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+.sg-intento { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; border-left: 3px solid var(--line); padding-left: 10px; }
+.t-score { border: 1px solid var(--line-soft); padding: 8px 10px; }
+.t-score-meta { font-size: 12px; margin-bottom: 6px; }
+.t-side + .t-side { margin-top: 8px; }
+.t-side-head { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--line-soft); }
+.t-side-head .pts { font-weight: 700; color: var(--steel-bright); font-variant-numeric: tabular-nums; }
+
+/* ---------- Admin del torneo ---------- */
+.ta-grid { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.ta-grid .select-steel, .ta-grid .input-steel { width: auto; }
+.ta-msg { font-size: 13px; margin: 6px 0; }
+.ta-json { width: 100%; min-height: 260px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.ta-estado-revisar, .ta-estado-anulada { color: var(--gold); font-weight: 700; }
+.ta-estado-cuenta { color: var(--win); font-weight: 700; }
+
 /* ---------- Solo en celular (ver el bloque de 600px) ---------- */
 .show-sm { display: none; }
 .sub-line { font-size: 12px; font-weight: 400; letter-spacing: 1px; color: var(--steel-dim); }
@@ -563,6 +636,18 @@ footer.site a:hover, footer.site button:hover { color: var(--blue-light); }
   .h2h-pickers .vs { text-align: center; }
 
   .enf-head { flex-direction: column; align-items: stretch; text-align: center; }
+
+  /* Torneo: su pestaña ocupa un renglón completo arriba de la grilla 3 x 2 */
+  .tab-torneo { grid-column: 1 / -1; }
+  .serie-head { grid-template-columns: 26px minmax(0, 1fr) auto minmax(0, 1fr); gap: 6px; padding: 8px 10px; }
+  .serie-estado { grid-column: 1 / -1; justify-self: start; }
+  .serie-n { font-size: 18px; }
+  .serie-score { font-size: 17px; letter-spacing: 1px; }
+  .sg-row { grid-template-columns: 24px minmax(0, 1fr) auto; padding: 8px 10px; }
+  .sg-res { grid-column: 2 / -1; justify-content: flex-start; }
+  .sg-detail { padding: 4px 10px 10px; }
+  .tr-player { grid-template-columns: minmax(0, 1fr); }
+  .ta-grid .select-steel, .ta-grid .input-steel { width: 100%; }
   .enf-side.right { text-align: center; }
   .admin-qr .qr-img { width: 100%; max-width: 260px; height: auto; }
 }

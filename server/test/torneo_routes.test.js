@@ -108,6 +108,8 @@ test('GET /api/stats/torneo: tabla, series y stats sin candidatas', async () => 
         assert.strictEqual(body.standings.length, 5);
         assert.ok(body.players.find(p => p.nombre === 'Tomm').pj === 1);
         assert.strictEqual(body.candidatas, undefined);
+        assert.strictEqual(body.partidas.length, 1);
+        assert.strictEqual(body.partidas[0].lados[0].jugadores.length, 4);
         assert.strictEqual(body.revisar, 0);
     });
 });
