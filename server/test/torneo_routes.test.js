@@ -1,6 +1,6 @@
 /**
  * Tests de integración del torneo: GET /api/stats/torneo (público) y el
- * panel /api/admin/torneo/* (ADMIN_KEY o TORNEO_ADMIN_KEY), más la línea
+ * panel /api/admin/torneo/* (ADMIN_KEY o clave individual de torneo_accesos), más la línea
  * del caption (domain/torneo.captionLineFor). Mismo patrón que
  * stats_dashboard.test.js: createApp con dependencias falsas.
  */
@@ -10,6 +10,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 
 const { createApp } = require('../app');
 const { createGamesCache } = require('../domain/gamesCache');
@@ -43,6 +44,12 @@ function buildCtx({ games = [], withConfig = true } = {}) {
         async getRecentGamesWithPlayers() { return []; },
         async getGamesWithPlayersSince() { return games; },
         async getGameWithPlayers() { return null; },
+        // torneo_accesos: 'test-torneo-key' es de Tomm (activo); 'clave-revocada' ya no existe activa
+        async getTorneoAcceso(hash) {
+            return hash === crypto.createHash('sha256').update('test-torneo-key').digest('hex') ? { id: 1, nombre: 'Tomm' } : null;
+        },
+        touched: [],
+        async touchTorneoAcceso(id) { this.touched.push(id); },
         async findGamesByIdPrefix(prefix) {
             return games.filter(x => x.game_unique_id.startsWith(prefix)).map(x => ({ game_unique_id: x.game_unique_id }));
         },
@@ -50,7 +57,7 @@ function buildCtx({ games = [], withConfig = true } = {}) {
     };
     return {
         config: {
-            API_KEY: 'k', ADMIN_KEY: 'test-admin-key', TORNEO_ADMIN_KEY: 'test-torneo-key',
+            API_KEY: 'k', ADMIN_KEY: 'test-admin-key',
             CORS_ORIGIN: null, WHATSAPP_ADMIN_JIDS: '',
         },
         logger,
@@ -114,13 +121,17 @@ test('GET /api/stats/torneo: tabla, series y stats sin candidatas', async () => 
     });
 });
 
-test('admin torneo: sin clave 401; TORNEO_ADMIN_KEY entra con rol torneo y no abre otros admin', async () => {
-    await withServer(buildCtx(), async (base) => {
+test('admin torneo: sin clave 401; clave individual entra con su nombre y no abre otros admin', async () => {
+    const ctx = buildCtx();
+    await withServer(ctx, async (base) => {
         assert.strictEqual((await fetch(`${base}/api/admin/torneo`)).status, 401);
+        assert.strictEqual((await fetch(`${base}/api/admin/torneo`, json('GET', null, 'clave-revocada'))).status, 401);
         const res = await fetch(`${base}/api/admin/torneo`, json('GET', null, 'test-torneo-key'));
         assert.strictEqual(res.status, 200);
         const body = await res.json();
         assert.strictEqual(body.role, 'torneo');
+        assert.strictEqual(body.nombre, 'Tomm');
+        assert.deepStrictEqual(ctx.supabase.touched, [1]);
         assert.ok(Array.isArray(body.result.candidatas));
         const other = await fetch(`${base}/api/admin/games`, json('GET', null, 'test-torneo-key'));
         assert.strictEqual(other.status, 401);
@@ -137,7 +148,7 @@ test('admin torneo: override excluir con ID corto, y deshacer', async () => {
         assert.strictEqual(res.status, 200);
         const { override } = await res.json();
         assert.strictEqual(override.gameId, 'bbbbbb01');
-        assert.strictEqual(override.por, 'web:torneo');
+        assert.strictEqual(override.por, 'web:Tomm');
 
         let pub = await (await fetch(`${base}/api/stats/torneo`)).json();
         assert.strictEqual(pub.series.find(s => s.n === 2).estado, 'pendiente');

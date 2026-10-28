@@ -8,8 +8,8 @@ const ESTADOS_VISIBLES = ['revisar', 'anulada', 'cuenta', 'empate', 'reiniciada'
 const TIPO_LABEL = { excluir: 'Excluir', fijar: 'Fijar', resultado: 'Resultado manual', wo: 'W.O.', cancelar: 'Cancelar serie' }
 
 /**
- * Panel del torneo dentro de /admin. Funciona con ADMIN_KEY o con
- * TORNEO_ADMIN_KEY (organizadores): todo pega a /api/admin/torneo/*.
+ * Panel del torneo dentro de /admin. Funciona con ADMIN_KEY o con la clave
+ * individual de cada organizador (torneo_accesos): todo pega a /api/admin/torneo/*.
  * `api` = useAdminApi('/api/admin/torneo') (AdminView ya lo trae para
  * saber el rol; aquí se reutiliza).
  */

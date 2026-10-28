@@ -451,6 +451,35 @@ class SupabaseService {
     }
 
     /**
+     * Acceso individual al panel del torneo (tabla torneo_accesos, ver
+     * supabase_schema.sql "MIGRACIÓN T1"). Busca por el sha256 de la clave;
+     * solo accesos activos. Tabla inexistente -> null (nadie entra con
+     * clave de organizador, la ADMIN_KEY sigue funcionando).
+     * @param {string} keyHash - sha256 hex de la clave
+     * @returns {Promise<{id: number, nombre: string}|null>}
+     */
+    async getTorneoAcceso(keyHash) {
+        if (!this.client) return null;
+        const { data, error } = await this.client
+            .from('torneo_accesos')
+            .select('id, nombre')
+            .eq('key_hash', keyHash)
+            .eq('activo', true)
+            .limit(1);
+        if (error) {
+            if (error.code === 'PGRST205' || error.code === '42P01') return null; // tabla no creada
+            throw new Error(`Error leyendo torneo_accesos: ${error.message}`);
+        }
+        return data && data[0] ? data[0] : null;
+    }
+
+    /** Marca el último uso de un acceso (best-effort, para auditoría). */
+    async touchTorneoAcceso(id) {
+        if (!this.client) return;
+        await this.client.from('torneo_accesos').update({ ultimo_uso_at: new Date().toISOString() }).eq('id', id);
+    }
+
+    /**
      * Marca o desmarca una partida como anulada.
      * @param {string} gameUniqueId - ID completo de la partida
      * @param {boolean} voided - true para anular, false para restaurar

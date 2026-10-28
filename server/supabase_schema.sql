@@ -272,3 +272,25 @@ CREATE INDEX IF NOT EXISTS idx_outbox_status_next_attempt
 
 -- RLS SIN políticas, igual que state_backups: solo el servidor la usa.
 ALTER TABLE public.outbox ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================
+-- MIGRACIÓN T1 (torneo — accesos individuales de organizadores)
+-- ============================================================
+-- Aplicar A MANO en el SQL Editor de Supabase. Cada organizador entra al
+-- panel del torneo (/admin) con su propia clave; aquí solo se guarda el
+-- sha256 (hex) de la clave. Revocar = activo = false (el server lo nota en
+-- <= 60s, sin redeploy). Alta de un acceso:
+--   insert into public.torneo_accesos (nombre, key_hash)
+--   values ('Nombre', encode(sha256('la-clave'::bytea), 'hex'));
+CREATE TABLE IF NOT EXISTS public.torneo_accesos (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ultimo_uso_at TIMESTAMPTZ
+);
+
+-- RLS SIN políticas, igual que state_backups/outbox: solo el servidor la usa.
+ALTER TABLE public.torneo_accesos ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.torneo_accesos FROM anon, authenticated;

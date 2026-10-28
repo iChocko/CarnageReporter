@@ -218,7 +218,7 @@ export const AdminView = () => {
 }
 
 /**
- * Con TORNEO_ADMIN_KEY (organizadores) solo se muestra el panel del torneo:
+ * Con una clave de organizador (tabla torneo_accesos) solo se muestra el panel del torneo:
  * las demás secciones responderían 401 y borrarían la clave. El rol sale de
  * GET /api/admin/torneo, que acepta las dos claves.
  */
@@ -229,7 +229,7 @@ const AdminPanel = ({ adminKey, onUnauthorized, logout }) => {
   return (
     <>
       <div className="secbar">
-        <h2>{role === 'torneo' ? 'Admin del torneo' : 'Admin'}</h2>
+        <h2>{role === 'torneo' ? `Torneo · ${torneo.data?.nombre || ''}` : 'Admin'}</h2>
         <button className="link-note" onClick={logout}>Salir</button>
       </div>
       {role === 'admin' && (

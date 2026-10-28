@@ -48,26 +48,39 @@ function adminAuthMiddleware(config) {
     };
 }
 
+/** sha256 hex de una clave (así se guardan en torneo_accesos). */
+function hashKey(key) {
+    return crypto.createHash('sha256').update(String(key || '')).digest('hex');
+}
+
 /**
- * Middleware del panel del torneo: acepta ADMIN_KEY (rol 'admin') o
- * TORNEO_ADMIN_KEY (rol 'torneo'). Deja el rol en `req.adminRole`.
+ * Middleware del panel del torneo: acepta ADMIN_KEY (rol 'admin') o una
+ * clave individual de organizador (rol 'torneo'), validada con
+ * `lookupAcceso(clave) -> {nombre}|null` (domain/torneoAccesos.js, tabla
+ * torneo_accesos en Supabase). Deja `req.adminRole` y `req.adminName`.
  */
-function torneoAdminAuthMiddleware(config) {
-    return function torneoAdminAuthMiddlewareHandler(req, res, next) {
-        if (!config.ADMIN_KEY && !config.TORNEO_ADMIN_KEY) {
-            return res.status(503).json({ error: 'Endpoints admin deshabilitados (sin ADMIN_KEY ni TORNEO_ADMIN_KEY)' });
-        }
+function torneoAdminAuthMiddleware(config, lookupAcceso) {
+    return async function torneoAdminAuthMiddlewareHandler(req, res, next) {
         const key = req.headers['x-admin-key'];
         if (config.ADMIN_KEY && safeEqual(key, config.ADMIN_KEY)) {
             req.adminRole = 'admin';
+            req.adminName = 'admin';
             return next();
         }
-        if (config.TORNEO_ADMIN_KEY && safeEqual(key, config.TORNEO_ADMIN_KEY)) {
-            req.adminRole = 'torneo';
-            return next();
+        if (key && lookupAcceso) {
+            try {
+                const acceso = await lookupAcceso(String(key));
+                if (acceso) {
+                    req.adminRole = 'torneo';
+                    req.adminName = acceso.nombre;
+                    return next();
+                }
+            } catch (err) {
+                return next(err);
+            }
         }
-        return res.status(401).json({ error: 'Admin key inválida' });
+        return res.status(401).json({ error: 'Clave inválida' });
     };
 }
 
-module.exports = { safeEqual, authMiddleware, adminAuthMiddleware, torneoAdminAuthMiddleware };
+module.exports = { safeEqual, hashKey, authMiddleware, adminAuthMiddleware, torneoAdminAuthMiddleware };

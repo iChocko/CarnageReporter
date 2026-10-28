@@ -28,9 +28,6 @@ function loadConfig(env = process.env) {
         PORT: env.PORT || 3000,
         API_KEY,
         ADMIN_KEY: env.ADMIN_KEY,
-        // Clave acotada a /api/admin/torneo/* (organizadores del torneo): no
-        // sirve para borrar/anular partidas ni para tocar WhatsApp.
-        TORNEO_ADMIN_KEY: env.TORNEO_ADMIN_KEY || '',
         STRIPE_SECRET_KEY: env.STRIPE_SECRET_KEY,
         DISCORD_WEBHOOK_URL: env.DISCORD_WEBHOOK_URL,
         DISCORD_WEBHOOK_URL_4V4: env.DISCORD_WEBHOOK_URL_4V4,

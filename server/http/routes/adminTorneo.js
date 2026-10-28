@@ -1,6 +1,7 @@
 /**
  * Panel admin del torneo (organizadores). Autenticación con ADMIN_KEY o con
- * TORNEO_ADMIN_KEY (acotada a estas rutas). Todo se guarda en
+ * una clave individual de organizador (tabla torneo_accesos en Supabase,
+ * acotada a estas rutas). Todo se guarda en
  * output/torneo.json vía domain/torneo.js y se recalcula al leer.
  */
 
@@ -11,12 +12,13 @@ const { asyncHandler } = require('../errors');
 const { torneoAdminAuthMiddleware } = require('../auth');
 const { resolveGameId } = require('./adminGames');
 const torneo = require('../../domain/torneo');
+const { createAccesoLookup } = require('../../domain/torneoAccesos');
 
 function createAdminTorneoRouter(ctx) {
     const router = express.Router();
-    const auth = torneoAdminAuthMiddleware(ctx.config);
+    const auth = torneoAdminAuthMiddleware(ctx.config, createAccesoLookup(ctx.supabase));
     const log = ctx.logger.child({ mod: 'http' });
-    const porDe = req => (req.adminRole === 'admin' ? 'web:admin' : 'web:torneo');
+    const porDe = req => `web:${req.adminName || req.adminRole}`;
 
     /**
      * Config cruda + cálculo completo (con candidatas) + rol de quien pide.
@@ -25,7 +27,7 @@ function createAdminTorneoRouter(ctx) {
     router.get('/api/admin/torneo', auth, asyncHandler(async (req, res) => {
         const config = torneo.loadRawConfig(ctx.outputDir);
         const result = config ? await torneo.getTorneoResult(ctx, { includeInactive: true }) : null;
-        res.json({ role: req.adminRole, config, result });
+        res.json({ role: req.adminRole, nombre: req.adminName, config, result });
     }));
 
     /**
