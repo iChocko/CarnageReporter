@@ -7,6 +7,7 @@
   "bo": 3,
   "minTitulares": 3,
   "admins": ["eL T AA O", "SSTomm"],
+  "puntos": { "victoria": 3, "empate": 1, "derrota": 0 },
   "objetivos": {},
   "equipos": [
     {

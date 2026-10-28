@@ -59,7 +59,7 @@ test('!torneo: tabla, líderes y series por jugar', async () => {
     const ctx = buildCtx([g('dddddd01', 'Guardian', 'HARDCORE BALL', 200, 50, 0)]);
     const reply = await run(ctx, '');
     assert.match(reply, /Leyendas Oxidadas 2\.0/);
-    assert.match(reply, /1\. \*Tomm\*/);
+    assert.match(reply, /1\. \*Tomm\* · 0 0 0 0 · 1-0 \(\+1\) · \*0 pts\*/);
     assert.match(reply, /Serie 2: Tomm vs Shine \(va 1-0\)/);
     assert.ok(!reply.startsWith('!torneo'));
 });
@@ -106,4 +106,13 @@ test('!torneo revisar lista partidas fuera de calendario y gamertags nuevos', as
     const reply = await run(ctx, 'revisar', TOMM_JID);
     assert.match(reply, /ffffff01 · Heretic HARDCORE CTF · Tomm vs Shine · revisar/);
     assert.match(reply, /Legit Alterno jugando con Tomm/);
+});
+
+test('!torneo empate <serie>: 1 punto para cada uno', async () => {
+    const ctx = buildCtx([]);
+    const reply = await run(ctx, 'empate 2', TOMM_JID);
+    assert.match(reply, /Serie 2: Tomm vs Shine\* — empate/);
+    assert.match(reply, /Empate declarado \(por SSTomm\)/);
+    const tabla = await run(ctx, '');
+    assert.match(tabla, /\*Tomm\* · 1 0 1 0 · 0-0 \(\+0\) · \*1 pts\*/);
 });

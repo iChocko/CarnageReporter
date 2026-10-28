@@ -6,7 +6,7 @@ import { fmt2, formatCDMX } from '../lib/format'
 
 const MODO_LABEL = { ctf: 'CTF', slayer: 'Slayer', oddball: 'Oddball', koth: 'KOTH' }
 const ESTADO_LABEL = {
-  pendiente: 'Pendiente', en_curso: 'En curso', terminada: 'Terminada', wo: 'W.O.', cancelada: 'Cancelada',
+  pendiente: 'Pendiente', en_curso: 'En curso', terminada: 'Terminada', wo: 'W.O.', empatada: 'Empate', cancelada: 'Cancelada',
 }
 const INTENTO_LABEL = { reiniciada: 'reiniciada', empate: 'empate · se repitió', cuenta: 'cuenta' }
 const SECCIONES = [['tabla', 'Tabla'], ['series', 'Series'], ['jugadores', 'Jugadores']]
@@ -37,11 +37,14 @@ const Tabla = ({ data, teamById }) => {
           <tr>
             <th className="c rank-col">#</th>
             <th>Equipo</th>
-            <th className="c">Series</th>
-            <th className="c">Games</th>
-            <th className="c">Dif</th>
+            <th className="c" title="Series jugadas">PJ</th>
+            <th className="c" title="Ganadas">PG</th>
+            <th className="c" title="Empatadas">PE</th>
+            <th className="c" title="Perdidas">PP</th>
+            <th className="c hide-sm" title="Games ganados-perdidos">Games</th>
+            <th className="c" title="Diferencia de games">Dif</th>
             <th className="c hide-sm">K/D</th>
-            <th className="c hide-sm">Por jugar</th>
+            <th className="c pts-col">Pts</th>
           </tr>
         </thead>
         <tbody>
@@ -52,7 +55,10 @@ const Tabla = ({ data, teamById }) => {
           ))}
         </tbody>
       </table>
-      <p className="dim torneo-hint">Toca un equipo para ver a sus jugadores. Desempate: series ganadas, head-to-head, diferencia de games, K/D.</p>
+      <p className="dim torneo-hint">
+        Puntos por serie: victoria 3, empate 1, derrota 0. Desempate: diferencia de games, enfrentamiento directo,
+        más games ganados y, si siguen iguales, partida extra. Toca un equipo para ver a sus jugadores.
+      </p>
     </div>
   )
 }
@@ -61,18 +67,24 @@ const TablaRow = ({ r, team, open, onToggle, roster }) => (
   <>
     <tr className="clickable" onClick={onToggle} aria-expanded={open}>
       <td className="c rank-col">{r.pos}</td>
-      <td className="player-name"><TeamTag team={team} strong /></td>
-      <td className="c"><b>{r.seriesGanadas}</b>-{r.seriesPerdidas}</td>
-      <td className="c">{r.partidasGanadas}-{r.partidasPerdidas}</td>
+      <td className="player-name">
+        <TeamTag team={team} strong />
+        {r.desempateExtra && <span className="sub-tag" title="Empate en todos los criterios">partida extra</span>}
+      </td>
+      <td className="c">{r.pj}</td>
+      <td className="c">{r.pg}</td>
+      <td className="c">{r.pe}</td>
+      <td className="c">{r.pp}</td>
+      <td className="c hide-sm">{r.partidasGanadas}-{r.partidasPerdidas}</td>
       <td className={`c ${r.difPartidas > 0 ? 'res-w' : r.difPartidas < 0 ? 'res-l' : ''}`}>
         {r.difPartidas > 0 ? `+${r.difPartidas}` : r.difPartidas}
       </td>
       <td className="c hide-sm">{fmt2(r.kd)}</td>
-      <td className="c hide-sm">{r.seriesPendientes}</td>
+      <td className="c pts-col"><b>{r.puntos}</b></td>
     </tr>
     {open && (
       <tr className="roster-row">
-        <td colSpan={7}>
+        <td colSpan={10}>
           <div className="torneo-roster">
             {roster.map(p => (
               <div className="tr-player" key={p.nombre}>
@@ -138,6 +150,7 @@ const SerieCard = ({ s, teamById, partidaById }) => {
         <span className={`serie-estado e-${s.estado}`}>{ESTADO_LABEL[s.estado]}</span>
       </div>
       {s.wo && <div className="serie-note">W.O. a favor de {teamById.get(s.wo.ganador)?.nombre}{s.wo.nota ? ` · ${s.wo.nota}` : ''}</div>}
+      {s.empate && <div className="serie-note">Empate declarado por los organizadores{s.empate.nota ? ` · ${s.empate.nota}` : ''}</div>}
       <div className="serie-games">
         {s.games.map(g => {
           const partida = g.gameId ? partidaById.get(g.gameId) : null
@@ -267,7 +280,7 @@ export const TorneoView = ({ torneo }) => {
   if (torneo.error?.status === 404) return <EmptyState>No hay torneo activo.</EmptyState>
   if (torneo.error || !data) return <ErrorState message="No se pudo cargar el torneo." reload={torneo.reload} />
 
-  const jugadas = data.series.filter(s => s.estado === 'terminada' || s.estado === 'wo').length
+  const jugadas = data.series.filter(s => ['terminada', 'wo', 'empatada'].includes(s.estado)).length
 
   return (
     <>

@@ -5,7 +5,7 @@ import { Skeleton } from '../components/Skeleton'
 import { formatCDMX } from '../lib/format'
 
 const ESTADOS_VISIBLES = ['revisar', 'anulada', 'cuenta', 'empate', 'reiniciada', 'excluida', 'cancelada']
-const TIPO_LABEL = { excluir: 'Excluir', fijar: 'Fijar', resultado: 'Resultado manual', wo: 'W.O.', cancelar: 'Cancelar serie' }
+const TIPO_LABEL = { excluir: 'Excluir', fijar: 'Fijar', resultado: 'Resultado manual', wo: 'W.O.', empate: 'Empate de serie', cancelar: 'Cancelar serie' }
 
 /**
  * Panel del torneo dentro de /admin. Funciona con ADMIN_KEY o con la clave
@@ -138,11 +138,12 @@ export const TorneoAdminSection = ({ api, adminKey, onUnauthorized }) => {
             </div>
           )}
 
-          <h4 className="dim">Resultado manual, W.O. o cancelar serie</h4>
+          <h4 className="dim">Resultado manual, W.O., empate o cancelar serie</h4>
           <div className="ta-grid">
             <select className="select-steel" value={manual.tipo} onChange={e => setManual({ ...manual, tipo: e.target.value })}>
               <option value="resultado">Resultado manual de un game</option>
               <option value="wo">W.O. de la serie</option>
+              <option value="empate">Empate de la serie (1 punto c/u)</option>
               <option value="cancelar">Cancelar la serie</option>
             </select>
             <select className="select-steel" value={manual.serie} onChange={e => setManual({ ...manual, serie: e.target.value, ganador: '' })}>
@@ -153,7 +154,7 @@ export const TorneoAdminSection = ({ api, adminKey, onUnauthorized }) => {
                 {(serieSel?.games || []).map(g => <option key={g.slot} value={g.slot}>G{g.slot} · {g.mapa}</option>)}
               </select>
             )}
-            {manual.tipo !== 'cancelar' && serieSel && (
+            {['resultado', 'wo'].includes(manual.tipo) && serieSel && (
               <select className="select-steel" value={manual.ganador} onChange={e => setManual({ ...manual, ganador: e.target.value })}>
                 <option value="">Ganador…</option>
                 <option value={serieSel.a}>{teamName(serieSel.a)}</option>
@@ -162,7 +163,7 @@ export const TorneoAdminSection = ({ api, adminKey, onUnauthorized }) => {
             )}
             <input className="input-steel" placeholder="Nota (opcional)" value={manual.nota}
                    onChange={e => setManual({ ...manual, nota: e.target.value })} />
-            <button className="btn-steel small" disabled={busy || (manual.tipo !== 'cancelar' && !manual.ganador)}
+            <button className="btn-steel small" disabled={busy || (['resultado', 'wo'].includes(manual.tipo) && !manual.ganador)}
                     onClick={() => addOverride({
                       tipo: manual.tipo, serie: Number(manual.serie), slot: Number(manual.slot),
                       ganador: manual.ganador || undefined, nota: manual.nota || undefined,

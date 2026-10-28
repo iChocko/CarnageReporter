@@ -107,7 +107,8 @@ test('serie 2 completa 2-1, con lados invertidos de color', () => {
 
     const top = res.standings[0];
     assert.strictEqual(top.id, 'tomm');
-    assert.strictEqual(top.seriesGanadas, 1);
+    assert.strictEqual(top.pg, 1);
+    assert.strictEqual(top.puntos, 3);
     assert.strictEqual(top.partidasGanadas, 2);
 });
 
@@ -220,7 +221,8 @@ test('W.O. conserva lo jugado y completa la serie; cancelar no cuenta para nadie
     let s9 = serie(res, 9);
     assert.strictEqual(s9.estado, 'wo');
     assert.deepStrictEqual(s9.marcador, { shine: 2, buda: 1 });
-    assert.strictEqual(res.standings.find(r => r.id === 'shine').seriesGanadas, 1);
+    assert.strictEqual(res.standings.find(r => r.id === 'shine').pg, 1);
+    assert.strictEqual(res.standings.find(r => r.id === 'shine').puntos, 3);
 
     res = computeTorneo(cfgWith([{ id: 'o2', tipo: 'cancelar', serie: 9 }]), [g1]);
     s9 = serie(res, 9);
@@ -285,4 +287,52 @@ test('contextForGame: serie, slot y marcador para el caption', () => {
     const res2 = computeTorneo(cfgWith(), [g1, g2]);
     assert.deepStrictEqual(contextForGame(res2, 'ctx1').marcador, { tomm: 1, shine: 0 });
     assert.strictEqual(contextForGame(res2, 'ctx2').ganadorSerie, 'tomm');
+});
+
+test('tabla tipo Mundial: 3 por victoria, 1 por empate, 0 por derrota', () => {
+    const w = (a, b, map, type, min) => game({ a, b, map, type, scoreA: 3, scoreB: 0, min });
+    // Serie 2: Tomm gana 2-0 a Shine. Serie 10: Jahyr y Buda empatan 1-1 (declarado).
+    const games = [
+        w('tomm', 'shine', 'Guardian', 'HARDCORE BALL', 0), w('tomm', 'shine', 'Narrows', 'HARDCORE TS', 10),
+        w('jahyr', 'buda', 'Narrows', 'HARDCORE CTF', 20), w('buda', 'jahyr', 'Construct', 'HARDCORE CON TS', 30),
+    ];
+    const res = computeTorneo(cfgWith([{ id: 'e1', tipo: 'empate', serie: 10 }]), games);
+    const row = id => res.standings.find(r => r.id === id);
+    assert.strictEqual(serie(res, 10).estado, 'empatada');
+    assert.deepStrictEqual([row('tomm').puntos, row('tomm').pj, row('tomm').pg], [3, 1, 1]);
+    assert.deepStrictEqual([row('jahyr').puntos, row('jahyr').pe], [1, 1]);
+    assert.deepStrictEqual([row('buda').puntos, row('buda').pe], [1, 1]);
+    assert.deepStrictEqual([row('shine').puntos, row('shine').pp], [0, 1]);
+    assert.strictEqual(res.standings[0].id, 'tomm');
+});
+
+test('desempate: dif. de games antes que el enfrentamiento directo', () => {
+    // Zeus le gana 2-1 a Tomm (serie 1); Tomm le gana 2-0 a Shine (serie 2).
+    // Zeus y Tomm con 3 pts: Tomm tiene dif +1 (3-2), Zeus +1 (2-1) -> empate en dif;
+    // directo: Zeus ganó su serie -> Zeus arriba.
+    const g = (a, b, map, type, sa, sb, min) => game({ a, b, map, type, scoreA: sa, scoreB: sb, min });
+    const games = [
+        g('tomm', 'zeus', 'The Pit', 'HARDCORE CTF', 0, 3, 0), g('tomm', 'zeus', 'Heretic', 'HARDCORE TS', 50, 40, 10),
+        g('tomm', 'zeus', 'Guardian', 'HARDCORE BALL', 10, 200, 20),
+        g('tomm', 'shine', 'Guardian', 'HARDCORE BALL', 200, 10, 30), g('tomm', 'shine', 'Narrows', 'HARDCORE TS', 50, 10, 40),
+    ];
+    const res = computeTorneo(cfgWith(), games);
+    const tomm = res.standings.find(r => r.id === 'tomm');
+    const zeus = res.standings.find(r => r.id === 'zeus');
+    assert.strictEqual(tomm.puntos, 3);
+    assert.strictEqual(zeus.puntos, 3);
+    assert.strictEqual(tomm.difPartidas, 1);
+    assert.strictEqual(zeus.difPartidas, 1);
+    assert.ok(res.standings.indexOf(zeus) < res.standings.indexOf(tomm));
+});
+
+test('empate total entre equipos con todo jugado -> se marca partida extra', () => {
+    // Serie 10 declarada empate 1-1 y ninguno más juega: solo cuentan si ya no tienen series pendientes
+    const w = (a, b, map, type, min) => game({ a, b, map, type, scoreA: 3, scoreB: 0, min });
+    const games = [w('jahyr', 'buda', 'Narrows', 'HARDCORE CTF', 0), w('buda', 'jahyr', 'Construct', 'HARDCORE CON TS', 10)];
+    const others = cfgWith().series.filter(s => s.n !== 10).map((s, i) => ({ id: `c${i}`, tipo: 'cancelar', serie: s.n }));
+    const res = computeTorneo(cfgWith([{ id: 'e1', tipo: 'empate', serie: 10 }, ...others]), games);
+    assert.ok(res.standings.find(r => r.id === 'jahyr').desempateExtra);
+    assert.ok(res.standings.find(r => r.id === 'buda').desempateExtra);
+    assert.ok(!res.standings.find(r => r.id === 'tomm').desempateExtra);
 });

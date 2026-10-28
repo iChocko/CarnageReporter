@@ -108,7 +108,7 @@ async function addOverride(ctx, o, por) {
             if (!o.gameId) throw bad('Falta gameId');
             entry.gameId = String(o.gameId);
         }
-        if (['fijar', 'resultado', 'wo', 'cancelar'].includes(tipo)) {
+        if (['fijar', 'resultado', 'wo', 'empate', 'cancelar'].includes(tipo)) {
             if (!serie) throw bad(`No existe la serie ${o.serie}`);
             entry.serie = serie.n;
         }

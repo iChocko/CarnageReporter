@@ -5,7 +5,7 @@
  * Públicos:   !torneo · !torneo serie <n> · !torneo stats
  * Admins:     !torneo revisar · excluir <id> · fijar <id> <serie> <game>
  *             · resultado <serie> <game> <equipo> · wo <serie> <equipo>
- *             · cancelar <serie> · deshacer
+ *             · empate <serie> · cancelar <serie> · deshacer
  * Admins = admins globales del bot o los gamertags de `admins` en la config
  * del torneo vinculados a su número (domain/torneo.isTorneoAdmin).
  *
@@ -22,7 +22,7 @@ const { sanitizeCaptionText } = require('../utils/matchSummary');
 const clean = sanitizeCaptionText;
 
 const ESTADO_LABEL = {
-    pendiente: 'pendiente', en_curso: 'en curso', terminada: 'terminada', wo: 'W.O.', cancelada: 'cancelada',
+    pendiente: 'pendiente', en_curso: 'en curso', terminada: 'terminada', wo: 'W.O.', empatada: 'empate', cancelada: 'cancelada',
 };
 const MODO_LABEL = { ctf: 'CTF', slayer: 'Slayer', oddball: 'Oddball', koth: 'KOTH' };
 
@@ -38,6 +38,7 @@ const USAGE = [
     '• *!torneo fijar <id> <serie> <game>* — cuenta como ese game',
     '• *!torneo resultado <serie> <game> <equipo>* — resultado sin partida (foto)',
     '• *!torneo wo <serie> <equipo>* — W.O. de la serie',
+    '• *!torneo empate <serie>* — la serie queda empatada (1 punto c/u)',
     '• *!torneo cancelar <serie>* — la serie no se jugará',
     '• *!torneo deshacer* — quita la última corrección',
 ].join('\n');
@@ -56,9 +57,10 @@ function findTeam(result, text) {
 }
 
 function formatTabla(result) {
-    const lines = [`🏆 *${clean(result.torneo.nombre)}* — tabla`];
+    const lines = [`🏆 *${clean(result.torneo.nombre)}* — tabla (PJ PG PE PP · games · pts)`];
     for (const r of result.standings) {
-        lines.push(`${r.pos}. *${clean(r.nombre)}* · series ${r.seriesGanadas}-${r.seriesPerdidas} · games ${r.partidasGanadas}-${r.partidasPerdidas} (${r.difPartidas >= 0 ? '+' : ''}${r.difPartidas}) · K/D ${r.kd}`);
+        const dif = `${r.difPartidas >= 0 ? '+' : ''}${r.difPartidas}`;
+        lines.push(`${r.pos}. *${clean(r.nombre)}* · ${r.pj} ${r.pg} ${r.pe} ${r.pp} · ${r.partidasGanadas}-${r.partidasPerdidas} (${dif}) · *${r.puntos} pts*${r.desempateExtra ? ' ⚠️ partida extra' : ''}`);
     }
     const top = result.players.filter(p => p.pj > 0).slice(0, 5);
     if (top.length) {
@@ -84,6 +86,7 @@ function formatSerie(result, n) {
     const lines = [`🏆 *Serie ${s.n}: ${teamName(result, s.a)} vs ${teamName(result, s.b)}* — ${ESTADO_LABEL[s.estado]}`,
         `Marcador: ${teamName(result, s.a)} ${s.marcador[s.a]}-${s.marcador[s.b]} ${teamName(result, s.b)}`];
     if (s.wo) lines.push(`W.O. a favor de ${teamName(result, s.wo.ganador)}${s.wo.por ? ` (por ${clean(s.wo.por)})` : ''}`);
+    if (s.empate) lines.push(`Empate declarado${s.empate.por ? ` (por ${clean(s.empate.por)})` : ''}`);
     for (const g of s.games) {
         let res = 'pendiente';
         if (g.manual) res = `gana ${teamName(result, g.ganador)} (resultado manual${g.manual.por ? `, ${clean(g.manual.por)}` : ''})`;
@@ -144,7 +147,7 @@ function createTorneoHandler(ctx) {
         if (sub === 'stats') return formatStats(result);
         if (sub === 'ayuda' || sub === 'help') return USAGE;
 
-        const ADMIN_SUBS = ['revisar', 'excluir', 'fijar', 'resultado', 'wo', 'cancelar', 'deshacer'];
+        const ADMIN_SUBS = ['revisar', 'excluir', 'fijar', 'resultado', 'wo', 'empate', 'cancelar', 'deshacer'];
         if (!ADMIN_SUBS.includes(sub)) return USAGE;
 
         const auth = await torneo.isTorneoAdmin(ctx, senderId, msg, format);
@@ -180,7 +183,7 @@ function createTorneoHandler(ctx) {
                 const t = findTeam(result, words.slice(2).join(' '));
                 if (!t) return 'Equipo no reconocido. Usa el nombre del equipo (ej. Tomm).';
                 o.ganador = t.id;
-            } else if (sub === 'cancelar') {
+            } else if (sub === 'cancelar' || sub === 'empate') {
                 o.serie = Number(words[1]);
             }
             serieN = serieN || o.serie;

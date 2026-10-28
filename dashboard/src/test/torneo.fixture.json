@@ -191,9 +191,11 @@
    "id": "tomm",
    "nombre": "Tomm",
    "color": "#e5484d",
-   "seriesJugadas": 1,
-   "seriesGanadas": 1,
-   "seriesPerdidas": 0,
+   "puntos": 3,
+   "pj": 1,
+   "pg": 1,
+   "pe": 0,
+   "pp": 0,
    "seriesPendientes": 3,
    "seriesCanceladas": 0,
    "partidasGanadas": 2,
@@ -202,16 +204,19 @@
    "kills": 84,
    "deaths": 64,
    "assists": 24,
-   "kd": 1.31
+   "kd": 1.31,
+   "desempateExtra": false
   },
   {
    "pos": 2,
    "id": "buda",
    "nombre": "Buda",
    "color": "#22c55e",
-   "seriesJugadas": 0,
-   "seriesGanadas": 0,
-   "seriesPerdidas": 0,
+   "puntos": 0,
+   "pj": 0,
+   "pg": 0,
+   "pe": 0,
+   "pp": 0,
    "seriesPendientes": 4,
    "seriesCanceladas": 0,
    "partidasGanadas": 0,
@@ -220,16 +225,19 @@
    "kills": 0,
    "deaths": 0,
    "assists": 0,
-   "kd": 0
+   "kd": 0,
+   "desempateExtra": false
   },
   {
    "pos": 3,
    "id": "jahyr",
    "nombre": "Jahyr",
    "color": "#a855f7",
-   "seriesJugadas": 0,
-   "seriesGanadas": 0,
-   "seriesPerdidas": 0,
+   "puntos": 0,
+   "pj": 0,
+   "pg": 0,
+   "pe": 0,
+   "pp": 0,
    "seriesPendientes": 4,
    "seriesCanceladas": 0,
    "partidasGanadas": 0,
@@ -238,16 +246,19 @@
    "kills": 0,
    "deaths": 0,
    "assists": 0,
-   "kd": 0
+   "kd": 0,
+   "desempateExtra": false
   },
   {
    "pos": 4,
    "id": "zeus",
    "nombre": "Zeus",
    "color": "#3e8ef7",
-   "seriesJugadas": 0,
-   "seriesGanadas": 0,
-   "seriesPerdidas": 0,
+   "puntos": 0,
+   "pj": 0,
+   "pg": 0,
+   "pe": 0,
+   "pp": 0,
    "seriesPendientes": 4,
    "seriesCanceladas": 0,
    "partidasGanadas": 0,
@@ -256,16 +267,19 @@
    "kills": 0,
    "deaths": 0,
    "assists": 0,
-   "kd": 0
+   "kd": 0,
+   "desempateExtra": false
   },
   {
    "pos": 5,
    "id": "shine",
    "nombre": "Shine",
    "color": "#f5c518",
-   "seriesJugadas": 1,
-   "seriesGanadas": 0,
-   "seriesPerdidas": 1,
+   "puntos": 0,
+   "pj": 1,
+   "pg": 0,
+   "pe": 0,
+   "pp": 1,
    "seriesPendientes": 3,
    "seriesCanceladas": 0,
    "partidasGanadas": 0,
@@ -274,7 +288,8 @@
    "kills": 84,
    "deaths": 64,
    "assists": 24,
-   "kd": 1.31
+   "kd": 1.31,
+   "desempateExtra": false
   }
  ],
  "series": [
@@ -289,6 +304,7 @@
     "zeus": 0
    },
    "wo": null,
+   "empate": null,
    "games": [
     {
      "slot": 1,
@@ -333,6 +349,7 @@
     "shine": 0
    },
    "wo": null,
+   "empate": null,
    "games": [
     {
      "slot": 1,
@@ -415,6 +432,7 @@
     "jahyr": 0
    },
    "wo": null,
+   "empate": null,
    "games": [
     {
      "slot": 1,
@@ -459,6 +477,7 @@
     "buda": 0
    },
    "wo": null,
+   "empate": null,
    "games": [
     {
      "slot": 1,
@@ -503,6 +522,7 @@
     "shine": 0
    },
    "wo": null,
+   "empate": null,
    "games": [
     {
      "slot": 1,
@@ -547,6 +567,7 @@
     "jahyr": 0
    },
    "wo": null,
+   "empate": null,
    "games": [
     {
      "slot": 1,
@@ -591,6 +612,7 @@
     "buda": 0
    },
    "wo": null,
+   "empate": null,
    "games": [
     {
      "slot": 1,
@@ -635,6 +657,7 @@
     "jahyr": 0
    },
    "wo": null,
+   "empate": null,
    "games": [
     {
      "slot": 1,
@@ -679,6 +702,7 @@
     "buda": 0
    },
    "wo": null,
+   "empate": null,
    "games": [
     {
      "slot": 1,
@@ -723,6 +747,7 @@
     "buda": 0
    },
    "wo": null,
+   "empate": null,
    "games": [
     {
      "slot": 1,

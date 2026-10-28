@@ -18,6 +18,11 @@ describe('TorneoView', () => {
     const rows = screen.getAllByRole('row')
     expect(within(rows[1]).getByText('Tomm')).toBeInTheDocument()
     expect(within(rows[1]).getByText('+2')).toBeInTheDocument()
+    // Tabla tipo Mundial: PJ 1, PG 1, PE 0, PP 0, 3 pts
+    const cells = within(rows[1]).getAllByRole('cell').map(c => c.textContent)
+    expect(cells.slice(2, 6)).toEqual(['1', '1', '0', '0'])
+    expect(cells[cells.length - 1]).toBe('3')
+    expect(within(rows[2]).getAllByRole('cell').map(c => c.textContent).slice(-1)[0]).toBe('0')
 
     await userEvent.click(within(rows[1]).getByText('Tomm'))
     expect(screen.getByText('Mast3wars')).toBeInTheDocument()

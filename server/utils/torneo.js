@@ -21,7 +21,11 @@
  *  - Sin corte por tiempo: una serie suspendida se reanuda otro día.
  *  - Overrides del admin: excluir, fijar (partida -> serie/slot, aunque
  *    esté anulada o en otro mapa), resultado manual de un slot, W.O. de
- *    serie, cancelar serie. Deshacer = borrar el override.
+ *    serie, empate de serie (p.ej. 1-1 y no se jugó el G3), cancelar serie.
+ *    Deshacer = borrar el override.
+ *  - Tabla tipo Mundial: puntos por SERIE (victoria 3, empate 1, derrota 0,
+ *    configurable). Desempate: dif. de games -> enfrentamiento directo
+ *    (mini tabla entre los empatados) -> más games ganados -> partida extra.
  *  - Stats individuales: partidas que ocupan un slot + empates. NO cuentan
  *    reiniciadas, "revisar", resultados manuales ni W.O. (nadie las jugó
  *    frente al bot), ni series canceladas.
@@ -32,8 +36,8 @@
 const { teamOutcomes } = require('./records');
 
 const MODOS = ['ctf', 'slayer', 'oddball', 'koth'];
-const ESTADOS_SERIE = ['pendiente', 'en_curso', 'terminada', 'wo', 'cancelada'];
-const OVERRIDE_TIPOS = ['excluir', 'fijar', 'resultado', 'wo', 'cancelar'];
+const ESTADOS_SERIE = ['pendiente', 'en_curso', 'terminada', 'wo', 'empatada', 'cancelada'];
+const OVERRIDE_TIPOS = ['excluir', 'fijar', 'resultado', 'wo', 'empate', 'cancelar'];
 
 // Variantes de mapa: Onslaught es una variante de Foundry y el juego puede
 // reportarla con el nombre del mapa base.
@@ -139,6 +143,13 @@ function normalizeConfig(raw) {
     });
     if (new Set(series.map(s => s.n)).size !== series.length) fail('Números de serie repetidos');
 
+    const puntos = {
+        victoria: Number(raw.puntos?.victoria ?? 3),
+        empate: Number(raw.puntos?.empate ?? 1),
+        derrota: Number(raw.puntos?.derrota ?? 0),
+    };
+    if (Object.values(puntos).some(v => !Number.isFinite(v))) fail('"puntos" debe tener números (victoria/empate/derrota)');
+
     const objetivos = {};
     for (const m of MODOS) {
         const v = raw.objetivos?.[m];
@@ -157,6 +168,7 @@ function normalizeConfig(raw) {
         bo,
         minTitulares,
         admins: (Array.isArray(raw.admins) ? raw.admins : []).map(t => String(t).trim()).filter(Boolean),
+        puntos,
         objetivos,
         equipos,
         series,
@@ -251,6 +263,7 @@ function computeTorneo(cfg, games) {
     const manual = ov.filter(o => o.tipo === 'resultado');
     const woBySerie = new Map(ov.filter(o => o.tipo === 'wo').map(o => [Number(o.serie), o]));
     const cancelled = new Set(ov.filter(o => o.tipo === 'cancelar').map(o => Number(o.serie)));
+    const drawn = new Map(ov.filter(o => o.tipo === 'empate').map(o => [Number(o.serie), o]));
 
     // Estado por serie: slots con sus partidas
     const seriesState = new Map(cfg.series.map(s => [s.n, {
@@ -407,6 +420,9 @@ function computeTorneo(cfg, games) {
             estado = 'wo';
             ganador = lower(wo.ganador);
             wins[ganador] = need;
+        } else if (drawn.has(s.n) && !decidedBy) {
+            estado = 'empatada';
+            ganador = null;
         } else if (decidedBy) {
             estado = 'terminada';
         } else if (counted.length || st.slots.some(sl => sl.games.length)) {
@@ -424,6 +440,8 @@ function computeTorneo(cfg, games) {
             ganador,
             marcador,
             wo: estado === 'wo' ? { ganador, at: wo.at || null, por: wo.por || null, nota: wo.nota || null } : null,
+            empate: estado === 'empatada'
+                ? { at: drawn.get(s.n).at || null, por: drawn.get(s.n).por || null, nota: drawn.get(s.n).nota || null } : null,
             games: s.games.map((sg, i) => {
                 const slot = st.slots[i];
                 const c = counted.find(x => x.slot === i && !x.ignored);
@@ -474,24 +492,28 @@ function statEntries(candidatas) {
 }
 
 function computeStandings(cfg, series, candidatas) {
+    const P = cfg.puntos || { victoria: 3, empate: 1, derrota: 0 };
     const rows = new Map(cfg.equipos.map(e => [e.id, {
         id: e.id, nombre: e.nombre, color: e.color,
-        seriesJugadas: 0, seriesGanadas: 0, seriesPerdidas: 0, seriesPendientes: 0, seriesCanceladas: 0,
+        puntos: 0, pj: 0, pg: 0, pe: 0, pp: 0, seriesPendientes: 0, seriesCanceladas: 0,
         partidasGanadas: 0, partidasPerdidas: 0, difPartidas: 0,
         kills: 0, deaths: 0, assists: 0, kd: 0,
+        desempateExtra: false,
     }]));
 
+    const closed = s => s.estado === 'terminada' || s.estado === 'wo' || s.estado === 'empatada';
     for (const s of series) {
         const ra = rows.get(s.a), rb = rows.get(s.b);
         if (s.estado === 'cancelada') { ra.seriesCanceladas++; rb.seriesCanceladas++; continue; }
         ra.partidasGanadas += s.marcador[s.a]; ra.partidasPerdidas += s.marcador[s.b];
         rb.partidasGanadas += s.marcador[s.b]; rb.partidasPerdidas += s.marcador[s.a];
-        if (s.estado === 'terminada' || s.estado === 'wo') {
-            ra.seriesJugadas++; rb.seriesJugadas++;
-            rows.get(s.ganador).seriesGanadas++;
-            rows.get(s.ganador === s.a ? s.b : s.a).seriesPerdidas++;
+        if (!closed(s)) { ra.seriesPendientes++; rb.seriesPendientes++; continue; }
+        ra.pj++; rb.pj++;
+        if (s.estado === 'empatada') {
+            ra.pe++; rb.pe++;
         } else {
-            ra.seriesPendientes++; rb.seriesPendientes++;
+            rows.get(s.ganador).pg++;
+            rows.get(s.ganador === s.a ? s.b : s.a).pp++;
         }
     }
 
@@ -507,40 +529,47 @@ function computeStandings(cfg, series, candidatas) {
     }
 
     for (const r of rows.values()) {
+        r.puntos = r.pg * P.victoria + r.pe * P.empate + r.pp * P.derrota;
         r.difPartidas = r.partidasGanadas - r.partidasPerdidas;
         r.kd = r.deaths > 0 ? round2(r.kills / r.deaths) : r.kills;
     }
 
-    // Desempate: series ganadas -> (2 empatados) head-to-head -> (3+) dif. de
-    // partidas entre ellos -> dif. de partidas global -> K/D -> nombre.
-    const mutual = (ids) => {
+    // Enfrentamiento directo entre empatados: mini tabla de puntos con solo
+    // las series cerradas entre ellos (con 2 equipos = quién ganó su serie).
+    const directo = (ids) => {
         const set = new Set(ids);
-        const diff = new Map(ids.map(id => [id, 0]));
+        const pts = new Map(ids.map(id => [id, 0]));
         for (const s of series) {
-            if (!set.has(s.a) || !set.has(s.b) || s.estado === 'cancelada') continue;
-            diff.set(s.a, diff.get(s.a) + s.marcador[s.a] - s.marcador[s.b]);
-            diff.set(s.b, diff.get(s.b) + s.marcador[s.b] - s.marcador[s.a]);
+            if (!set.has(s.a) || !set.has(s.b) || !closed(s)) continue;
+            if (s.estado === 'empatada') {
+                pts.set(s.a, pts.get(s.a) + P.empate);
+                pts.set(s.b, pts.get(s.b) + P.empate);
+            } else {
+                const l = s.ganador === s.a ? s.b : s.a;
+                pts.set(s.ganador, pts.get(s.ganador) + P.victoria);
+                pts.set(l, pts.get(l) + P.derrota);
+            }
         }
-        return diff;
+        return pts;
     };
-    const h2hWinner = (x, y) => {
-        const s = series.find(z => (z.a === x && z.b === y) || (z.a === y && z.b === x));
-        return s && (s.estado === 'terminada' || s.estado === 'wo') ? s.ganador : null;
-    };
-    const fallback = (x, y) => (y.difPartidas - x.difPartidas) || (y.kd - x.kd) || x.nombre.localeCompare(y.nombre);
 
-    const all = [...rows.values()].sort((x, y) => y.seriesGanadas - x.seriesGanadas);
+    // 1) puntos, 2) dif. de games; los que siguen empatados -> 3) directo,
+    // 4) más games ganados; si aun así empatan -> partida extra (se marca).
+    const all = [...rows.values()].sort((x, y) =>
+        (y.puntos - x.puntos) || (y.difPartidas - x.difPartidas) || x.nombre.localeCompare(y.nombre));
     const out = [];
     for (let i = 0; i < all.length;) {
         let j = i;
-        while (j < all.length && all[j].seriesGanadas === all[i].seriesGanadas) j++;
+        while (j < all.length && all[j].puntos === all[i].puntos && all[j].difPartidas === all[i].difPartidas) j++;
         const group = all.slice(i, j);
-        if (group.length === 2) {
-            const w = h2hWinner(group[0].id, group[1].id);
-            group.sort((x, y) => (w === x.id ? -1 : w === y.id ? 1 : fallback(x, y)));
-        } else if (group.length > 2) {
-            const diff = mutual(group.map(g => g.id));
-            group.sort((x, y) => (diff.get(y.id) - diff.get(x.id)) || fallback(x, y));
+        if (group.length > 1) {
+            const pts = directo(group.map(g => g.id));
+            const key = r => [pts.get(r.id), r.partidasGanadas];
+            group.sort((x, y) => (pts.get(y.id) - pts.get(x.id)) || (y.partidasGanadas - x.partidasGanadas) || x.nombre.localeCompare(y.nombre));
+            for (const r of group) {
+                const twins = group.filter(o => o !== r && key(o).join() === key(r).join());
+                if (twins.length && [r, ...twins].every(t => t.pj > 0 && t.seriesPendientes === 0)) r.desempateExtra = true;
+            }
         }
         out.push(...group);
         i = j;

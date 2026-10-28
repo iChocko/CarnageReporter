@@ -489,6 +489,8 @@ footer.site a:hover, footer.site button:hover { color: var(--blue-light); }
 .tr-player .tr-stats { color: var(--steel-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tr-player .tr-stats b { color: var(--steel); }
 th.sortable { cursor: pointer; user-select: none; }
+.torneo-tabla .pts-col { color: var(--gold); font-size: 15px; }
+.torneo-tabla th.pts-col { font-size: inherit; }
 th.sorted, td.sorted { color: var(--gold); }
 
 .serie-list { display: flex; flex-direction: column; gap: 12px; }
